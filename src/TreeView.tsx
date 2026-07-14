@@ -10,6 +10,7 @@ import {
   type EdgeMouseHandler,
   type NodeMouseHandler,
 } from "@xyflow/react";
+import { Crosshair, Link2, Maximize2, X } from "lucide-react";
 import { PersonNode } from "./components/PersonNode";
 import { Sidebar, type SidebarState } from "./components/Sidebar";
 import { UnionNode } from "./components/UnionNode";
@@ -20,11 +21,23 @@ import { ancestorsOf, descendantsOf, focusFamily } from "./types";
 
 const nodeTypes = { person: PersonNode, union: UnionNode };
 
-export function TreeView({ tree }: { tree: TreeMeta }) {
+export function TreeView({ tree, allTrees, openPersonId }: {
+  tree: TreeMeta;
+  allTrees: TreeMeta[];
+  /** Person to open on arrival, from a #/tree/{id}/p/{personId} link. */
+  openPersonId?: string;
+}) {
   const family = useFamily(tree.id);
-  const [sidebar, setSidebar] = useState<SidebarState>({ mode: "idle" });
+  const [sidebar, setSidebar] = useState<SidebarState>(() =>
+    openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },
+  );
   const [focusId, setFocusId] = useState<string>();
   const [link, setLink] = useState<{ kind: LinkKind; sourceId: string }>();
+
+  // Follow cross-tree jumps that land on this already-mounted tree.
+  useEffect(() => {
+    if (openPersonId) setSidebar({ mode: "edit", personId: openPersonId });
+  }, [openPersonId]);
 
   const focusPerson = focusId ? family.people[focusId] : undefined;
   const visiblePeople = useMemo(
@@ -86,8 +99,9 @@ export function TreeView({ tree }: { tree: TreeMeta }) {
     () => ({
       openAdd: rel => setSidebar({ mode: "add", rel }),
       startLink: (kind, sourceId) => setLink({ kind, sourceId }),
+      treeNameOf: id => allTrees.find(t => t.id === id)?.name,
     }),
-    [],
+    [allTrees],
   );
 
   // Linking a married person as a parent brings their spouse into the other
@@ -159,7 +173,9 @@ export function TreeView({ tree }: { tree: TreeMeta }) {
       <div className="flex h-screen w-screen bg-slate-50">
         <Sidebar
           family={family}
+          treeId={tree.id}
           treeName={tree.name}
+          allTrees={allTrees}
           state={sidebar}
           onSelect={id => setSidebar({ mode: "edit", personId: id })}
           onAddRoot={() => setSidebar({ mode: "add", rel: { kind: "root" } })}
@@ -195,6 +211,7 @@ export function TreeView({ tree }: { tree: TreeMeta }) {
             {link && linkSource && (
               <Panel position="top-center">
                 <div className="flex items-center gap-3 rounded-full bg-emerald-600 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-md">
+                  <Link2 className="h-4 w-4 shrink-0" />
                   <span>
                     {linkEligible && linkEligible.size === 0 ? (
                       <>
@@ -210,9 +227,9 @@ export function TreeView({ tree }: { tree: TreeMeta }) {
                   </span>
                   <button
                     onClick={() => setLink(undefined)}
-                    className="rounded-full bg-white/20 px-3 py-1 text-xs font-medium hover:bg-white/30"
+                    className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
                   >
-                    Cancel (Esc)
+                    <X className="h-3.5 w-3.5" /> Cancel (Esc)
                   </button>
                 </div>
               </Panel>
@@ -221,15 +238,16 @@ export function TreeView({ tree }: { tree: TreeMeta }) {
             {focusPerson && (
               <Panel position="top-center">
                 <div className="flex items-center gap-3 rounded-full bg-indigo-600 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-md">
+                  <Crosshair className="h-4 w-4 shrink-0" />
                   <span>
                     Viewing <b>{focusPerson.name}</b>&rsquo;s family ·{" "}
                     {Object.keys(visiblePeople).length} of {Object.keys(family.people).length} people
                   </span>
                   <button
                     onClick={() => setFocusId(undefined)}
-                    className="rounded-full bg-white/20 px-3 py-1 text-xs font-medium hover:bg-white/30"
+                    className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
                   >
-                    Show everyone
+                    <Maximize2 className="h-3.5 w-3.5" /> Show everyone
                   </button>
                 </div>
               </Panel>

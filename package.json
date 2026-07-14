@@ -9,11 +9,12 @@
     "start": "NODE_ENV=production bun src/index.ts"
   },
   "dependencies": {
-    "@dagrejs/dagre": "^3.0.0",
     "@xyflow/react": "^12.11.2",
     "bun-plugin-tailwind": "^0.1.2",
+    "lucide-react": "^1.24.0",
     "react": "^19",
     "react-dom": "^19",
+    "react-router": "^8.2.0",
     "tailwindcss": "^4.3.2"
   },
   "devDependencies": {

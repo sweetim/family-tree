@@ -5,6 +5,12 @@ export interface ParentLink {
   adopted?: boolean;
 }
 
+/** The same person appearing in another tree (e.g. married into that family). */
+export interface CrossLink {
+  treeId: string;
+  personId: string;
+}
+
 export interface Person {
   id: string;
   name: string;
@@ -20,6 +26,8 @@ export interface Person {
   parents: ParentLink[];
   /** Supports multiple marriages */
   spouseIds: string[];
+  /** This person's cards in other trees — kept reciprocal by the store */
+  links?: CrossLink[];
 }
 
 export type FamilyData = Record<string, Person>;

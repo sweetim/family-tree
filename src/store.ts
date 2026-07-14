@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { descendantsOf, type FamilyData, type Person, type PersonInput, type Relationship } from "./types";
+import { descendantsOf, type CrossLink, type FamilyData, type Person, type PersonInput, type Relationship } from "./types";
 
 const INDEX_KEY = "family-trees-index";
 const TREE_PREFIX = "family-tree-v2:";
@@ -100,6 +100,28 @@ export function countMembers(treeId: string): number {
   return Object.keys(load(treeId)).length;
 }
 
+/** Read another tree's people without subscribing — for cross-tree link pickers. */
+export function peekTree(treeId: string): FamilyData {
+  return load(treeId);
+}
+
+const sameLink = (a: CrossLink, b: CrossLink) => a.treeId === b.treeId && a.personId === b.personId;
+
+/**
+ * Update one person in a tree that is not currently mounted, straight in
+ * localStorage. Only safe for trees other than the one useFamily is rendering.
+ */
+function updateUnmountedPerson(treeId: string, personId: string, fn: (p: Person) => Person) {
+  try {
+    const data = load(treeId);
+    const person = data[personId];
+    if (!person) return;
+    localStorage.setItem(treeKey(treeId), JSON.stringify({ ...data, [personId]: fn(person) }));
+  } catch (err) {
+    console.error("Failed to update linked tree", err);
+  }
+}
+
 export function useTreeIndex() {
   const [trees, setTrees] = useState<TreeMeta[]>(loadIndex);
 
@@ -192,6 +214,15 @@ export function useFamily(treeId: string) {
 
   const deletePerson = useCallback((id: string) => {
     setPeople(prev => {
+      // Drop reciprocal cross-links pointing back at the deleted person.
+      // Removal is idempotent, so re-running the updater is harmless.
+      const self: CrossLink = { treeId, personId: id };
+      for (const link of prev[id]?.links ?? []) {
+        updateUnmountedPerson(link.treeId, link.personId, p => ({
+          ...p,
+          links: (p.links ?? []).filter(l => !sameLink(l, self)),
+        }));
+      }
       const next: FamilyData = {};
       for (const p of Object.values(prev)) {
         if (p.id === id) continue;
@@ -203,7 +234,7 @@ export function useFamily(treeId: string) {
       }
       return next;
     });
-  }, []);
+  }, [treeId]);
 
   const linkSpouse = useCallback((aId: string, bId: string) => {
     setPeople(prev => {
@@ -265,6 +296,33 @@ export function useFamily(treeId: string) {
     });
   }, []);
 
+  /** Mark `personId` and a person in another tree as the same person, both ways. */
+  const addCrossLink = useCallback((personId: string, link: CrossLink) => {
+    if (link.treeId === treeId) return;
+    setPeople(prev => {
+      const person = prev[personId];
+      if (!person || (person.links ?? []).some(l => sameLink(l, link))) return prev;
+      return { ...prev, [personId]: { ...person, links: [...(person.links ?? []), link] } };
+    });
+    const self: CrossLink = { treeId, personId };
+    updateUnmountedPerson(link.treeId, link.personId, p =>
+      (p.links ?? []).some(l => sameLink(l, self)) ? p : { ...p, links: [...(p.links ?? []), self] },
+    );
+  }, [treeId]);
+
+  const removeCrossLink = useCallback((personId: string, link: CrossLink) => {
+    setPeople(prev => {
+      const person = prev[personId];
+      if (!person?.links) return prev;
+      return { ...prev, [personId]: { ...person, links: person.links.filter(l => !sameLink(l, link)) } };
+    });
+    const self: CrossLink = { treeId, personId };
+    updateUnmountedPerson(link.treeId, link.personId, p => ({
+      ...p,
+      links: (p.links ?? []).filter(l => !sameLink(l, self)),
+    }));
+  }, [treeId]);
+
   const replaceAll = useCallback((data: FamilyData) => setPeople(data), []);
 
   return {
@@ -277,6 +335,8 @@ export function useFamily(treeId: string) {
     addParent,
     removeParent,
     setParentAdopted,
+    addCrossLink,
+    removeCrossLink,
     replaceAll,
   };
 }

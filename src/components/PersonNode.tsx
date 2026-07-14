@@ -1,4 +1,6 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { ArrowLeftRight, Link2, MapPin, Plus } from "lucide-react";
+import { useNavigate } from "react-router";
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout";
 import { useTreeActions } from "../lib/tree-actions";
 import type { Gender } from "../types";
@@ -52,7 +54,8 @@ const CARD_BORDER: Record<string, string> = {
 
 export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const { person, linkState } = data;
-  const { openAdd, startLink } = useTreeActions();
+  const { openAdd, startLink, treeNameOf } = useTreeActions();
+  const navigate = useNavigate();
   const deceased = !!person.dod;
   const age = person.dob ? ageOf(person.dob, person.dod) : null;
 
@@ -99,8 +102,26 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
             {lifeline && <p className="text-xs text-slate-500">{lifeline}</p>}
             {person.location && (
               <p className="mt-1 truncate text-xs text-slate-400" title={person.location}>
-                📍 {person.location}
+                <MapPin className="mr-0.5 inline h-3 w-3 align-text-bottom" />
+                {person.location}
               </p>
+            )}
+            {!!person.links?.length && (
+              <div className="mt-1.5 flex flex-wrap justify-center gap-1">
+                {person.links.map(link => (
+                  <button
+                    key={`${link.treeId}:${link.personId}`}
+                    title={`Open in ${treeNameOf(link.treeId) ?? "linked tree"}`}
+                    className="nodrag nopan inline-flex max-w-full items-center gap-1 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-100"
+                    onClick={e => {
+                      e.stopPropagation();
+                      navigate(`/tree/${link.treeId}/p/${link.personId}`);
+                    }}
+                  >
+                    <ArrowLeftRight className="h-3 w-3 shrink-0" /> {treeNameOf(link.treeId) ?? "linked tree"}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -118,7 +139,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                   openAdd({ kind: "parent", childId: person.id, marryExisting: true });
                 }}
               >
-                +
+                <Plus className="h-4 w-4" />
               </button>
               <button
                 title="Connect existing person as parent (their spouse joins too)"
@@ -128,7 +149,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                   startLink("parent", person.id);
                 }}
               >
-                🔗
+                <Link2 className="h-3.5 w-3.5" />
               </button>
             </div>
           )}
@@ -141,7 +162,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 openAdd({ kind: "spouse", partnerId: person.id });
               }}
             >
-              +
+              <Plus className="h-4 w-4" />
             </button>
             <button
               title="Connect existing person as spouse"
@@ -151,7 +172,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 startLink("spouse", person.id);
               }}
             >
-              🔗
+              <Link2 className="h-3.5 w-3.5" />
             </button>
           </div>
           <div className="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 gap-1.5">
@@ -163,7 +184,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 openAdd({ kind: "child", parentId: person.id });
               }}
             >
-              +
+              <Plus className="h-4 w-4" />
             </button>
             <button
               title="Connect existing person as child"
@@ -173,7 +194,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 startLink("child", person.id);
               }}
             >
-              🔗
+              <Link2 className="h-3.5 w-3.5" />
             </button>
           </div>
         </>
