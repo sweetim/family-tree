@@ -204,6 +204,7 @@ export function TreeView({ tree }: { tree: TreeMeta }) {
                       <>
                         Click a highlighted card to connect as <b>{linkSource.name}</b>&rsquo;s{" "}
                         {link.kind}
+                        {link.kind !== "spouse" && " · married couples connect together"}
                       </>
                     )}
                   </span>

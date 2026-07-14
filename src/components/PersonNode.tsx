@@ -121,7 +121,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 +
               </button>
               <button
-                title="Connect existing person as parent"
+                title="Connect existing person as parent (their spouse joins too)"
                 className={linkBtn}
                 onClick={e => {
                   e.stopPropagation();
