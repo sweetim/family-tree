@@ -29,7 +29,6 @@ function initials(name: string): string {
 const AVATAR_COLORS: Record<Gender | "unknown", string> = {
   male: "bg-sky-100 text-sky-700",
   female: "bg-rose-100 text-rose-700",
-  other: "bg-violet-100 text-violet-700",
   unknown: "bg-slate-100 text-slate-500",
 };
 

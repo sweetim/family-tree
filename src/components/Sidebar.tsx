@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
-import { ChevronLeft, Crosshair, Download, Plus, Trash2, Upload, Users, X } from "lucide-react";
+import { ChevronLeft, Crosshair, Download, Mars, Plus, Trash2, Upload, Users, Venus, X } from "lucide-react";
 import { fileToAvatar } from "../lib/image";
 import { normalizeImport, peekTree, type FamilyStore, type TreeMeta } from "../store";
 import {
@@ -36,6 +36,11 @@ const labelCls = "mb-1 block text-xs font-medium uppercase tracking-wide text-sl
 const primaryBtn =
   "inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50";
 const ghostBtn = "rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100";
+
+const GENDER_OPTIONS: { value: Gender; label: string; Icon: typeof Mars; active: string }[] = [
+  { value: "male", label: "Male", Icon: Mars, active: "border-transparent bg-sky-100 text-sky-700 ring-1 ring-sky-300" },
+  { value: "female", label: "Female", Icon: Venus, active: "border-transparent bg-rose-100 text-rose-700 ring-1 ring-rose-300" },
+];
 
 interface Fields {
   name: string;
@@ -98,16 +103,25 @@ function PersonFields({ fields, onChange }: { fields: Fields; onChange: (f: Fiel
 
       <div>
         <label className={labelCls}>Gender</label>
-        <select
-          value={fields.gender}
-          onChange={e => onChange({ ...fields, gender: e.target.value as Fields["gender"] })}
-          className={inputCls}
-        >
-          <option value="">Not specified</option>
-          <option value="male">Male</option>
-          <option value="female">Female</option>
-          <option value="other">Other</option>
-        </select>
+        <div className="flex gap-2">
+          {GENDER_OPTIONS.map(({ value, label, Icon, active }) => {
+            const selected = fields.gender === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                title={label}
+                aria-pressed={selected}
+                onClick={() => onChange({ ...fields, gender: selected ? "" : value })}
+                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                  selected ? active : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <Icon className="h-4 w-4" /> {label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
