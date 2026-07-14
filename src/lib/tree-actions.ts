@@ -1,9 +1,13 @@
 import { createContext, useContext } from "react";
 import type { Relationship } from "../types";
 
+export type LinkKind = "spouse" | "parent" | "child";
+
 export interface TreeActions {
   /** Open the sidebar's "add member" form with a preset relationship. */
   openAdd: (rel: Relationship) => void;
+  /** Start click-to-connect: the next eligible card clicked becomes source's spouse/parent/child. */
+  startLink: (kind: LinkKind, sourceId: string) => void;
 }
 
 export const TreeActionsContext = createContext<TreeActions | null>(null);

@@ -5,9 +5,18 @@ import type { Person } from "../types";
 
 export const NODE_WIDTH = 176;
 export const NODE_HEIGHT = 220;
+/**
+ * Vertical offset (px from a card's top) where the marriage line runs.
+ * Person cards pin their side handles here and the union dot is placed at
+ * the same height, so the couple line stays perfectly horizontal even
+ * though rendered card heights vary.
+ */
+export const COUPLE_LINE_Y = 64;
 const UNION_SIZE = 12;
 
-export type PersonNodeType = Node<{ person: Person }, "person">;
+/** How a card participates in click-to-connect mode. */
+export type LinkState = "source" | "eligible" | "blocked";
+export type PersonNodeType = Node<{ person: Person; linkState?: LinkState }, "person">;
 export type UnionNodeType = Node<Record<string, never>, "union">;
 export type FlowNode = PersonNodeType | UnionNodeType;
 
@@ -41,6 +50,7 @@ const pairKey = (a: string, b: string) => [a, b].sort().join(":");
 export function buildFlow(
   people: FamilyData,
   selectedId?: string,
+  linking?: { sourceId: string; eligible: Set<string> },
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
   // Collect couples: married pairs plus co-parents of any child.
   const couples = new Map<string, [string, string]>();
@@ -91,7 +101,16 @@ export function buildFlow(
       type: "person",
       position: { x: x - NODE_WIDTH / 2, y: y - NODE_HEIGHT / 2 },
       selected: p.id === selectedId,
-      data: { person: p },
+      data: {
+        person: p,
+        linkState: linking
+          ? p.id === linking.sourceId
+            ? "source"
+            : linking.eligible.has(p.id)
+              ? "eligible"
+              : "blocked"
+          : undefined,
+      },
     });
   }
 
@@ -101,7 +120,8 @@ export function buildFlow(
   for (const [a, b] of couples.values()) {
     const pa = g.node(a);
     const pb = g.node(b);
-    const pos = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+    const rowTop = (pa.y + pb.y) / 2 - NODE_HEIGHT / 2;
+    const pos = { x: (pa.x + pb.x) / 2, y: rowTop + COUPLE_LINE_Y };
     unionPos.set(unionId(a, b), pos);
     nodes.push({
       id: unionId(a, b),

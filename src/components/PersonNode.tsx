@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import type { PersonNodeType } from "../lib/layout";
+import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout";
 import { useTreeActions } from "../lib/tree-actions";
 import type { Gender } from "../types";
 
@@ -38,11 +38,21 @@ function yearOf(iso: string): string {
 
 const hiddenHandle = "!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent";
 const addBtn =
-  "nodrag nopan pointer-events-auto absolute z-10 hidden h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-base font-bold leading-none text-white shadow-md transition-colors hover:bg-indigo-500 group-hover:flex";
+  "nodrag nopan pointer-events-auto z-10 hidden h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-base font-bold leading-none text-white shadow-md transition-colors hover:bg-indigo-500 group-hover:flex";
+const linkBtn =
+  "nodrag nopan pointer-events-auto z-10 hidden h-7 w-7 items-center justify-center rounded-full border border-indigo-300 bg-white text-xs leading-none text-indigo-600 shadow-md transition-colors hover:bg-indigo-50 group-hover:flex";
+
+const CARD_BORDER: Record<string, string> = {
+  source: "border-indigo-500 ring-2 ring-indigo-300",
+  eligible: "border-emerald-400 ring-2 ring-emerald-300",
+  blocked: "border-slate-200 opacity-30",
+  selected: "border-indigo-500 ring-2 ring-indigo-300",
+  default: "border-slate-200",
+};
 
 export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
-  const { person } = data;
-  const { openAdd } = useTreeActions();
+  const { person, linkState } = data;
+  const { openAdd, startLink } = useTreeActions();
   const deceased = !!person.dod;
   const age = person.dob ? ageOf(person.dob, person.dod) : null;
 
@@ -57,12 +67,12 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
     <div className="group relative">
       <div
         className={`w-44 rounded-2xl border bg-white shadow-md transition-shadow hover:shadow-lg ${
-          selected ? "border-indigo-500 ring-2 ring-indigo-300" : "border-slate-200"
-        } ${deceased ? "opacity-80" : ""}`}
+          CARD_BORDER[linkState ?? (selected ? "selected" : "default")]
+        } ${deceased && linkState !== "blocked" ? "opacity-80" : ""}`}
       >
         <Handle id="t" type="target" position={Position.Top} className={hiddenHandle} />
-        <Handle id="l" type="source" position={Position.Left} className={hiddenHandle} />
-        <Handle id="r" type="source" position={Position.Right} className={hiddenHandle} />
+        <Handle id="l" type="source" position={Position.Left} className={hiddenHandle} style={{ top: COUPLE_LINE_Y }} />
+        <Handle id="r" type="source" position={Position.Right} className={hiddenHandle} style={{ top: COUPLE_LINE_Y }} />
         <Handle id="b" type="source" position={Position.Bottom} className={hiddenHandle} />
 
         <div className="flex flex-col items-center gap-2 p-4">
@@ -96,38 +106,78 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
         </div>
       </div>
 
-      {person.parents.length < 2 && (
-        <button
-          title="Add parent"
-          className={`${addBtn} -top-3.5 left-1/2 -translate-x-1/2`}
-          onClick={e => {
-            e.stopPropagation();
-            openAdd({ kind: "parent", childId: person.id, marryExisting: true });
-          }}
-        >
-          +
-        </button>
+      {!linkState && (
+        <>
+          {person.parents.length < 2 && (
+            <div className="absolute -top-3.5 left-1/2 flex -translate-x-1/2 gap-1.5">
+              <button
+                title="Add new parent"
+                className={addBtn}
+                onClick={e => {
+                  e.stopPropagation();
+                  openAdd({ kind: "parent", childId: person.id, marryExisting: true });
+                }}
+              >
+                +
+              </button>
+              <button
+                title="Connect existing person as parent"
+                className={linkBtn}
+                onClick={e => {
+                  e.stopPropagation();
+                  startLink("parent", person.id);
+                }}
+              >
+                🔗
+              </button>
+            </div>
+          )}
+          <div className="absolute -right-3.5 top-1/2 flex -translate-y-1/2 flex-col gap-1.5">
+            <button
+              title="Add new spouse"
+              className={addBtn}
+              onClick={e => {
+                e.stopPropagation();
+                openAdd({ kind: "spouse", partnerId: person.id });
+              }}
+            >
+              +
+            </button>
+            <button
+              title="Connect existing person as spouse"
+              className={linkBtn}
+              onClick={e => {
+                e.stopPropagation();
+                startLink("spouse", person.id);
+              }}
+            >
+              🔗
+            </button>
+          </div>
+          <div className="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 gap-1.5">
+            <button
+              title="Add new child"
+              className={addBtn}
+              onClick={e => {
+                e.stopPropagation();
+                openAdd({ kind: "child", parentId: person.id });
+              }}
+            >
+              +
+            </button>
+            <button
+              title="Connect existing person as child"
+              className={linkBtn}
+              onClick={e => {
+                e.stopPropagation();
+                startLink("child", person.id);
+              }}
+            >
+              🔗
+            </button>
+          </div>
+        </>
       )}
-      <button
-        title="Add spouse"
-        className={`${addBtn} -right-3.5 top-1/2 -translate-y-1/2`}
-        onClick={e => {
-          e.stopPropagation();
-          openAdd({ kind: "spouse", partnerId: person.id });
-        }}
-      >
-        +
-      </button>
-      <button
-        title="Add child"
-        className={`${addBtn} -bottom-3.5 left-1/2 -translate-x-1/2`}
-        onClick={e => {
-          e.stopPropagation();
-          openAdd({ kind: "child", parentId: person.id });
-        }}
-      >
-        +
-      </button>
     </div>
   );
 }

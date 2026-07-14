@@ -549,8 +549,9 @@ export function Sidebar({ family, treeName, state, onSelect, onAddRoot, onFocus,
         {state.mode === "idle" || (state.mode === "edit" && !editingPerson) ? (
           <div className="space-y-4">
             <p className="text-sm text-slate-500">
-              Click a card to edit it, or hover a card and use the <b>+</b> buttons to add a
-              parent, spouse or child.
+              Click a card to edit it, or hover a card and use the <b>+</b> buttons to add a new
+              parent, spouse or child — or the <b>🔗</b> buttons to connect two people already in
+              the tree by clicking their cards.
             </p>
             <button onClick={onAddRoot} className={`${primaryBtn} w-full`}>
               + Add unconnected member
