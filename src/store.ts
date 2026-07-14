@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { descendantsOf, type FamilyData, type Person, type PersonInput, type Relationship } from "./types";
 
-const STORAGE_KEY = "family-tree-v2";
+const INDEX_KEY = "family-trees-index";
+const TREE_PREFIX = "family-tree-v2:";
+/** Pre-multi-tree keys: a single unnamed tree. */
+const LEGACY_V2_KEY = "family-tree-v2";
 const LEGACY_KEY = "family-tree-v1";
+
+export interface TreeMeta {
+  id: string;
+  name: string;
+  /** ISO timestamp */
+  createdAt: string;
+}
 
 function newId(): string {
   return crypto.randomUUID();
@@ -35,7 +45,7 @@ export function normalizeImport(data: Record<string, any>): FamilyData {
   return looksLegacy ? migrateLegacy(data) : (data as FamilyData);
 }
 
-function seedData(): FamilyData {
+export function seedData(): FamilyData {
   const grandpa = newId();
   const grandma = newId();
   const dad = newId();
@@ -51,28 +61,92 @@ function seedData(): FamilyData {
   return Object.fromEntries(people.map(p => [p.id, p]));
 }
 
-function load(): FamilyData {
+function treeKey(treeId: string): string {
+  return TREE_PREFIX + treeId;
+}
+
+function load(treeId: string): FamilyData {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(treeKey(treeId));
     if (raw) return JSON.parse(raw) as FamilyData;
-    const legacy = localStorage.getItem(LEGACY_KEY);
-    if (legacy) return migrateLegacy(JSON.parse(legacy));
   } catch (err) {
     console.error("Failed to load family data, starting fresh", err);
   }
-  return seedData();
+  return {};
 }
 
-export function useFamily() {
-  const [people, setPeople] = useState<FamilyData>(load);
+function loadIndex(): TreeMeta[] {
+  try {
+    const raw = localStorage.getItem(INDEX_KEY);
+    if (raw) return JSON.parse(raw) as TreeMeta[];
+
+    // First run since multi-tree support: adopt the old single tree if present.
+    const legacy = localStorage.getItem(LEGACY_V2_KEY) ?? localStorage.getItem(LEGACY_KEY);
+    if (legacy) {
+      const id = newId();
+      const data = normalizeImport(JSON.parse(legacy));
+      localStorage.setItem(treeKey(id), JSON.stringify(data));
+      const index: TreeMeta[] = [{ id, name: "My Family", createdAt: new Date().toISOString() }];
+      localStorage.setItem(INDEX_KEY, JSON.stringify(index));
+      return index;
+    }
+  } catch (err) {
+    console.error("Failed to load tree index, starting fresh", err);
+  }
+  return [];
+}
+
+export function countMembers(treeId: string): number {
+  return Object.keys(load(treeId)).length;
+}
+
+export function useTreeIndex() {
+  const [trees, setTrees] = useState<TreeMeta[]>(loadIndex);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(people));
+      localStorage.setItem(INDEX_KEY, JSON.stringify(trees));
+    } catch (err) {
+      console.error("Failed to persist tree index", err);
+    }
+  }, [trees]);
+
+  /** Returns the id of the newly created tree. */
+  const createTree = useCallback((name: string, data: FamilyData = {}): string => {
+    const id = newId();
+    try {
+      localStorage.setItem(treeKey(id), JSON.stringify(data));
+    } catch (err) {
+      console.error("Failed to persist new tree", err);
+    }
+    setTrees(prev => [...prev, { id, name, createdAt: new Date().toISOString() }]);
+    return id;
+  }, []);
+
+  const renameTree = useCallback((id: string, name: string) => {
+    setTrees(prev => prev.map(t => (t.id === id ? { ...t, name } : t)));
+  }, []);
+
+  const deleteTree = useCallback((id: string) => {
+    localStorage.removeItem(treeKey(id));
+    setTrees(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  return { trees, createTree, renameTree, deleteTree };
+}
+
+export type TreeIndexStore = ReturnType<typeof useTreeIndex>;
+
+export function useFamily(treeId: string) {
+  const [people, setPeople] = useState<FamilyData>(() => load(treeId));
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(treeKey(treeId), JSON.stringify(people));
     } catch (err) {
       console.error("Failed to persist family data", err);
     }
-  }, [people]);
+  }, [treeId, people]);
 
   /** Returns the id of the newly created person. */
   const addPerson = useCallback((input: PersonInput, rel: Relationship): string => {

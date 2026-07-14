@@ -57,6 +57,27 @@ export function descendantsOf(people: FamilyData, id: string): Set<string> {
   return seen;
 }
 
+/**
+ * The subset of the family seen from one person's perspective: their blood
+ * relatives (ancestors, plus every descendant of those ancestors — siblings,
+ * cousins, children…) and the direct spouses of all of them. Married-in
+ * spouses are shown, but their own families are not.
+ */
+export function focusFamily(people: FamilyData, focusId: string): FamilyData {
+  if (!people[focusId]) return people;
+  const blood = new Set<string>([focusId, ...ancestorsOf(people, focusId)]);
+  for (const id of [...blood]) {
+    for (const d of descendantsOf(people, id)) blood.add(d);
+  }
+  const included = new Set(blood);
+  for (const id of blood) {
+    for (const sid of people[id]?.spouseIds ?? []) {
+      if (people[sid]) included.add(sid);
+    }
+  }
+  return Object.fromEntries([...included].map(id => [id, people[id]!]));
+}
+
 export function ancestorsOf(people: FamilyData, id: string): Set<string> {
   const seen = new Set<string>();
   const stack = [id];

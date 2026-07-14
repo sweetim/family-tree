@@ -18,9 +18,11 @@ export type SidebarState =
 
 interface Props {
   family: FamilyStore;
+  treeName: string;
   state: SidebarState;
   onSelect: (id: string) => void;
   onAddRoot: () => void;
+  onFocus: (id: string) => void;
   onClose: () => void;
 }
 
@@ -246,10 +248,11 @@ function AddForm({ family, rel, onDone, onClose }: {
   );
 }
 
-function EditForm({ family, person, onSelect, onClose }: {
+function EditForm({ family, person, onSelect, onFocus, onClose }: {
   family: FamilyStore;
   person: Person;
   onSelect: (id: string) => void;
+  onFocus: (id: string) => void;
   onClose: () => void;
 }) {
   const { people } = family;
@@ -307,9 +310,19 @@ function EditForm({ family, person, onSelect, onClose }: {
   return (
     <div className="space-y-6">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <h2 className="text-base font-semibold text-slate-800">Edit member</h2>
-          <p className="text-xs text-slate-400">{person.name}</p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-slate-800">Edit member</h2>
+            <p className="text-xs text-slate-400">{person.name}</p>
+          </div>
+          <button
+            type="button"
+            title={`Show only ${person.name}'s blood relatives and their spouses`}
+            onClick={() => onFocus(person.id)}
+            className="shrink-0 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-100"
+          >
+            ⌖ View their family
+          </button>
         </div>
 
         <PersonFields fields={fields} onChange={setFields} />
@@ -467,7 +480,7 @@ function EditForm({ family, person, onSelect, onClose }: {
   );
 }
 
-export function Sidebar({ family, state, onSelect, onAddRoot, onClose }: Props) {
+export function Sidebar({ family, treeName, state, onSelect, onAddRoot, onFocus, onClose }: Props) {
   const importRef = useRef<HTMLInputElement>(null);
   const count = Object.keys(family.people).length;
 
@@ -502,7 +515,10 @@ export function Sidebar({ family, state, onSelect, onAddRoot, onClose }: Props) 
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col border-r border-slate-200 bg-white">
       <div className="border-b border-slate-200 px-5 py-4">
-        <h1 className="text-lg font-bold text-slate-800">Family Tree</h1>
+        <a href="#/" className="text-xs font-medium text-indigo-600 hover:underline">
+          ← All trees
+        </a>
+        <h1 className="text-lg font-bold text-slate-800">{treeName}</h1>
         <p className="text-xs text-slate-400">
           {count} members · hover a card for quick actions
         </p>
@@ -525,6 +541,7 @@ export function Sidebar({ family, state, onSelect, onAddRoot, onClose }: Props) 
             family={family}
             person={editingPerson}
             onSelect={onSelect}
+            onFocus={onFocus}
             onClose={onClose}
           />
         )}
