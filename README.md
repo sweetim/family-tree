@@ -1,21 +1,35 @@
-# bun-react-template
+# Family Tree
 
-To install dependencies:
+An interactive family tree builder. Register family members with their name,
+date of birth, location and a photo, and see them laid out automatically as a
+tree.
+
+Built with **Bun + React 19 + Tailwind CSS v4 + React Flow (@xyflow/react)**,
+auto-layout by **dagre**. Data is persisted in the browser's localStorage;
+photos are downscaled client-side before being stored. Export/Import lets you
+back up or share a tree as JSON.
+
+## Development
 
 ```bash
 bun install
+bun run dev        # http://localhost:3000
 ```
 
-To start a development server:
+## Production build
 
 ```bash
-bun dev
+bun run build      # static site in ./dist
 ```
 
-To run for production:
+## Deploy to Vercel
+
+The app ships as a static site — `vercel.json` already configures the Bun
+install/build commands and the SPA rewrite:
 
 ```bash
-bun start
+bunx vercel deploy
 ```
 
-This project was created using `bun init` in bun v1.3.14. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+or connect the repo on vercel.com; no extra configuration or environment
+variables are needed.

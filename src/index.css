@@ -1,1 +1,10 @@
 @import "tailwindcss";
+
+/* Relationship lines are clickable (click removes the link). */
+.react-flow__edge {
+  cursor: pointer;
+}
+/* !important because the base stroke colour is set inline per edge. */
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: #ef4444 !important;
+}
