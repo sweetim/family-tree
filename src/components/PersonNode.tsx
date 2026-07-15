@@ -27,11 +27,11 @@ function initials(name: string): string {
     .join("");
 }
 
-const AVATAR_BORDER: Record<Gender | "unknown", string> = {
-  male: "border-sky-400",
-  female: "border-rose-300",
-  other: "border-violet-400",
-  unknown: "border-slate-200",
+const AVATAR_RING: Record<Gender | "unknown", string> = {
+  male: "from-sky-300 via-sky-400 to-cobalt-400",
+  female: "from-rose-300 via-rose-400 to-pink-400",
+  other: "from-violet-300 via-violet-400 to-fuchsia-400",
+  unknown: "from-slate-200 via-slate-300 to-slate-400",
 };
 const AVATAR_FILL: Record<Gender | "unknown", string> = {
   male: "bg-sky-50 text-sky-600",
@@ -68,7 +68,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const deceased = !!person.dod;
   const age = person.dob ? ageOf(person.dob, person.dod) : null;
   const genderKey = person.gender ?? "unknown";
-  const avatarBorder = deceased ? "border-slate-300" : AVATAR_BORDER[genderKey];
+  const avatarRing = AVATAR_RING[genderKey];
   const avatarFill = AVATAR_FILL[genderKey];
 
   let lifeline: string | null = null;
@@ -90,36 +90,40 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
         <Handle id="r" type="source" position={Position.Right} className={hiddenHandle} style={{ top: COUPLE_LINE_Y }} />
         <Handle id="b" type="source" position={Position.Bottom} className={hiddenHandle} />
 
-        <div className="flex flex-col items-center gap-2 p-4">
+        <div className="flex flex-col items-center gap-2 px-4 pt-4 pb-4">
           <div className="relative">
-            {person.photo ? (
-              <img
-                src={person.photo}
-                alt={person.name}
-                className={`h-24 w-24 rounded-full border-4 object-cover ${avatarBorder} ${deceased ? "grayscale" : ""}`}
-              />
-            ) : (
-              <div
-                className={`flex h-24 w-24 items-center justify-center rounded-full border-4 text-2xl font-semibold ${avatarFill} ${avatarBorder}`}
-              >
-                {initials(person.name) || "?"}
-              </div>
-            )}
-            {deceased && (
-              <span
-                title="In memoriam"
-                className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-slate-500 text-xs leading-none text-white shadow-soft"
-              >
-                †
-              </span>
-            )}
+            <div
+              className={`rounded-full bg-linear-to-br p-[3px] ${avatarRing} ${deceased ? "grayscale" : ""}`}
+            >
+              {person.photo ? (
+                <img
+                  src={person.photo}
+                  alt={person.name}
+                  className="h-[104px] w-[104px] rounded-full object-cover"
+                />
+              ) : (
+                <div
+                  className={`flex h-[104px] w-[104px] items-center justify-center rounded-full text-3xl font-semibold ${avatarFill}`}
+                >
+                  {initials(person.name) || "?"}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="w-full text-center">
             <p className="truncate font-semibold tracking-tight text-slate-800" title={person.name}>
               {person.name}
             </p>
-            {lifeline && <p className="text-xs text-slate-500">{lifeline}</p>}
+            {lifeline && (
+              <div className="mt-1 flex justify-center">
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${deceased ? "bg-slate-100 text-slate-600" : "bg-cobalt-50 text-cobalt-700"}`}
+                >
+                  {lifeline}
+                </span>
+              </div>
+            )}
             {person.location && (
               <p className="mt-0.5 inline-flex items-center gap-0.5 truncate text-xs text-slate-400" title={person.location}>
                 <MapPin className="h-3 w-3 shrink-0" />
