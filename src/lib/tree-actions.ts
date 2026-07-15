@@ -8,8 +8,6 @@ export interface TreeActions {
   openAdd: (rel: Relationship) => void;
   /** Start click-to-connect: the next eligible card clicked becomes source's spouse/parent/child. */
   startLink: (kind: LinkKind, sourceId: string) => void;
-  /** Display name of a tree, for cross-tree link badges. */
-  treeNameOf: (treeId: string) => string | undefined;
 }
 
 export const TreeActionsContext = createContext<TreeActions | null>(null);

@@ -99,9 +99,8 @@ export function TreeView({ tree, allTrees, openPersonId }: {
     () => ({
       openAdd: rel => setSidebar({ mode: "add", rel }),
       startLink: (kind, sourceId) => setLink({ kind, sourceId }),
-      treeNameOf: id => allTrees.find(t => t.id === id)?.name,
     }),
-    [allTrees],
+    [],
   );
 
   // Linking a married person as a parent brings their spouse into the other
@@ -158,7 +157,7 @@ export function TreeView({ tree, allTrees, openPersonId }: {
     const persons = toDelete.filter(n => n.type === "person");
     if (persons.length === 0) return false;
     const names = persons.map(n => n.data.person.name).join(", ");
-    return confirm(`Remove ${names} from the tree?`);
+    return confirm(`Delete ${names} from ALL trees?`);
   };
 
   const onNodesDelete = (deleted: FlowNode[]) => {

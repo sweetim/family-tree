@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { ChevronLeft, Crosshair, Download, Mars, Plus, Trash2, Upload, Users, Venus, X } from "lucide-react";
 import { fileToAvatar } from "../lib/image";
-import { normalizeImport, peekTree, type FamilyStore, type TreeMeta } from "../store";
+import { normalizeImport, useMemberTrees, useMembersOf, type FamilyStore, type TreeMeta } from "../store";
 import {
   ancestorsOf,
   childrenOf,
@@ -259,7 +259,7 @@ function AddForm({ family, rel, onDone, onClose }: {
           Cancel
         </button>
         <button type="submit" className={primaryBtn}>
-          Add member
+          Save
         </button>
       </div>
     </form>
@@ -281,20 +281,12 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
 
   const otherTrees = allTrees.filter(t => t.id !== treeId);
   const [linkTreeId, setLinkTreeId] = useState("");
-  const crossLinks = useMemo(
-    () =>
-      (person.links ?? []).map(link => ({
-        link,
-        treeName: allTrees.find(t => t.id === link.treeId)?.name ?? "Unknown tree",
-        personName: peekTree(link.treeId)[link.personId]?.name ?? "?",
-      })),
-    [person.links, allTrees],
+  const memberTrees = useMemberTrees(person.id).filter(t => t.id !== treeId);
+  const otherTreeMembers = useMembersOf(linkTreeId || undefined);
+  const linkCandidates = useMemo(
+    () => otherTreeMembers.filter(m => m.id !== person.id && !person.spouseIds.includes(m.id)),
+    [otherTreeMembers, person.id, person.spouseIds],
   );
-  const linkCandidates = useMemo(() => {
-    if (!linkTreeId) return [];
-    const linked = new Set((person.links ?? []).map(l => `${l.treeId}:${l.personId}`));
-    return Object.values(peekTree(linkTreeId)).filter(p => !linked.has(`${linkTreeId}:${p.id}`));
-  }, [linkTreeId, person.links]);
 
   const spouses = person.spouseIds.map(id => people[id]).filter((p): p is Person => !!p);
   const parents = person.parents
@@ -504,26 +496,24 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
         <div>
           <label className={labelCls}>Other families</label>
           <div className="flex flex-wrap gap-1.5">
-            {crossLinks.length === 0 && (
-              <p className="text-xs text-slate-400">Not linked to any other tree</p>
+            {memberTrees.length === 0 && (
+              <p className="text-xs text-slate-400">Only in this tree</p>
             )}
-            {crossLinks.map(({ link, treeName, personName }) => (
-              <span key={`${link.treeId}:${link.personId}`} className={chip}>
+            {memberTrees.map(t => (
+              <span key={t.id} className={chip}>
                 <button
                   type="button"
-                  title={`Open ${personName} in ${treeName}`}
+                  title={`Open ${person.name} in ${t.name}`}
                   className="hover:underline"
-                  onClick={() => {
-                    navigate(`/tree/${link.treeId}/p/${link.personId}`);
-                  }}
+                  onClick={() => navigate(`/tree/${t.id}/p/${person.id}`)}
                 >
-                  {personName} · {treeName}
+                  {t.name}
                 </button>
                 <button
                   type="button"
-                  title="Remove link"
+                  title={`Remove ${person.name} from ${t.name}`}
                   className={chipX}
-                  onClick={() => family.removeCrossLink(person.id, link)}
+                  onClick={() => family.removeFromTree(person.id, t.id)}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -533,7 +523,7 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
           {otherTrees.length > 0 && (
             <div className="mt-2 space-y-2">
               <select value={linkTreeId} onChange={e => setLinkTreeId(e.target.value)} className={inputCls}>
-                <option value="">+ Link to this person in another tree…</option>
+                <option value="">+ Marry someone in another tree…</option>
                 {otherTrees.map(t => (
                   <option key={t.id} value={t.id}>
                     {t.name}
@@ -545,17 +535,17 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
                   value=""
                   onChange={e => {
                     if (!e.target.value) return;
-                    family.addCrossLink(person.id, { treeId: linkTreeId, personId: e.target.value });
+                    family.linkAcrossTrees(person.id, linkTreeId, e.target.value);
                     setLinkTreeId("");
                   }}
                   className={inputCls}
                 >
                   <option value="">
-                    {linkCandidates.length > 0 ? "Who are they in that tree?" : "No one left to link in that tree"}
+                    {linkCandidates.length > 0 ? "Who do they marry in that tree?" : "No one available to marry in that tree"}
                   </option>
-                  {linkCandidates.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
+                  {linkCandidates.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
                     </option>
                   ))}
                 </select>
@@ -567,7 +557,7 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
         <button
           type="button"
           onClick={() => {
-            if (confirm(`Remove ${person.name} from the tree?`)) {
+            if (confirm(`Delete ${person.name} from ALL trees?`)) {
               family.deletePerson(person.id);
               onClose();
             }
@@ -632,7 +622,7 @@ export function Sidebar({ family, treeId, treeName, allTrees, state, onSelect, o
             key={JSON.stringify(state.rel)}
             family={family}
             rel={state.rel}
-            onDone={onSelect}
+            onDone={onClose}
             onClose={onClose}
           />
         )}

@@ -1,17 +1,16 @@
-export type Gender = "male" | "female";
+export type Gender = "male" | "female" | "other";
 
 export interface ParentLink {
   id: string;
   adopted?: boolean;
 }
 
-/** The same person appearing in another tree (e.g. married into that family). */
-export interface CrossLink {
-  treeId: string;
-  personId: string;
-}
-
-export interface Person {
+/**
+ * A person's identity — stored once globally so a name/photo/DOB edit shows
+ * up in every tree the person belongs to. Relationship edges live per-tree
+ * (see {@link TreeEdges}) and are merged in at projection time.
+ */
+export interface PersonIdentity {
   id: string;
   name: string;
   /** ISO date string, e.g. "1985-04-12" */
@@ -22,15 +21,60 @@ export interface Person {
   location?: string;
   /** Compressed data-URL of the uploaded photo */
   photo?: string;
-  /** 0..2 parents, each link can be marked as adoptive */
+}
+
+/**
+ * The full person as a single tree sees it: identity plus that tree's
+ * relationship edges. This is what layout and the sidebar consume. It is a
+ * projection of {@link PersonIdentity} + {@link TreeEdges}.
+ */
+export interface Person extends PersonIdentity {
+  /** 0..2 parents in this tree, each link can be marked as adoptive */
   parents: ParentLink[];
-  /** Supports multiple marriages */
+  /** Supports multiple marriages, in this tree */
   spouseIds: string[];
-  /** This person's cards in other trees — kept reciprocal by the store */
-  links?: CrossLink[];
 }
 
 export type FamilyData = Record<string, Person>;
+
+/**
+ * A tree's relationship edges — who appears in it and how they relate.
+ * `members` is the list of person IDs rendered in the tree; `spouses` and
+ * `parents` are the marriage / parent-child edges for that tree only. Because
+ * the same global person can be a member of several trees, linking two people
+ * across families is just adding each to the other's tree.
+ */
+export interface TreeEdges {
+  members: string[];
+  spouses: [string, string][];
+  parents: Record<string, ParentLink[]>;
+}
+
+export function emptyEdges(): TreeEdges {
+  return { members: [], spouses: [], parents: {} };
+}
+
+/** Derive the per-tree {@link FamilyData} view from global identities + edges. */
+export function projectTree(
+  identities: Record<string, PersonIdentity>,
+  edges: TreeEdges,
+): FamilyData {
+  const spousesOf = (id: string): string[] => {
+    const out: string[] = [];
+    for (const [a, b] of edges.spouses) {
+      if (a === id) out.push(b);
+      else if (b === id) out.push(a);
+    }
+    return out;
+  };
+  const family: FamilyData = {};
+  for (const id of edges.members) {
+    const ident = identities[id];
+    if (!ident) continue;
+    family[id] = { ...ident, parents: edges.parents[id] ?? [], spouseIds: spousesOf(id) };
+  }
+  return family;
+}
 
 export type Relationship =
   | { kind: "root" }

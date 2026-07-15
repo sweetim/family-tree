@@ -1,7 +1,8 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { ArrowLeftRight, Link2, MapPin, Plus } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout";
+import { useMemberTrees } from "../store";
 import { useTreeActions } from "../lib/tree-actions";
 import type { Gender } from "../types";
 
@@ -29,6 +30,7 @@ function initials(name: string): string {
 const AVATAR_COLORS: Record<Gender | "unknown", string> = {
   male: "bg-sky-100 text-sky-700",
   female: "bg-rose-100 text-rose-700",
+  other: "bg-violet-100 text-violet-700",
   unknown: "bg-slate-100 text-slate-500",
 };
 
@@ -53,8 +55,10 @@ const CARD_BORDER: Record<string, string> = {
 
 export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const { person, linkState } = data;
-  const { openAdd, startLink, treeNameOf } = useTreeActions();
+  const { openAdd, startLink } = useTreeActions();
   const navigate = useNavigate();
+  const { treeId } = useParams();
+  const otherTrees = useMemberTrees(person.id).filter(t => t.id !== treeId);
   const deceased = !!person.dod;
   const age = person.dob ? ageOf(person.dob, person.dod) : null;
 
@@ -105,19 +109,19 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 {person.location}
               </p>
             )}
-            {!!person.links?.length && (
+            {!!otherTrees.length && (
               <div className="mt-1.5 flex flex-wrap justify-center gap-1">
-                {person.links.map(link => (
+                {otherTrees.map(t => (
                   <button
-                    key={`${link.treeId}:${link.personId}`}
-                    title={`Open in ${treeNameOf(link.treeId) ?? "linked tree"}`}
+                    key={t.id}
+                    title={`Open in ${t.name}`}
                     className="nodrag nopan inline-flex max-w-full items-center gap-1 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-100"
                     onClick={e => {
                       e.stopPropagation();
-                      navigate(`/tree/${link.treeId}/p/${link.personId}`);
+                      navigate(`/tree/${t.id}/p/${person.id}`);
                     }}
                   >
-                    <ArrowLeftRight className="h-3 w-3 shrink-0" /> {treeNameOf(link.treeId) ?? "linked tree"}
+                    <ArrowLeftRight className="h-3 w-3 shrink-0" /> {t.name}
                   </button>
                 ))}
               </div>

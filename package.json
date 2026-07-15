@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production bun src/index.ts"
   },
   "dependencies": {
+    "@biomejs/biome": "^2.5.4",
     "@xyflow/react": "^12.11.2",
     "bun-plugin-tailwind": "^0.1.2",
     "lucide-react": "^1.24.0",
