@@ -2,6 +2,8 @@ import "./index.css";
 import "@xyflow/react/dist/style.css";
 
 import { HashRouter, Navigate, Route, Routes, useParams } from "react-router";
+import { ConfirmProvider } from "./components/Confirm";
+import { ToastProvider } from "./components/Toast";
 import { HomePage } from "./components/HomePage";
 import { useTreeIndex, type TreeIndexStore } from "./store";
 import { TreeView } from "./TreeView";
@@ -17,14 +19,18 @@ export function App() {
   const index = useTreeIndex();
 
   return (
-    <HashRouter>
-      <Routes>
-        <Route path="/" element={<HomePage index={index} />} />
-        <Route path="/tree/:treeId" element={<TreeRoute index={index} />} />
-        <Route path="/tree/:treeId/p/:personId" element={<TreeRoute index={index} />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </HashRouter>
+    <ToastProvider>
+      <ConfirmProvider>
+        <HashRouter>
+          <Routes>
+            <Route path="/" element={<HomePage index={index} />} />
+            <Route path="/tree/:treeId" element={<TreeRoute index={index} />} />
+            <Route path="/tree/:treeId/p/:personId" element={<TreeRoute index={index} />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </HashRouter>
+      </ConfirmProvider>
+    </ToastProvider>
   );
 }
 

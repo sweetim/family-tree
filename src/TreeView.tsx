@@ -11,6 +11,7 @@ import {
   type NodeMouseHandler,
 } from "@xyflow/react";
 import { Crosshair, Link2, Maximize2, X } from "lucide-react";
+import { useConfirm } from "./components/Confirm";
 import { PersonNode } from "./components/PersonNode";
 import { Sidebar, type SidebarState } from "./components/Sidebar";
 import { UnionNode } from "./components/UnionNode";
@@ -28,6 +29,7 @@ export function TreeView({ tree, allTrees, openPersonId }: {
   openPersonId?: string;
 }) {
   const family = useFamily(tree.id);
+  const confirm = useConfirm();
   const [sidebar, setSidebar] = useState<SidebarState>(() =>
     openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },
   );
@@ -127,7 +129,7 @@ export function TreeView({ tree, allTrees, openPersonId }: {
     setSidebar({ mode: "edit", personId: node.id });
   };
 
-  const onEdgeClick: EdgeMouseHandler<FlowEdge> = (_e, edge) => {
+  const onEdgeClick: EdgeMouseHandler<FlowEdge> = async (_e, edge) => {
     if (link) return;
     const data = edge.data;
     if (!data) return;
@@ -137,7 +139,14 @@ export function TreeView({ tree, allTrees, openPersonId }: {
       const b = family.people[data.b];
       if (!a || !b) return;
       if (!a.spouseIds.includes(b.id)) return; // co-parent line only, no marriage to remove
-      if (confirm(`Remove the marriage between ${a.name} and ${b.name}?`)) {
+      if (
+        await confirm({
+          title: "Remove marriage",
+          message: `Remove the marriage between ${a.name} and ${b.name}?`,
+          confirmText: "Remove",
+          tone: "danger",
+        })
+      ) {
         family.unlinkSpouse(a.id, b.id);
       }
     } else if (data.kind === "child" && data.childId && data.parentIds) {
@@ -147,7 +156,14 @@ export function TreeView({ tree, allTrees, openPersonId }: {
         .map(id => family.people[id]?.name)
         .filter(Boolean)
         .join(" and ");
-      if (confirm(`Detach ${child.name} from ${names}?`)) {
+      if (
+        await confirm({
+          title: "Detach child",
+          message: `Detach ${child.name} from ${names}?`,
+          confirmText: "Detach",
+          tone: "danger",
+        })
+      ) {
         for (const pid of data.parentIds) family.removeParent(child.id, pid);
       }
     }
@@ -157,7 +173,12 @@ export function TreeView({ tree, allTrees, openPersonId }: {
     const persons = toDelete.filter(n => n.type === "person");
     if (persons.length === 0) return false;
     const names = persons.map(n => n.data.person.name).join(", ");
-    return confirm(`Delete ${names} from ALL trees?`);
+    return await confirm({
+      title: "Delete people",
+      message: `Delete ${names} from ALL trees?`,
+      confirmText: "Delete",
+      tone: "danger",
+    });
   };
 
   const onNodesDelete = (deleted: FlowNode[]) => {
@@ -169,7 +190,7 @@ export function TreeView({ tree, allTrees, openPersonId }: {
 
   return (
     <TreeActionsContext.Provider value={actions}>
-      <div className="flex h-screen w-screen bg-slate-50">
+      <div className="flex h-screen w-screen app-bg">
         <Sidebar
           family={family}
           treeId={tree.id}
@@ -209,7 +230,7 @@ export function TreeView({ tree, allTrees, openPersonId }: {
 
             {link && linkSource && (
               <Panel position="top-center">
-                <div className="flex items-center gap-3 rounded-full bg-emerald-600 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-md">
+                <div className="flex items-center gap-3 rounded-full bg-emerald-600/85 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-glass ring-1 ring-white/25 backdrop-blur-md">
                   <Link2 className="h-4 w-4 shrink-0" />
                   <span>
                     {linkEligible && linkEligible.size === 0 ? (
@@ -236,7 +257,7 @@ export function TreeView({ tree, allTrees, openPersonId }: {
 
             {focusPerson && (
               <Panel position="top-center">
-                <div className="flex items-center gap-3 rounded-full bg-indigo-600 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-md">
+                <div className="glass flex items-center gap-3 rounded-full py-1.5 pl-4 pr-1.5 text-sm text-white shadow-glass ring-1 ring-white/25">
                   <Crosshair className="h-4 w-4 shrink-0" />
                   <span>
                     Viewing <b>{focusPerson.name}</b>&rsquo;s family ·{" "}

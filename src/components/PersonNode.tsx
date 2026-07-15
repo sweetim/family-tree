@@ -27,11 +27,17 @@ function initials(name: string): string {
     .join("");
 }
 
-const AVATAR_COLORS: Record<Gender | "unknown", string> = {
-  male: "bg-sky-100 text-sky-700",
-  female: "bg-rose-100 text-rose-700",
-  other: "bg-violet-100 text-violet-700",
-  unknown: "bg-slate-100 text-slate-500",
+const AVATAR_BORDER: Record<Gender | "unknown", string> = {
+  male: "border-sky-400",
+  female: "border-rose-300",
+  other: "border-violet-400",
+  unknown: "border-slate-200",
+};
+const AVATAR_FILL: Record<Gender | "unknown", string> = {
+  male: "bg-sky-50 text-sky-600",
+  female: "bg-rose-50 text-rose-600",
+  other: "bg-violet-50 text-violet-600",
+  unknown: "bg-slate-50 text-slate-500",
 };
 
 function yearOf(iso: string): string {
@@ -41,15 +47,15 @@ function yearOf(iso: string): string {
 
 const hiddenHandle = "!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent";
 const addBtn =
-  "nodrag nopan pointer-events-auto z-10 hidden h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-base font-bold leading-none text-white shadow-md transition-colors hover:bg-indigo-500 group-hover:flex";
+  "nodrag nopan pointer-events-auto z-10 flex h-7 w-7 items-center justify-center rounded-full bg-cobalt-600 text-base font-bold leading-none text-white shadow-soft transition-all duration-150 hover:bg-cobalt-500 opacity-0 scale-50 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-hover:scale-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:scale-100";
 const linkBtn =
-  "nodrag nopan pointer-events-auto z-10 hidden h-7 w-7 items-center justify-center rounded-full border border-indigo-300 bg-white text-xs leading-none text-indigo-600 shadow-md transition-colors hover:bg-indigo-50 group-hover:flex";
+  "nodrag nopan pointer-events-auto z-10 flex h-7 w-7 items-center justify-center rounded-full border border-cobalt-300 bg-white text-xs leading-none text-cobalt-600 shadow-soft transition-all duration-150 hover:bg-cobalt-50 opacity-0 scale-50 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-hover:scale-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:scale-100";
 
 const CARD_BORDER: Record<string, string> = {
-  source: "border-indigo-500 ring-2 ring-indigo-300",
+  source: "border-cobalt-500 ring-2 ring-cobalt-300",
   eligible: "border-emerald-400 ring-2 ring-emerald-300",
   blocked: "border-slate-200 opacity-30",
-  selected: "border-indigo-500 ring-2 ring-indigo-300",
+  selected: "border-cobalt-500 ring-2 ring-cobalt-300",
   default: "border-slate-200",
 };
 
@@ -61,6 +67,9 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const otherTrees = useMemberTrees(person.id).filter(t => t.id !== treeId);
   const deceased = !!person.dod;
   const age = person.dob ? ageOf(person.dob, person.dod) : null;
+  const genderKey = person.gender ?? "unknown";
+  const avatarBorder = deceased ? "border-slate-300" : AVATAR_BORDER[genderKey];
+  const avatarFill = AVATAR_FILL[genderKey];
 
   let lifeline: string | null = null;
   if (deceased) {
@@ -72,9 +81,9 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   return (
     <div className="group relative">
       <div
-        className={`w-44 rounded-2xl border bg-white shadow-md transition-shadow hover:shadow-lg ${
+        className={`w-44 rounded-2xl border bg-white shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift ${
           CARD_BORDER[linkState ?? (selected ? "selected" : "default")]
-        } ${deceased && linkState !== "blocked" ? "opacity-80" : ""}`}
+        }`}
       >
         <Handle id="t" type="target" position={Position.Top} className={hiddenHandle} />
         <Handle id="l" type="source" position={Position.Left} className={hiddenHandle} style={{ top: COUPLE_LINE_Y }} />
@@ -82,31 +91,39 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
         <Handle id="b" type="source" position={Position.Bottom} className={hiddenHandle} />
 
         <div className="flex flex-col items-center gap-2 p-4">
-          {person.photo ? (
-            <img
-              src={person.photo}
-              alt={person.name}
-              className={`h-24 w-24 rounded-full border-2 border-indigo-100 object-cover ${deceased ? "grayscale" : ""}`}
-            />
-          ) : (
-            <div
-              className={`flex h-24 w-24 items-center justify-center rounded-full text-2xl font-semibold ${
-                AVATAR_COLORS[person.gender ?? "unknown"]
-              }`}
-            >
-              {initials(person.name) || "?"}
-            </div>
-          )}
+          <div className="relative">
+            {person.photo ? (
+              <img
+                src={person.photo}
+                alt={person.name}
+                className={`h-24 w-24 rounded-full border-4 object-cover ${avatarBorder} ${deceased ? "grayscale" : ""}`}
+              />
+            ) : (
+              <div
+                className={`flex h-24 w-24 items-center justify-center rounded-full border-4 text-2xl font-semibold ${avatarFill} ${avatarBorder}`}
+              >
+                {initials(person.name) || "?"}
+              </div>
+            )}
+            {deceased && (
+              <span
+                title="In memoriam"
+                className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-slate-500 text-xs leading-none text-white shadow-soft"
+              >
+                †
+              </span>
+            )}
+          </div>
 
           <div className="w-full text-center">
-            <p className="truncate font-semibold text-slate-800" title={person.name}>
+            <p className="truncate font-semibold tracking-tight text-slate-800" title={person.name}>
               {person.name}
             </p>
             {lifeline && <p className="text-xs text-slate-500">{lifeline}</p>}
             {person.location && (
-              <p className="mt-1 truncate text-xs text-slate-400" title={person.location}>
-                <MapPin className="mr-0.5 inline h-3 w-3 align-text-bottom" />
-                {person.location}
+              <p className="mt-0.5 inline-flex items-center gap-0.5 truncate text-xs text-slate-400" title={person.location}>
+                <MapPin className="h-3 w-3 shrink-0" />
+                <span className="truncate">{person.location}</span>
               </p>
             )}
             {!!otherTrees.length && (
@@ -115,7 +132,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                   <button
                     key={t.id}
                     title={`Open in ${t.name}`}
-                    className="nodrag nopan inline-flex max-w-full items-center gap-1 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-100"
+                    className="nodrag nopan inline-flex max-w-full items-center gap-1 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 transition-colors hover:bg-amber-100"
                     onClick={e => {
                       e.stopPropagation();
                       navigate(`/tree/${t.id}/p/${person.id}`);

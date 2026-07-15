@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { ArrowRight, Network, Pencil, Plus, Sparkles, Trash2, Users } from "lucide-react";
+import { useConfirm } from "./Confirm";
 import { countMembers, seedData, type TreeIndexStore, type TreeMeta } from "../store";
 
 const inputCls =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+  "w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm text-slate-800 transition-colors placeholder:text-slate-400 focus:border-cobalt-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cobalt-200";
 const primaryBtn =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50";
+  "inline-flex items-center justify-center gap-1.5 rounded-xl bg-cobalt-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50";
 
 function TreeCard({ tree, navigate, onRename, onDelete }: {
   tree: TreeMeta;
@@ -14,6 +15,7 @@ function TreeCard({ tree, navigate, onRename, onDelete }: {
   onRename: (name: string) => void;
   onDelete: () => void;
 }) {
+  const confirm = useConfirm();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(tree.name);
   const members = countMembers(tree.id);
@@ -31,7 +33,7 @@ function TreeCard({ tree, navigate, onRename, onDelete }: {
   }
 
   return (
-    <div className="group flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-indigo-300 hover:shadow-md">
+    <div className="group flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-soft transition-all duration-200 hover:-translate-y-1 hover:border-cobalt-200 hover:shadow-lift">
       {renaming ? (
         <form onSubmit={submitRename} className="flex gap-2">
           <input
@@ -45,7 +47,7 @@ function TreeCard({ tree, navigate, onRename, onDelete }: {
       ) : (
         <button
           onClick={() => navigate(`/tree/${tree.id}`)}
-          className="text-left text-base font-semibold text-slate-800 transition-colors hover:text-indigo-600"
+          className="text-left text-base font-semibold tracking-tight text-slate-800 transition-colors hover:text-cobalt-700"
         >
           {tree.name}
         </button>
@@ -66,18 +68,25 @@ function TreeCard({ tree, navigate, onRename, onDelete }: {
             setName(tree.name);
             setRenaming(true);
           }}
-          className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium text-slate-500 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
+          className="inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium text-slate-500 ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
         >
           <Pencil className="h-4 w-4" />
         </button>
         <button
           title="Delete tree"
-          onClick={() => {
-            if (confirm(`Delete "${tree.name}" and its ${members} members? This cannot be undone.`)) {
+          onClick={async () => {
+            if (
+              await confirm({
+                title: "Delete tree",
+                message: `Delete "${tree.name}" and its ${members} members? This cannot be undone.`,
+                confirmText: "Delete",
+                tone: "danger",
+              })
+            ) {
               onDelete();
             }
           }}
-          className="inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium text-red-500 ring-1 ring-red-200 transition-colors hover:bg-red-50"
+          className="inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium text-red-500 ring-1 ring-red-200 transition-all hover:bg-red-50 active:scale-95"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -100,14 +109,14 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
   }
 
   return (
-    <div className="min-h-screen w-full bg-slate-50">
+    <div className="app-bg min-h-screen w-full">
       <div className="mx-auto max-w-4xl px-6 py-12">
         <header className="mb-8 flex items-center gap-3">
-          <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+          <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-cobalt-600 text-white shadow-soft">
             <Network className="h-6 w-6" />
           </span>
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Family Trees</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-800">Family Trees</h1>
             <p className="mt-0.5 text-sm text-slate-500">
               Create a new family tree or open an existing one.
             </p>
@@ -116,7 +125,7 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
 
         <form
           onSubmit={handleCreate}
-          className="mb-10 flex gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+          className="mb-10 flex gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-soft"
         >
           <input
             value={name}
@@ -130,17 +139,17 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
         </form>
 
         {trees.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-300 p-10 text-center">
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-10 text-center shadow-soft">
             <span className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
               <Network className="h-6 w-6" />
             </span>
-            <p className="text-sm text-slate-500">No family trees yet.</p>
+            <p className="text-sm font-medium text-slate-600">No family trees yet.</p>
             <p className="mt-1 text-xs text-slate-400">
               Create one above, or start from a small example to see how it works.
             </p>
             <button
               onClick={() => navigate(`/tree/${createTree("Sample Family", seedData())}`)}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-medium text-indigo-600 ring-1 ring-indigo-200 transition-colors hover:bg-indigo-50"
+              className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-white px-4 py-2 text-sm font-medium text-cobalt-600 shadow-soft ring-1 ring-cobalt-200 transition-all hover:bg-cobalt-50 active:scale-95"
             >
               <Sparkles className="h-4 w-4" /> Create sample tree
             </button>

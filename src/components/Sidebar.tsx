@@ -1,6 +1,23 @@
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type ComponentType, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
-import { ChevronLeft, Crosshair, Download, Mars, Plus, Trash2, Upload, Users, Venus, X } from "lucide-react";
+import {
+  Baby,
+  ChevronDown,
+  ChevronLeft,
+  Crosshair,
+  Download,
+  Heart,
+  Mars,
+  Network,
+  Plus,
+  Trash2,
+  Upload,
+  Users,
+  Venus,
+  X,
+} from "lucide-react";
+import { useConfirm } from "./Confirm";
+import { useToast } from "./Toast";
 import { fileToAvatar } from "../lib/image";
 import { normalizeImport, useMemberTrees, useMembersOf, type FamilyStore, type TreeMeta } from "../store";
 import {
@@ -31,11 +48,16 @@ interface Props {
 }
 
 const inputCls =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
-const labelCls = "mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500";
+  "w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm text-slate-800 transition-colors placeholder:text-slate-400 focus:border-cobalt-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cobalt-200";
+const labelCls = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500";
 const primaryBtn =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50";
-const ghostBtn = "rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100";
+  "inline-flex items-center justify-center gap-1.5 rounded-xl bg-cobalt-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50";
+const ghostBtn = "rounded-xl px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100";
+
+const chip =
+  "inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 py-1 pl-3 pr-1 text-xs text-slate-700";
+const chipX =
+  "flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-red-100 hover:text-red-600";
 
 const GENDER_OPTIONS: { value: Gender; label: string; Icon: typeof Mars; active: string }[] = [
   { value: "male", label: "Male", Icon: Mars, active: "border-transparent bg-sky-100 text-sky-700 ring-1 ring-sky-300" },
@@ -71,6 +93,35 @@ function toInput(f: Fields): PersonInput {
     location: f.location.trim() || undefined,
     photo: f.photo,
   };
+}
+
+type SectionProps = {
+  title: string;
+  icon: ComponentType<{ className?: string }>;
+  count?: number;
+  children: ReactNode;
+};
+
+function Section({ title, icon: Icon, count, children }: SectionProps) {
+  return (
+    <details open className="group rounded-xl border border-slate-200 bg-white">
+      <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <Icon className="h-4 w-4 text-slate-400" />
+          {title}
+        </span>
+        <span className="inline-flex items-center gap-2">
+          {count !== undefined && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+              {count}
+            </span>
+          )}
+          <ChevronDown className="h-4 w-4 text-slate-400 transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="space-y-2 border-t border-slate-100 p-3">{children}</div>
+    </details>
+  );
 }
 
 function PersonFields({ fields, onChange }: { fields: Fields; onChange: (f: Fields) => void }) {
@@ -113,8 +164,8 @@ function PersonFields({ fields, onChange }: { fields: Fields; onChange: (f: Fiel
                 title={label}
                 aria-pressed={selected}
                 onClick={() => onChange({ ...fields, gender: selected ? "" : value })}
-                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                  selected ? active : "border-slate-300 text-slate-600 hover:bg-slate-50"
+                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-medium transition-all active:scale-95 ${
+                  selected ? active : "border-slate-200 bg-slate-50/60 text-slate-600 hover:bg-slate-100"
                 }`}
               >
                 <Icon className="h-4 w-4" /> {label}
@@ -159,15 +210,15 @@ function PersonFields({ fields, onChange }: { fields: Fields; onChange: (f: Fiel
         <label className={labelCls}>Photo</label>
         <div className="flex items-center gap-3">
           {fields.photo ? (
-            <img src={fields.photo} alt="preview" className="h-12 w-12 rounded-full object-cover" />
+            <img src={fields.photo} alt="preview" className="h-12 w-12 rounded-full object-cover ring-2 ring-cobalt-100" />
           ) : (
-            <div className="h-12 w-12 rounded-full bg-slate-100" />
+            <div className="h-12 w-12 rounded-full bg-slate-100 ring-2 ring-slate-200" />
           )}
           <input
             type="file"
             accept="image/*"
             onChange={e => handlePhoto(e.target.files?.[0])}
-            className="text-xs text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-indigo-600 hover:file:bg-indigo-100"
+            className="text-xs text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-cobalt-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-cobalt-600 hover:file:bg-cobalt-100"
           />
         </div>
         {photoError && <p className="mt-1 text-xs text-red-500">{photoError}</p>}
@@ -213,9 +264,9 @@ function AddForm({ family, rel, onDone, onClose }: {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="animate-slide-up space-y-4">
       <div>
-        <h2 className="text-base font-semibold text-slate-800">Add member</h2>
+        <h2 className="text-base font-semibold tracking-tight text-slate-800">Add member</h2>
         <p className="text-xs text-slate-400">{heading}</p>
       </div>
 
@@ -278,6 +329,7 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
   const { people } = family;
   const [fields, setFields] = useState<Fields>(fieldsFrom(person));
   const navigate = useNavigate();
+  const confirm = useConfirm();
 
   const otherTrees = allTrees.filter(t => t.id !== treeId);
   const [linkTreeId, setLinkTreeId] = useState("");
@@ -334,22 +386,19 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
     family.updatePerson(person.id, input);
   }
 
-  const chip = "flex items-center gap-1 rounded-full bg-slate-100 py-1 pl-3 pr-1 text-xs text-slate-700";
-  const chipX = "flex h-5 w-5 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-red-500";
-
   return (
-    <div className="space-y-6">
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <div className="animate-slide-up space-y-5">
+      <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-soft">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <h2 className="text-base font-semibold text-slate-800">Edit member</h2>
+            <h2 className="text-base font-semibold tracking-tight text-slate-800">Edit member</h2>
             <p className="text-xs text-slate-400">{person.name}</p>
           </div>
           <button
             type="button"
             title={`Show only ${person.name}'s blood relatives and their spouses`}
             onClick={() => onFocus(person.id)}
-            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100"
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-cobalt-50 px-3 py-1.5 text-xs font-medium text-cobalt-600 transition-colors hover:bg-cobalt-100"
           >
             <Crosshair className="h-3.5 w-3.5" /> View their family
           </button>
@@ -367,14 +416,13 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
         </div>
       </form>
 
-      <div className="space-y-4 border-t border-slate-200 pt-4">
-        <div>
-          <label className={labelCls}>Spouses</label>
+      <div className="space-y-3">
+        <Section title="Spouses" icon={Heart} count={spouses.length}>
           <div className="flex flex-wrap gap-1.5">
             {spouses.length === 0 && <p className="text-xs text-slate-400">None</p>}
             {spouses.map(s => (
               <span key={s.id} className={chip}>
-                <button type="button" className="hover:underline" onClick={() => onSelect(s.id)}>
+                <button type="button" className="font-medium hover:text-cobalt-700 hover:underline" onClick={() => onSelect(s.id)}>
                   {s.name}
                 </button>
                 <button
@@ -392,7 +440,7 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
             <select
               value=""
               onChange={e => e.target.value && family.linkSpouse(person.id, e.target.value)}
-              className={`${inputCls} mt-2`}
+              className={inputCls}
             >
               <option value="">+ Link existing person as spouse…</option>
               {linkable.map(p => (
@@ -402,15 +450,14 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
               ))}
             </select>
           )}
-        </div>
+        </Section>
 
-        <div>
-          <label className={labelCls}>Parents</label>
+        <Section title="Parents" icon={Users} count={parents.length}>
           {parents.length === 0 && <p className="text-xs text-slate-400">None</p>}
           <div className="space-y-1.5">
             {parents.map(({ link, person: par }) => (
               <div key={par.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5">
-                <button type="button" className="text-xs text-slate-700 hover:underline" onClick={() => onSelect(par.id)}>
+                <button type="button" className="text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline" onClick={() => onSelect(par.id)}>
                   {par.name}
                 </button>
                 <div className="flex items-center gap-2">
@@ -442,7 +489,7 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
                   family.addParent(person.id, id);
                 }
               }}
-              className={`${inputCls} mt-2`}
+              className={inputCls}
             >
               <option value="">+ Link existing person as parent…</option>
               {coupleCandidates.length > 0 && (
@@ -463,15 +510,14 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
               </optgroup>
             </select>
           )}
-        </div>
+        </Section>
 
-        <div>
-          <label className={labelCls}>Children</label>
+        <Section title="Children" icon={Baby} count={children.length}>
           <div className="flex flex-wrap gap-1.5">
             {children.length === 0 && <p className="text-xs text-slate-400">None</p>}
             {children.map(c => (
               <span key={c.id} className={chip}>
-                <button type="button" className="hover:underline" onClick={() => onSelect(c.id)}>
+                <button type="button" className="font-medium hover:text-cobalt-700 hover:underline" onClick={() => onSelect(c.id)}>
                   {c.name}
                 </button>
               </span>
@@ -481,7 +527,7 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
             <select
               value=""
               onChange={e => e.target.value && family.addParent(e.target.value, person.id)}
-              className={`${inputCls} mt-2`}
+              className={inputCls}
             >
               <option value="">+ Link existing person as child…</option>
               {childCandidates.map(p => (
@@ -491,10 +537,9 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
               ))}
             </select>
           )}
-        </div>
+        </Section>
 
-        <div>
-          <label className={labelCls}>Other families</label>
+        <Section title="Other families" icon={Network} count={memberTrees.length}>
           <div className="flex flex-wrap gap-1.5">
             {memberTrees.length === 0 && (
               <p className="text-xs text-slate-400">Only in this tree</p>
@@ -504,7 +549,7 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
                 <button
                   type="button"
                   title={`Open ${person.name} in ${t.name}`}
-                  className="hover:underline"
+                  className="font-medium hover:text-cobalt-700 hover:underline"
                   onClick={() => navigate(`/tree/${t.id}/p/${person.id}`)}
                 >
                   {t.name}
@@ -521,7 +566,7 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
             ))}
           </div>
           {otherTrees.length > 0 && (
-            <div className="mt-2 space-y-2">
+            <div className="space-y-2">
               <select value={linkTreeId} onChange={e => setLinkTreeId(e.target.value)} className={inputCls}>
                 <option value="">+ Marry someone in another tree…</option>
                 {otherTrees.map(t => (
@@ -552,27 +597,35 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
               )}
             </div>
           )}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => {
-            if (confirm(`Delete ${person.name} from ALL trees?`)) {
-              family.deletePerson(person.id);
-              onClose();
-            }
-          }}
-          className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
-        >
-          <Trash2 className="h-4 w-4" /> Delete {person.name}
-        </button>
+        </Section>
       </div>
+
+      <button
+        type="button"
+        onClick={async () => {
+          if (
+            await confirm({
+              title: "Delete member",
+              message: `Delete ${person.name} from ALL trees?`,
+              confirmText: "Delete",
+              tone: "danger",
+            })
+          ) {
+            family.deletePerson(person.id);
+            onClose();
+          }
+        }}
+        className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-600 transition-all hover:bg-red-50 active:scale-95"
+      >
+        <Trash2 className="h-4 w-4" /> Delete {person.name}
+      </button>
     </div>
   );
 }
 
 export function Sidebar({ family, treeId, treeName, allTrees, state, onSelect, onAddRoot, onFocus, onClose }: Props) {
   const importRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
   const count = Object.keys(family.people).length;
 
   function exportJson() {
@@ -597,26 +650,33 @@ export function Sidebar({ family, treeId, treeName, allTrees, state, onSelect, o
       onClose();
     } catch (err) {
       console.error(err);
-      alert("That file doesn't look like an exported family tree.");
+      toast("That file doesn't look like an exported family tree.", "error");
     }
   }
 
   const editingPerson = state.mode === "edit" ? family.people[state.personId] : undefined;
 
   return (
-    <aside className="flex h-full w-80 shrink-0 flex-col border-r border-slate-200 bg-white">
+    <aside className="flex h-full w-80 shrink-0 flex-col border-r border-slate-200 bg-white/70 backdrop-blur-sm">
       <div className="border-b border-slate-200 px-5 py-4">
-        <Link to="/" className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:underline">
-          <ChevronLeft className="h-3.5 w-3.5" /> All trees
-        </Link>
-        <h1 className="text-lg font-bold text-slate-800">{treeName}</h1>
-        <p className="inline-flex items-center gap-1 text-xs text-slate-400">
+        <div className="flex items-center gap-1.5">
+          <Link
+            to="/"
+            title="All trees"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Link>
+          <span className="text-xs font-medium text-slate-400">All trees</span>
+        </div>
+        <h1 className="mt-2 text-lg font-bold tracking-tight text-slate-800">{treeName}</h1>
+        <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-cobalt-50 px-2.5 py-1 text-xs font-medium text-cobalt-700">
           <Users className="h-3.5 w-3.5" />
-          {count} members · hover a card for quick actions
-        </p>
+          {count} members
+        </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
         {state.mode === "add" && (
           <AddForm
             key={JSON.stringify(state.rel)}
@@ -642,11 +702,14 @@ export function Sidebar({ family, treeId, treeName, allTrees, state, onSelect, o
 
         {state.mode === "idle" || (state.mode === "edit" && !editingPerson) ? (
           <div className="space-y-4">
-            <p className="text-sm text-slate-500">
-              Click a card to edit it, or hover a card and use the <b>+</b> buttons to add a new
-              parent, spouse or child — or the <b>link</b> buttons to connect two people already in
-              the tree by clicking their cards.
-            </p>
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
+              <p className="text-sm leading-relaxed text-slate-500">
+                Click a card to edit it, or hover a card and use the <b className="font-semibold text-slate-700">+</b>{" "}
+                buttons to add a new parent, spouse or child — or the{" "}
+                <b className="font-semibold text-slate-700">link</b> buttons to connect two people already in the tree by
+                clicking their cards.
+              </p>
+            </div>
             <button onClick={onAddRoot} className={`${primaryBtn} w-full`}>
               <Plus className="h-4 w-4" /> Add unconnected member
             </button>
@@ -654,15 +717,18 @@ export function Sidebar({ family, treeId, treeName, allTrees, state, onSelect, o
         ) : null}
       </div>
 
-      <div className="space-y-2 border-t border-slate-200 px-5 py-4">
-        <button onClick={exportJson} className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition-colors hover:bg-slate-50">
-          <Download className="h-4 w-4" /> Export JSON
+      <div className="grid grid-cols-2 gap-2 border-t border-slate-200 px-5 py-4">
+        <button
+          onClick={exportJson}
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
+        >
+          <Download className="h-4 w-4" /> Export
         </button>
         <button
           onClick={() => importRef.current?.click()}
-          className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-white px-3 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
+          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
         >
-          <Upload className="h-4 w-4" /> Import JSON
+          <Upload className="h-4 w-4" /> Import
         </button>
         <input
           ref={importRef}
