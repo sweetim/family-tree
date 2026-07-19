@@ -1,144 +1,168 @@
-import { useEffect, useMemo, useState } from "react";
 import {
   Background,
   BackgroundVariant,
   Controls,
-  MiniMap,
-  Panel,
-  ReactFlow,
   type Edge,
   type EdgeMouseHandler,
+  MiniMap,
   type NodeMouseHandler,
-} from "@xyflow/react";
-import { Crosshair, Link2, Maximize2, X } from "lucide-react";
-import { useConfirm } from "./components/Confirm";
-import { PersonNode } from "./components/PersonNode";
-import { Sidebar, type SidebarState } from "./components/Sidebar";
-import { UnionNode } from "./components/UnionNode";
-import { buildFlow, type FlowEdge, type FlowNode } from "./lib/layout";
-import { TreeActionsContext, type LinkKind, type TreeActions } from "./lib/tree-actions";
-import { useFamily, type TreeMeta } from "./store";
-import { ancestorsOf, descendantsOf, focusFamily } from "./types";
+  Panel,
+  ReactFlow,
+} from "@xyflow/react"
+import { Crosshair, Link2, Maximize2, X } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { useConfirm } from "./components/Confirm"
+import { PersonNode } from "./components/PersonNode"
+import { Sidebar, type SidebarState } from "./components/Sidebar"
+import { UnionNode } from "./components/UnionNode"
+import { buildFlow, type FlowEdge, type FlowNode } from "./lib/layout"
+import {
+  type LinkKind,
+  type TreeActions,
+  TreeActionsContext,
+} from "./lib/tree-actions"
+import { type TreeMeta, useFamily } from "./store"
+import { ancestorsOf, descendantsOf, focusFamily } from "./types"
 
-const nodeTypes = { person: PersonNode, union: UnionNode };
+const nodeTypes = { person: PersonNode, union: UnionNode }
 
-export function TreeView({ tree, allTrees, openPersonId }: {
-  tree: TreeMeta;
-  allTrees: TreeMeta[];
+export function TreeView({
+  tree,
+  allTrees,
+  openPersonId,
+}: {
+  tree: TreeMeta
+  allTrees: TreeMeta[]
   /** Person to open on arrival, from a #/tree/{id}/p/{personId} link. */
-  openPersonId?: string;
+  openPersonId?: string
 }) {
-  const family = useFamily(tree.id);
-  const confirm = useConfirm();
+  const family = useFamily(tree.id)
+  const confirm = useConfirm()
   const [sidebar, setSidebar] = useState<SidebarState>(() =>
     openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },
-  );
-  const [focusId, setFocusId] = useState<string>();
-  const [link, setLink] = useState<{ kind: LinkKind; sourceId: string }>();
+  )
+  const [focusId, setFocusId] = useState<string>()
+  const [link, setLink] = useState<{ kind: LinkKind; sourceId: string }>()
 
   // Follow cross-tree jumps that land on this already-mounted tree.
   useEffect(() => {
-    if (openPersonId) setSidebar({ mode: "edit", personId: openPersonId });
-  }, [openPersonId]);
+    if (openPersonId) setSidebar({ mode: "edit", personId: openPersonId })
+  }, [openPersonId])
 
-  const focusPerson = focusId ? family.people[focusId] : undefined;
+  const focusPerson = focusId ? family.people[focusId] : undefined
   const visiblePeople = useMemo(
-    () => (focusPerson ? focusFamily(family.people, focusPerson.id) : family.people),
+    () =>
+      focusPerson ? focusFamily(family.people, focusPerson.id) : family.people,
     [family.people, focusPerson],
-  );
+  )
 
-  const linkSource = link ? family.people[link.sourceId] : undefined;
+  const linkSource = link ? family.people[link.sourceId] : undefined
 
   // Cancel link mode if the source disappears (e.g. deleted from the sidebar).
   useEffect(() => {
-    if (link && !linkSource) setLink(undefined);
-  }, [link, linkSource]);
+    if (link && !linkSource) setLink(undefined)
+  }, [link, linkSource])
 
   useEffect(() => {
-    if (!link) return;
+    if (!link) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setLink(undefined);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [link]);
+      if (e.key === "Escape") setLink(undefined)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [link])
 
   // Who may be clicked to complete the pending connection. Mirrors the
   // sidebar's dropdown rules: max two parents, no duplicate links, and no
   // cycles (an ancestor can't become a child, a descendant can't become a parent).
   const linkEligible = useMemo(() => {
-    if (!link || !linkSource) return undefined;
-    const eligible = new Set<string>();
-    if (link.kind === "parent" && linkSource.parents.length >= 2) return eligible;
+    if (!link || !linkSource) return undefined
+    const eligible = new Set<string>()
+    if (link.kind === "parent" && linkSource.parents.length >= 2)
+      return eligible
     const blockedAncestry =
       link.kind === "parent"
         ? descendantsOf(family.people, linkSource.id)
         : link.kind === "child"
           ? ancestorsOf(family.people, linkSource.id)
-          : undefined;
+          : undefined
     for (const p of Object.values(visiblePeople)) {
-      if (p.id === linkSource.id || blockedAncestry?.has(p.id)) continue;
-      if (link.kind === "spouse" && linkSource.spouseIds.includes(p.id)) continue;
-      if (link.kind === "parent" && linkSource.parents.some(l => l.id === p.id)) continue;
-      if (link.kind === "child" && (p.parents.length >= 2 || p.parents.some(l => l.id === linkSource.id))) continue;
-      eligible.add(p.id);
+      if (p.id === linkSource.id || blockedAncestry?.has(p.id)) continue
+      if (link.kind === "spouse" && linkSource.spouseIds.includes(p.id))
+        continue
+      if (
+        link.kind === "parent"
+        && linkSource.parents.some((l) => l.id === p.id)
+      )
+        continue
+      if (
+        link.kind === "child"
+        && (p.parents.length >= 2
+          || p.parents.some((l) => l.id === linkSource.id))
+      )
+        continue
+      eligible.add(p.id)
     }
-    return eligible;
-  }, [link, linkSource, family.people, visiblePeople]);
+    return eligible
+  }, [link, linkSource, family.people, visiblePeople])
 
-  const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined;
+  const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
   const { nodes, edges } = useMemo(
     () =>
       buildFlow(
         visiblePeople,
         selectedId,
-        link && linkEligible ? { sourceId: link.sourceId, eligible: linkEligible } : undefined,
+        link && linkEligible
+          ? { sourceId: link.sourceId, eligible: linkEligible }
+          : undefined,
       ),
     [visiblePeople, selectedId, link, linkEligible],
-  );
+  )
 
   const actions = useMemo<TreeActions>(
     () => ({
-      openAdd: rel => setSidebar({ mode: "add", rel }),
+      openAdd: (rel) => setSidebar({ mode: "add", rel }),
       startLink: (kind, sourceId) => setLink({ kind, sourceId }),
+      readOnly: family.readOnly,
     }),
-    [],
-  );
+    [family.readOnly],
+  )
 
   // Linking a married person as a parent brings their spouse into the other
   // parent slot, so the child hangs from the couple. addParent's own guards
   // skip spouses that are duplicates, over the two-parent cap, or would cycle.
   const linkCoupleAsParents = (childId: string, parentId: string) => {
-    family.addParent(childId, parentId);
+    family.addParent(childId, parentId)
     for (const sid of family.people[parentId]?.spouseIds ?? []) {
-      family.addParent(childId, sid);
+      family.addParent(childId, sid)
     }
-  };
+  }
 
   const onNodeClick: NodeMouseHandler<FlowNode> = (_e, node) => {
-    if (node.type !== "person") return;
+    if (node.type !== "person") return
     if (link) {
-      if (node.id === link.sourceId) return setLink(undefined);
-      if (!linkEligible?.has(node.id)) return;
-      if (link.kind === "spouse") family.linkSpouse(link.sourceId, node.id);
-      else if (link.kind === "parent") linkCoupleAsParents(link.sourceId, node.id);
-      else linkCoupleAsParents(node.id, link.sourceId);
-      setLink(undefined);
-      return;
+      if (node.id === link.sourceId) return setLink(undefined)
+      if (!linkEligible?.has(node.id)) return
+      if (link.kind === "spouse") family.linkSpouse(link.sourceId, node.id)
+      else if (link.kind === "parent")
+        linkCoupleAsParents(link.sourceId, node.id)
+      else linkCoupleAsParents(node.id, link.sourceId)
+      setLink(undefined)
+      return
     }
-    setSidebar({ mode: "edit", personId: node.id });
-  };
+    setSidebar({ mode: "edit", personId: node.id })
+  }
 
   const onEdgeClick: EdgeMouseHandler<FlowEdge> = async (_e, edge) => {
-    if (link) return;
-    const data = edge.data;
-    if (!data) return;
+    if (link) return
+    const data = edge.data
+    if (!data) return
 
     if (data.kind === "couple" && data.a && data.b) {
-      const a = family.people[data.a];
-      const b = family.people[data.b];
-      if (!a || !b) return;
-      if (!a.spouseIds.includes(b.id)) return; // co-parent line only, no marriage to remove
+      const a = family.people[data.a]
+      const b = family.people[data.b]
+      if (!a || !b) return
+      if (!a.spouseIds.includes(b.id)) return // co-parent line only, no marriage to remove
       if (
         await confirm({
           title: "Remove marriage",
@@ -147,15 +171,15 @@ export function TreeView({ tree, allTrees, openPersonId }: {
           tone: "danger",
         })
       ) {
-        family.unlinkSpouse(a.id, b.id);
+        family.unlinkSpouse(a.id, b.id)
       }
     } else if (data.kind === "child" && data.childId && data.parentIds) {
-      const child = family.people[data.childId];
-      if (!child) return;
+      const child = family.people[data.childId]
+      if (!child) return
       const names = data.parentIds
-        .map(id => family.people[id]?.name)
+        .map((id) => family.people[id]?.name)
         .filter(Boolean)
-        .join(" and ");
+        .join(" and ")
       if (
         await confirm({
           title: "Detach child",
@@ -164,29 +188,34 @@ export function TreeView({ tree, allTrees, openPersonId }: {
           tone: "danger",
         })
       ) {
-        for (const pid of data.parentIds) family.removeParent(child.id, pid);
+        for (const pid of data.parentIds) family.removeParent(child.id, pid)
       }
     }
-  };
+  }
 
-  const onBeforeDelete = async ({ nodes: toDelete }: { nodes: FlowNode[]; edges: Edge[] }) => {
-    const persons = toDelete.filter(n => n.type === "person");
-    if (persons.length === 0) return false;
-    const names = persons.map(n => n.data.person.name).join(", ");
+  const onBeforeDelete = async ({
+    nodes: toDelete,
+  }: {
+    nodes: FlowNode[]
+    edges: Edge[]
+  }) => {
+    const persons = toDelete.filter((n) => n.type === "person")
+    if (persons.length === 0) return false
+    const names = persons.map((n) => n.data.person.name).join(", ")
     return await confirm({
       title: "Delete people",
       message: `Delete ${names} from ALL trees?`,
       confirmText: "Delete",
       tone: "danger",
-    });
-  };
+    })
+  }
 
   const onNodesDelete = (deleted: FlowNode[]) => {
     for (const node of deleted) {
-      if (node.type === "person") family.deletePerson(node.id);
+      if (node.type === "person") family.deletePerson(node.id)
     }
-    setSidebar({ mode: "idle" });
-  };
+    setSidebar({ mode: "idle" })
+  }
 
   return (
     <TreeActionsContext.Provider value={actions}>
@@ -197,7 +226,7 @@ export function TreeView({ tree, allTrees, openPersonId }: {
           treeName={tree.name}
           allTrees={allTrees}
           state={sidebar}
-          onSelect={id => setSidebar({ mode: "edit", personId: id })}
+          onSelect={(id) => setSidebar({ mode: "edit", personId: id })}
           onAddRoot={() => setSidebar({ mode: "add", rel: { kind: "root" } })}
           onFocus={setFocusId}
           onClose={() => setSidebar({ mode: "idle" })}
@@ -212,10 +241,10 @@ export function TreeView({ tree, allTrees, openPersonId }: {
             onNodeClick={onNodeClick}
             onEdgeClick={onEdgeClick}
             onPaneClick={() => {
-              setLink(undefined);
-              setSidebar({ mode: "idle" });
+              setLink(undefined)
+              setSidebar({ mode: "idle" })
             }}
-            deleteKeyCode={["Delete", "Backspace"]}
+            deleteKeyCode={family.readOnly ? [] : ["Delete", "Backspace"]}
             onBeforeDelete={onBeforeDelete}
             onNodesDelete={onNodesDelete}
             fitView
@@ -224,9 +253,17 @@ export function TreeView({ tree, allTrees, openPersonId }: {
             nodesDraggable={false}
             proOptions={{ hideAttribution: true }}
           >
-            <Background variant={BackgroundVariant.Dots} gap={20} color="#cbd5e1" />
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={20}
+              color="#cbd5e1"
+            />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable className="!bg-slate-100" />
+            <MiniMap
+              pannable
+              zoomable
+              className="!bg-slate-100"
+            />
 
             {link && linkSource && (
               <Panel position="top-center">
@@ -235,13 +272,15 @@ export function TreeView({ tree, allTrees, openPersonId }: {
                   <span>
                     {linkEligible && linkEligible.size === 0 ? (
                       <>
-                        No one can be connected as <b>{linkSource.name}</b>&rsquo;s {link.kind}
+                        No one can be connected as <b>{linkSource.name}</b>
+                        &rsquo;s {link.kind}
                       </>
                     ) : (
                       <>
-                        Click a highlighted card to connect as <b>{linkSource.name}</b>&rsquo;s{" "}
-                        {link.kind}
-                        {link.kind !== "spouse" && " · married couples connect together"}
+                        Click a highlighted card to connect as{" "}
+                        <b>{linkSource.name}</b>&rsquo;s {link.kind}
+                        {link.kind !== "spouse"
+                          && " · married couples connect together"}
                       </>
                     )}
                   </span>
@@ -261,7 +300,8 @@ export function TreeView({ tree, allTrees, openPersonId }: {
                   <Crosshair className="h-4 w-4 shrink-0" />
                   <span>
                     Viewing <b>{focusPerson.name}</b>&rsquo;s family ·{" "}
-                    {Object.keys(visiblePeople).length} of {Object.keys(family.people).length} people
+                    {Object.keys(visiblePeople).length} of{" "}
+                    {Object.keys(family.people).length} people
                   </span>
                   <button
                     onClick={() => setFocusId(undefined)}
@@ -276,5 +316,5 @@ export function TreeView({ tree, allTrees, openPersonId }: {
         </div>
       </div>
     </TreeActionsContext.Provider>
-  );
+  )
 }

@@ -21,6 +21,8 @@ export interface PersonIdentity {
   location?: string;
   /** Compressed data-URL of the uploaded photo */
   photo?: string;
+  /** ISO timestamp of the last edit. Set by the sync seam; untouched by mutators. */
+  updatedAt?: string;
 }
 
 /**
