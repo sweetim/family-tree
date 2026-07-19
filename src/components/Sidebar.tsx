@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   Crosshair,
   Download,
+  GitMerge,
   Heart,
   Mars,
   Network,
@@ -339,6 +340,12 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
     () => otherTreeMembers.filter(m => m.id !== person.id && !person.spouseIds.includes(m.id)),
     [otherTreeMembers, person.id, person.spouseIds],
   );
+  const [mergeTreeId, setMergeTreeId] = useState("");
+  const mergeMembers = useMembersOf(mergeTreeId || undefined);
+  const mergeCandidates = useMemo(
+    () => mergeMembers.filter(m => m.id !== person.id),
+    [mergeMembers, person.id],
+  );
 
   const spouses = person.spouseIds.map(id => people[id]).filter((p): p is Person => !!p);
   const parents = person.parents
@@ -598,6 +605,52 @@ function EditForm({ family, treeId, allTrees, person, onSelect, onFocus, onClose
             </div>
           )}
         </Section>
+
+        {otherTrees.length > 0 && (
+          <Section title="Same person in another family" icon={GitMerge}>
+            <p className="text-xs leading-relaxed text-slate-400">
+              Is this {person.name} the same person as someone in another tree? Linking merges the two into one.
+            </p>
+            <select value={mergeTreeId} onChange={e => setMergeTreeId(e.target.value)} className={inputCls}>
+              <option value="">Choose a tree…</option>
+              {otherTrees.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            {mergeTreeId && (
+              <select
+                value=""
+                onChange={async e => {
+                  const otherId = e.target.value;
+                  if (!otherId) return;
+                  const otherName = mergeCandidates.find(m => m.id === otherId)?.name ?? "that person";
+                  const ok = await confirm({
+                    title: "Link as same person",
+                    message: `Merge ${person.name} into ${otherName}? The ${otherName} entry is kept, with any missing details filled in from ${person.name}.`,
+                    confirmText: "Merge",
+                    tone: "danger",
+                  });
+                  if (!ok) return;
+                  family.mergePersons(otherId, person.id);
+                  setMergeTreeId("");
+                  onClose();
+                }}
+                className={inputCls}
+              >
+                <option value="">
+                  {mergeCandidates.length > 0 ? "Select the same person…" : "No one in that tree"}
+                </option>
+                {mergeCandidates.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Section>
+        )}
       </div>
 
       <button

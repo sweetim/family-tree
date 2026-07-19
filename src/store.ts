@@ -318,6 +318,77 @@ function removeParentEdge(e: TreeEdges, childId: string, parentId: string): void
   else e.parents[childId] = next;
 }
 
+export function rewriteEdges(e: TreeEdges, keep: string, drop: string): TreeEdges {
+  const mapId = (id: string): string => (id === drop ? keep : id);
+  const members: string[] = [];
+  const seenMember = new Set<string>();
+  for (const m of e.members) {
+    const id = mapId(m);
+    if (!seenMember.has(id)) {
+      seenMember.add(id);
+      members.push(id);
+    }
+  }
+  const spouses: [string, string][] = [];
+  const seenPair = new Set<string>();
+  for (const [a, b] of e.spouses) {
+    const x = mapId(a);
+    const y = mapId(b);
+    if (x === y) continue;
+    const key = x < y ? `${x}:${y}` : `${y}:${x}`;
+    if (seenPair.has(key)) continue;
+    seenPair.add(key);
+    spouses.push([x, y]);
+  }
+  const parents: Record<string, ParentLink[]> = {};
+  for (const [cid, links] of Object.entries(e.parents)) {
+    const childId = mapId(cid);
+    const acc = parents[childId] ? [...parents[childId]!] : [];
+    for (const l of links) {
+      const pid = mapId(l.id);
+      if (pid === childId || acc.some(o => o.id === pid) || acc.length >= 2) continue;
+      acc.push({ id: pid, adopted: l.adopted });
+    }
+    if (acc.length) parents[childId] = acc;
+  }
+  return { members, spouses, parents };
+}
+
+export function propagateSurvivor(
+  trees: Record<string, TreeEdges>,
+  keepId: string,
+): Record<string, TreeEdges> {
+  const spouseIds = new Set<string>();
+  const parentIds = new Set<string>();
+  const childIds = new Set<string>();
+  for (const e of Object.values(trees)) {
+    for (const [a, b] of e.spouses) {
+      if (a === keepId) spouseIds.add(b);
+      else if (b === keepId) spouseIds.add(a);
+    }
+    for (const l of e.parents[keepId] ?? []) parentIds.add(l.id);
+    for (const [cid, links] of Object.entries(e.parents)) {
+      if (links.some(l => l.id === keepId)) childIds.add(cid);
+    }
+  }
+  for (const e of Object.values(trees)) {
+    if (!e.members.includes(keepId)) continue;
+    for (const sid of spouseIds) {
+      addMember(e, sid);
+      addSpouseEdge(e, keepId, sid);
+    }
+    for (const pid of parentIds) {
+      addMember(e, pid);
+      addParentEdge(e, keepId, pid);
+    }
+    for (const cid of childIds) {
+      addMember(e, cid);
+      addParentEdge(e, cid, keepId);
+    }
+  }
+  return trees;
+}
+
 // --- queries (pure, on a prev state) ---
 
 function treesWithMember(s: GlobalState, id: string, exclude?: string): string[] {
@@ -531,6 +602,31 @@ export function useFamily(treeId: string) {
     });
   }, []);
 
+  const mergePersons = useCallback((keepId: string, dropId: string) => {
+    update(prev => {
+      const keep = prev.persons[keepId];
+      const drop = prev.persons[dropId];
+      if (keepId === dropId || !keep || !drop) return prev;
+      const persons = { ...prev.persons };
+      persons[keepId] = {
+        id: keepId,
+        name: keep.name || drop.name,
+        dob: keep.dob ?? drop.dob,
+        dod: keep.dod ?? drop.dod,
+        gender: keep.gender ?? drop.gender,
+        location: keep.location ?? drop.location,
+        photo: keep.photo ?? drop.photo,
+      };
+      delete persons[dropId];
+      const trees: Record<string, TreeEdges> = {};
+      for (const [tid, e] of Object.entries(prev.trees)) {
+        trees[tid] = rewriteEdges(e, keepId, dropId);
+      }
+      propagateSurvivor(trees, keepId);
+      return { ...prev, persons, trees };
+    });
+  }, []);
+
   const linkSpouse = useCallback(
     (aId: string, bId: string) => {
       update(prev => {
@@ -707,6 +803,7 @@ export function useFamily(treeId: string) {
     addPerson,
     updatePerson,
     deletePerson,
+    mergePersons,
     linkSpouse,
     unlinkSpouse,
     addParent,
