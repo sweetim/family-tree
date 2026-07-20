@@ -2,7 +2,7 @@ import {
   addShare,
   listShares,
   removeShare,
-} from "../../../src/server/handlers/shares"
+} from "../../../src/server/handlers/shares.js"
 
 /**
  * Vercel Function for `/api/trees/:treeId/shares`. Owner-only CRUD on a

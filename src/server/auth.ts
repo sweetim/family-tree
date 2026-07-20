@@ -1,8 +1,8 @@
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { and, eq, isNull } from "drizzle-orm"
-import { getDB } from "../db"
-import { account, session, treeShares, user, verification } from "../db/schema"
+import { getDB } from "../db/index.js"
+import { account, session, treeShares, user, verification } from "../db/schema.js"
 
 /**
  * Better Auth instance: Google social provider + Drizzle adapter on Neon.

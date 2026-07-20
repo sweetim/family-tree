@@ -1,4 +1,4 @@
-import { getSync, postSync } from "../src/server/handlers/sync"
+import { getSync, postSync } from "../src/server/handlers/sync.js"
 
 /**
  * Vercel Function for `/api/sync`. Dispatches GET (pull) and POST (push) to

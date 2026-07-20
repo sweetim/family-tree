@@ -1,6 +1,6 @@
 import { and, eq, gt, inArray, isNull } from "drizzle-orm"
-import { getDB } from "../../db"
-import { persons, treeShares, trees, user } from "../../db/schema"
+import { getDB } from "../../db/index.js"
+import { persons, treeShares, trees, user } from "../../db/schema.js"
 import type {
   PersonWire,
   SyncPullResponse,
@@ -9,8 +9,8 @@ import type {
   TreeWire,
 } from "../../sync/types"
 import type { TreeEdges } from "../../types"
-import { canWrite, personRole, type Role, treeRole } from "../acl"
-import { getAuth } from "../auth"
+import { canWrite, personRole, type Role, treeRole } from "../acl.js"
+import { getAuth } from "../auth.js"
 
 export interface SessionUser {
   id: string

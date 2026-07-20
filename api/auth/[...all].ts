@@ -1,4 +1,4 @@
-import { handleAuth } from "../../src/server/auth"
+import { handleAuth } from "../../src/server/auth.js"
 
 /**
  * Vercel Function for Better Auth. Dispatches all `/api/auth/*` requests to
