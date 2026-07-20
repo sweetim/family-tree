@@ -55,7 +55,9 @@ export function AccountMenu() {
     return <div className="h-9 w-9 animate-pulse rounded-full bg-slate-200" />
   }
 
-  if (!session) {
+  // A malformed session payload (e.g. an HTML body served where JSON was
+  // expected) can be truthy yet lack a `user` — treat it as signed-out.
+  if (!session?.user) {
     return (
       <button
         type="button"
