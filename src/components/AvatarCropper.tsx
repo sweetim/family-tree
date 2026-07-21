@@ -202,7 +202,7 @@ export function AvatarCropper({ src, onConfirm, onCancel }: Props) {
             type="range"
             min={minScale}
             max={maxScale}
-            step={(maxScale - minScale) / 100}
+            step="any"
             value={scale}
             onChange={(event) => zoomTo(Number(event.target.value))}
             className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-slate-200 accent-cobalt-600"

@@ -122,16 +122,18 @@ function stampAndEnqueue(prev: GlobalState, next: GlobalState): GlobalState {
   const now = new Date().toISOString()
 
   // --- persons: ref-changed → upsert; removed → delete ---
+  // Every local mutation must refresh `updatedAt` so the change wins the
+  // server's last-write-wins comparison. Only re-stamping missing values
+  // would leave edits to already-synced records with a stale timestamp and
+  // the server would silently drop them.
   let persons = next.persons
   if (persons !== prev.persons) {
     const stamped: Record<string, PersonIdentity> = { ...persons }
     let changed = false
     for (const [id, p] of Object.entries(persons)) {
       if (p !== prev.persons[id]) {
-        if (!p.updatedAt) {
-          stamped[id] = { ...p, updatedAt: now }
-          changed = true
-        }
+        stamped[id] = { ...p, updatedAt: now }
+        changed = true
         dirtyPersons.set(id, "upsert")
       }
     }
@@ -155,12 +157,8 @@ function stampAndEnqueue(prev: GlobalState, next: GlobalState): GlobalState {
       const metaChanged = meta !== oldMeta
       if (metaChanged || edgesChanged) {
         dirtyTrees.set(meta.id, "upsert")
-        if (!meta.updatedAt) {
-          stamped[i] = { ...meta, updatedAt: now }
-          changed = true
-        } else {
-          stamped[i] = meta
-        }
+        stamped[i] = { ...meta, updatedAt: now }
+        changed = true
       } else {
         stamped[i] = meta
       }
