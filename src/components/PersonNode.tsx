@@ -47,9 +47,9 @@ function yearOf(iso: string): string {
 
 const hiddenHandle = "!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent"
 const addBtn =
-  "nodrag nopan pointer-events-auto z-10 flex h-7 w-7 items-center justify-center rounded-full bg-cobalt-600 text-base font-bold leading-none text-white shadow-soft transition-all duration-150 hover:bg-cobalt-500 opacity-0 scale-50 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-hover:scale-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:scale-100"
+  "nodrag nopan pointer-events-auto z-10 flex h-7 w-7 items-center justify-center rounded-full bg-cobalt-600 text-base font-bold leading-none text-white shadow-soft transition-all duration-150 hover:bg-cobalt-500 opacity-100 scale-100 md:opacity-0 md:scale-50 md:pointer-events-none md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-hover:scale-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:scale-100"
 const linkBtn =
-  "nodrag nopan pointer-events-auto z-10 flex h-7 w-7 items-center justify-center rounded-full border border-cobalt-300 bg-white text-xs leading-none text-cobalt-600 shadow-soft transition-all duration-150 hover:bg-cobalt-50 opacity-0 scale-50 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 group-hover:scale-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-focus-within:scale-100"
+  "nodrag nopan pointer-events-auto z-10 flex h-7 w-7 items-center justify-center rounded-full border border-cobalt-300 bg-white text-xs leading-none text-cobalt-600 shadow-soft transition-all duration-150 hover:bg-cobalt-50 opacity-100 scale-100 md:opacity-0 md:scale-50 md:pointer-events-none md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-hover:scale-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:scale-100"
 
 const CARD_BORDER: Record<string, string> = {
   source: "border-cobalt-500 ring-2 ring-cobalt-300",

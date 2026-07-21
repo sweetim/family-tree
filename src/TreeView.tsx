@@ -9,7 +9,7 @@ import {
   Panel,
   ReactFlow,
 } from "@xyflow/react"
-import { Crosshair, Link2, Maximize2, X } from "lucide-react"
+import { Crosshair, Link2, Maximize2, Menu, X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useConfirm } from "./components/Confirm"
 import { PersonNode } from "./components/PersonNode"
@@ -43,10 +43,14 @@ export function TreeView({
   )
   const [focusId, setFocusId] = useState<string>()
   const [link, setLink] = useState<{ kind: LinkKind; sourceId: string }>()
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   // Follow cross-tree jumps that land on this already-mounted tree.
   useEffect(() => {
-    if (openPersonId) setSidebar({ mode: "edit", personId: openPersonId })
+    if (openPersonId) {
+      setSidebar({ mode: "edit", personId: openPersonId })
+      setDrawerOpen(true)
+    }
   }, [openPersonId])
 
   const focusPerson = focusId ? family.people[focusId] : undefined
@@ -121,7 +125,10 @@ export function TreeView({
 
   const actions = useMemo<TreeActions>(
     () => ({
-      openAdd: (rel) => setSidebar({ mode: "add", rel }),
+      openAdd: (rel) => {
+        setSidebar({ mode: "add", rel })
+        setDrawerOpen(true)
+      },
       startLink: (kind, sourceId) => setLink({ kind, sourceId }),
       readOnly: family.readOnly,
     }),
@@ -151,6 +158,7 @@ export function TreeView({
       return
     }
     setSidebar({ mode: "edit", personId: node.id })
+    setDrawerOpen(true)
   }
 
   const onEdgeClick: EdgeMouseHandler<FlowEdge> = async (_e, edge) => {
@@ -215,24 +223,54 @@ export function TreeView({
       if (node.type === "person") family.deletePerson(node.id)
     }
     setSidebar({ mode: "idle" })
+    setDrawerOpen(false)
   }
 
   return (
     <TreeActionsContext.Provider value={actions}>
-      <div className="flex h-screen w-screen app-bg">
+      <div className="flex h-dvh w-full app-bg">
         <Sidebar
           family={family}
           treeId={tree.id}
           treeName={tree.name}
           allTrees={allTrees}
           state={sidebar}
-          onSelect={(id) => setSidebar({ mode: "edit", personId: id })}
-          onAddRoot={() => setSidebar({ mode: "add", rel: { kind: "root" } })}
-          onFocus={setFocusId}
-          onClose={() => setSidebar({ mode: "idle" })}
+          open={drawerOpen}
+          onSelect={(id) => {
+            setSidebar({ mode: "edit", personId: id })
+            setDrawerOpen(true)
+          }}
+          onAddRoot={() => {
+            setSidebar({ mode: "add", rel: { kind: "root" } })
+            setDrawerOpen(true)
+          }}
+          onFocus={(id) => {
+            setFocusId(id)
+            setDrawerOpen(false)
+          }}
+          onClose={() => {
+            setSidebar({ mode: "idle" })
+            setDrawerOpen(false)
+          }}
         />
 
-        <div className="min-w-0 flex-1">
+        {drawerOpen && (
+          <div
+            aria-hidden
+            className="fixed inset-0 z-30 bg-slate-900/30 backdrop-blur-sm md:hidden"
+            onClick={() => setDrawerOpen(false)}
+          />
+        )}
+
+        <div className="relative min-w-0 flex-1">
+          <button
+            aria-label="Open panel"
+            className="absolute left-3 top-3 z-20 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95 md:hidden"
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+          >
+            <Menu className="h-5 w-5" />
+          </button>
           <ReactFlow
             key={focusPerson?.id ?? "all"}
             nodes={nodes}
@@ -243,6 +281,7 @@ export function TreeView({
             onPaneClick={() => {
               setLink(undefined)
               setSidebar({ mode: "idle" })
+              setDrawerOpen(false)
             }}
             deleteKeyCode={family.readOnly ? [] : ["Delete", "Backspace"]}
             onBeforeDelete={onBeforeDelete}
@@ -262,12 +301,12 @@ export function TreeView({
             <MiniMap
               pannable
               zoomable
-              className="!bg-slate-100"
+              className="!bg-slate-100 hidden md:block"
             />
 
             {link && linkSource && (
               <Panel position="top-center">
-                <div className="flex items-center gap-3 rounded-full bg-emerald-600/85 py-1.5 pl-4 pr-1.5 text-sm text-white shadow-glass ring-1 ring-white/25 backdrop-blur-md">
+                <div className="flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-2xl bg-emerald-600/85 py-1.5 pl-4 pr-1.5 text-xs text-white shadow-glass ring-1 ring-white/25 backdrop-blur-md sm:flex-nowrap sm:rounded-full sm:text-sm">
                   <Link2 className="h-4 w-4 shrink-0" />
                   <span>
                     {linkEligible && linkEligible.size === 0 ? (
@@ -296,7 +335,7 @@ export function TreeView({
 
             {focusPerson && (
               <Panel position="top-center">
-                <div className="glass flex items-center gap-3 rounded-full py-1.5 pl-4 pr-1.5 text-sm text-white shadow-glass ring-1 ring-white/25">
+                <div className="glass flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-2xl py-1.5 pl-4 pr-1.5 text-xs text-white shadow-glass ring-1 ring-white/25 sm:flex-nowrap sm:rounded-full sm:text-sm">
                   <Crosshair className="h-4 w-4 shrink-0" />
                   <span>
                     Viewing <b>{focusPerson.name}</b>&rsquo;s family ·{" "}

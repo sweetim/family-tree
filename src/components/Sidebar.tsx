@@ -57,6 +57,7 @@ interface Props {
   treeName: string
   allTrees: TreeMeta[]
   state: SidebarState
+  open: boolean
   onSelect: (id: string) => void
   onAddRoot: () => void
   onFocus: (id: string) => void
@@ -907,6 +908,7 @@ export function Sidebar({
   treeName,
   allTrees,
   state,
+  open,
   onSelect,
   onAddRoot,
   onFocus,
@@ -953,7 +955,11 @@ export function Sidebar({
     state.mode === "edit" ? family.people[state.personId] : undefined
 
   return (
-    <aside className="flex h-full w-80 shrink-0 flex-col border-r border-slate-200 bg-white/70 backdrop-blur-sm">
+    <aside
+      className={`flex h-full w-[88vw] max-w-sm shrink-0 flex-col border-r border-slate-200 bg-white/95 backdrop-blur-sm transition-transform duration-200 fixed inset-y-0 left-0 z-40 md:static md:w-80 md:max-w-none md:translate-x-0 ${
+        open ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
       <div className="border-b border-slate-200 px-5 py-4">
         <div className="flex items-center gap-1.5">
           <Link

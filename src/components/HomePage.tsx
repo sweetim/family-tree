@@ -196,8 +196,8 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
   }
 
   return (
-    <div className="app-bg min-h-screen w-full">
-      <div className="mx-auto max-w-4xl px-6 py-12">
+    <div className="app-bg min-h-dvh w-full">
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
         <header className="mb-8 flex items-center gap-3">
           <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-cobalt-600 text-white shadow-soft">
             <Network className="h-6 w-6" />
@@ -215,7 +215,7 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
 
         <form
           onSubmit={handleCreate}
-          className="mb-10 flex gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-soft"
+          className="mb-10 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-soft sm:flex-row"
         >
           <input
             value={name}
@@ -226,7 +226,7 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
           <button
             type="submit"
             disabled={!name.trim()}
-            className={`${primaryBtn} shrink-0`}
+            className={`${primaryBtn} w-full shrink-0 sm:w-auto`}
           >
             <Plus className="h-4 w-4" /> Create tree
           </button>
