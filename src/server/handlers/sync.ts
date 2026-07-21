@@ -140,11 +140,11 @@ export async function postSync(request: Request): Promise<Response> {
   // --- persons ---
   for (const w of body.persons ?? []) {
     const role = await personRole(db, me.id, w.id)
-    // Allow if user can write OR (no existing row + user is claiming ownership).
+    // Allow if user can write OR (no existing row — requester becomes owner).
     const existing = await db.query.persons.findFirst({
       where: eq(persons.id, w.id),
     })
-    if (!existing && w.ownerId && w.ownerId === me.id && !w.deletedAt) {
+    if (!existing && !w.deletedAt) {
       await db
         .insert(persons)
         .values({
