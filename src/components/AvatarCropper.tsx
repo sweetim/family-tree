@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { createPortal } from "react-dom"
 import { cropToAvatar } from "../lib/image"
 
 const CROP_SIZE = 264
@@ -134,7 +135,12 @@ export function AvatarCropper({ src, onConfirm, onCancel }: Props) {
     onConfirm(cropToAvatar(img, sourceX, sourceY, sourceSize))
   }
 
-  return (
+  // Render through a portal so the cropper's <form> is not nested inside
+  // the sidebar's AddForm/EditForm <form> (which would make "Apply" submit
+  // the outer form and reload the page), and so the fixed overlay escapes
+  // the sidebar's transform containing block.
+  if (typeof document === "undefined") return null
+  return createPortal(
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a convenience; Escape cancels (handled below)
     // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close is via the Escape listener in the effect above
     <div
@@ -220,7 +226,8 @@ export function AvatarCropper({ src, onConfirm, onCancel }: Props) {
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
