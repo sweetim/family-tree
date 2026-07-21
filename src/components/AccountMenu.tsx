@@ -1,46 +1,15 @@
-import {
-  ChevronDown,
-  LogOut,
-  RefreshCw,
-  User,
-  Wifi,
-  WifiOff,
-} from "lucide-react"
+import { ChevronDown, LogOut, User } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { authClient, useSession } from "../lib/auth-client"
-import { getSyncEngine, type SyncStatus } from "../sync/engine"
-
-const STATUS_META: Record<
-  SyncStatus,
-  { label: string; dot: string; Icon: typeof Wifi }
-> = {
-  idle: { label: "Local only", dot: "bg-slate-300", Icon: Wifi },
-  syncing: {
-    label: "Syncing…",
-    dot: "bg-cobalt-500 animate-pulse",
-    Icon: RefreshCw,
-  },
-  synced: { label: "Synced", dot: "bg-emerald-500", Icon: Wifi },
-  offline: { label: "Offline", dot: "bg-amber-500", Icon: WifiOff },
-  error: { label: "Sync error", dot: "bg-red-500", Icon: WifiOff },
-}
 
 /**
  * Account menu — Sign in with Google when signed out, an avatar dropdown when
- * signed in. Anonymous use of the app stays fully functional; this only adds
- * an opt-in identity for sync + sharing. The avatar carries a sync status pill
- * (synced / syncing / offline / error / local-only).
+ * signed in. Sign-in is required to view trees; this is the entry point.
  */
 export function AccountMenu() {
   const { data: session, isPending } = useSession()
   const [open, setOpen] = useState(false)
-  const [status, setStatus] = useState<SyncStatus>("idle")
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const engine = getSyncEngine()
-    return engine.subscribe(setStatus)
-  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -71,7 +40,6 @@ export function AccountMenu() {
   }
 
   const initial = session.user.name?.[0]?.toUpperCase() ?? "?"
-  const meta = STATUS_META[status]
 
   return (
     <div
@@ -81,7 +49,6 @@ export function AccountMenu() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title={meta.label}
         className="inline-flex items-center gap-2 rounded-full bg-white py-1 pl-1 pr-2 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
       >
         <span className="relative inline-block">
@@ -97,9 +64,6 @@ export function AccountMenu() {
               {initial}
             </span>
           )}
-          <span
-            className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full ring-2 ring-white ${meta.dot}`}
-          />
         </span>
         <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
       </button>
@@ -119,24 +83,6 @@ export function AccountMenu() {
               </p>
             </div>
           </div>
-          <div className="mx-1.5 mb-1 flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            <span className={`h-2 w-2 rounded-full ${meta.dot}`} />
-            <span className="font-medium">{meta.label}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false)
-              void getSyncEngine().syncNow()
-            }}
-            disabled={status === "syncing"}
-            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${status === "syncing" ? "animate-spin" : ""}`}
-            />
-            Sync now
-          </button>
           <button
             type="button"
             onClick={() => {

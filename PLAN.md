@@ -1,11 +1,20 @@
-# Family Tree → Google Auth + Cloud Storage + Sharing (static SPA + Vercel Functions)
+# Family Tree → Google Auth + Cloud Storage + Sharing (Next.js + Vercel Functions)
+
+> **Status update (cloud-only):** the original plan below described a local-first
+> app that stayed usable offline/anonymously with `localStorage` + cloud sync.
+> That was later reversed — the app is now **cloud-only**. Sign-in is required,
+> there is no `localStorage` persistence, no offline/anonymous mode, and no
+> background sync engine. The client fetches the user's data from `/api/sync`
+> on sign-in and POSTs each mutation immediately. The bullets and sections
+> below have been updated to match; the early "Context" paragraph is left as a
+> historical description of the starting point.
 
 ## Context
 
 The app today is a static, backend-less Bun SPA: all data lives in one localStorage blob (`family-graph-v1`), there is no user concept, and Vercel serves prebuilt `dist/` files. The goal is **Google sign-in**, **cloud storage**, and **per-tree sharing** (a tree is visible only to its owner and people explicitly added as shared persons). Per user decisions:
 
 - **No framework migration** — keep the Bun-built static SPA; add serverless **Vercel Functions** in an `api/` directory for auth + sync. Vercel serves `api/*` functions before applying the SPA rewrite, so `vercel.json` needs no change beyond what exists.
-- The app stays usable **offline/anonymously with local + cloud sync** (not cloud-only).
+- The app is **cloud-only**: sign-in is required, data lives in Neon Postgres, and there is no offline/anonymous mode and no local persistence.
 - Sharing has **viewer + editor roles**.
 
 ## Technology choices (proposed)
@@ -16,7 +25,7 @@ The app today is a static, backend-less Bun SPA: all data lives in one localStor
 | Auth | **Better Auth** with Google social provider | Framework-agnostic (NextAuth is Next-centric); exposes one fetch handler mounted at `/api/auth/*`, a typed React client (`authClient.signIn.social`), cookie sessions, and manages its own `user`/`session`/`account` tables via Drizzle adapter — we reuse its `user` table instead of rolling our own. |
 | Storage | **Neon Postgres (Vercel Marketplace) + Drizzle ORM** | The ACL ("persons visible to X = members of trees shared with X") is relational. Neon provisions from the Vercel dashboard with env vars auto-injected; the serverless HTTP driver fits functions. Drizzle is TS-first and matches repo conventions (`type` over `interface`). Supabase would duplicate auth; KV/Blob can't do the joins; Mongo adds a second vendor. |
 | Photos | **Keep inline data-URLs** in `persons.photo` (already client-downscaled, tens of KB) | Per-row sync uploads a photo once. Vercel Blob deferred as a later optimization. |
-| Sync | **Per-record last-write-wins** by `updatedAt` (persons + trees), debounced push + periodic pull | Concurrent same-record edits are rare for a family app; 60s pull bounds divergence. No CRDTs/websockets/version counters. |
+| Sync | **Per-record last-write-wins** by `updatedAt` (persons + trees); client pulls once on sign-in and POSTs each mutation immediately | Concurrent same-record edits are rare for a family app. No CRDTs/websockets/version counters, no background engine, no offline queue. |
 
 ## Phase 1 — Auth (Better Auth + Neon bootstrap)
 
@@ -50,14 +59,15 @@ Tree edges stay one JSONB blob (small, internally consistent); persons are per-r
   - `POST` — batch upserts carrying client `updatedAt`; server authorizes per record (owner, or editor on a containing tree), applies iff incoming `updatedAt` > row's (LWW), returns applied/skipped ids so the client pulls back newer-on-server records.
 - Same handlers mounted in `src/index.ts` for `bun dev`.
 
-### Client sync layer (the store is the seam)
+### Client data layer (the store is the seam)
 
-- Add `updatedAt` to `PersonIdentity`/`TreeMeta` (`src/types.ts`); additive local migration in `loadGlobal` (existing pattern, same storage key).
-- `update()` in `src/store.ts`: after persist, reference-equality diff of prev/next stamps `updatedAt` on changed records and enqueues dirty ids (`family-sync-queue-v1`) — the ~800 lines of mutators stay untouched.
-- New `src/sync/engine.ts`, started from `App.tsx` when a session exists: debounced push (~2s), pull on start / `visibilitychange` / 60s interval; pulled records merge via new `applyRemote()` store entry point (newer-`updatedAt` wins, not re-enqueued).
-- First login: server empty + local data → push all; both non-empty → union by id with LWW (UUID ids, no collisions). Signed out → engine never starts, app behaves exactly as today.
+- Add `updatedAt` to `PersonIdentity`/`TreeMeta` (`src/types.ts`); the wire types live in `src/sync/types.ts`.
+- The store (`src/store.ts`) holds state **in memory only** (no `localStorage`). It starts empty on every page load.
+- `update()` in `src/store.ts`: after applying a local mutation, it stamps `updatedAt` on changed records (ref-equality diff), enqueues them in an in-memory dirty map, and fires a `POST /api/sync` with the diff (clearing the dirty map on success). The ~800 lines of mutators stay untouched.
+- `applyRemote()` merges a server pull (newer `updatedAt` wins, tombstones remove). Used only by the initial pull below.
+- `Providers` (`src/app/providers.tsx`) runs a `ServerDataBootstrap` effect: when a session arrives it does one `GET /api/sync?since=epoch`, calls `applyRemote`, and flips a `hydrated` flag; on sign-out it clears the in-memory store. `useHydrated()` lets pages show a loading state before the first pull completes.
 
-**Verify:** `bun test` unit tests for diff/enqueue, LWW merge, first-login union; manual: two browsers with one account converge; airplane-mode edits flush on reconnect; anonymous mode unchanged.
+**Verify:** `bun test` unit tests for LWW merge via `applyRemote`; manual: two browsers with one account converge after refresh; sign-out clears the previous user's data.
 
 ## Phase 3 — Sharing
 
@@ -72,8 +82,7 @@ Tree edges stay one JSONB blob (small, internally consistent); persons are per-r
 
 ## Phase 4 — Polish / suggested additions
 
-- Sync status pill (synced / syncing / offline / error) in AccountMenu.
-- JSON export/import unchanged (still works offline — keeps a user-owned backup path).
+- JSON export/import unchanged (a user-owned backup path).
 - Tombstone purge after 30 days (Vercel cron) — optional.
 - Later candidates (out of scope): photos → Vercel Blob, invite emails via Resend, share-links with tokens, realtime updates.
 
@@ -88,9 +97,8 @@ Tree edges stay one JSONB blob (small, internally consistent); persons are per-r
 
 ## Critical files
 
-- `src/store.ts` — sync seam (`update()`), `applyRemote`, `updatedAt` stamping
+- `src/store.ts` — in-memory store, the sync seam (`update()` stamps + POSTs; `applyRemote` for pulls), `useHydrated`
 - `src/types.ts` — `updatedAt`, share metadata on `TreeMeta`
-- `src/index.ts` — Bun dev server mounts the same auth/sync handlers locally
-- `api/` (new) — `auth/[...all].ts`, `sync.ts`, `trees/[treeId]/shares.ts`
-- `src/db/`, `src/server/` (new) — schema, db client, auth instance, ACL
-- `src/components/HomePage.tsx` — Share button, shared-with-me section, AccountMenu mount
+- `src/app/providers.tsx` — `ServerDataBootstrap` pulls once on sign-in, clears on sign-out
+- `src/app/api/` — `auth/[...all]`, `sync`, `trees/[treeId]/shares`
+- `src/db/`, `src/server/` — schema, db client, auth instance, ACL

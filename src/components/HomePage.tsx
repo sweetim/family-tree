@@ -8,13 +8,15 @@ import {
   Trash2,
   Users,
 } from "lucide-react"
-import { type FormEvent, useMemo, useState } from "react"
+import { type FormEvent, type ReactNode, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import { authClient, useSession } from "../lib/auth-client"
 import {
   countMembers,
   seedData,
   type TreeIndexStore,
   type TreeMeta,
+  useHydrated,
 } from "../store"
 import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
@@ -172,6 +174,8 @@ function SharedTreeCard({
 }
 
 export function HomePage({ index }: { index: TreeIndexStore }) {
+  const { data: session, isPending } = useSession()
+  const hydrated = useHydrated()
   const { trees, createTree, renameTree, deleteTree } = index
   const [name, setName] = useState("")
   const [shareTarget, setShareTarget] = useState<TreeMeta | null>(null)
@@ -195,24 +199,34 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
     navigate(`/tree/${createTree(trimmed)}`)
   }
 
-  return (
-    <div className="app-bg min-h-dvh w-full">
-      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
-        <header className="mb-8 flex items-center gap-3">
-          <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-cobalt-600 text-white shadow-soft">
-            <Network className="h-6 w-6" />
-          </span>
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-800">
-              Family Trees
-            </h1>
-            <p className="mt-0.5 text-sm text-slate-500">
-              Create a new family tree or open an existing one.
-            </p>
-          </div>
-          <AccountMenu />
-        </header>
-
+  let body: ReactNode
+  if (isPending || !hydrated) {
+    body = (
+      <p className="rounded-2xl border border-slate-200 bg-white/60 p-10 text-center text-sm text-slate-500 shadow-soft">
+        Loading…
+      </p>
+    )
+  } else if (!session?.user) {
+    body = (
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-10 text-center shadow-soft">
+        <p className="text-sm font-medium text-slate-600">
+          Sign in to view your family trees
+        </p>
+        <p className="mt-1 text-xs text-slate-400">
+          Trees are stored in your account. Sign in to create or open one.
+        </p>
+        <button
+          type="button"
+          onClick={() => authClient.signIn.social({ provider: "google" })}
+          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-cobalt-600 shadow-soft ring-1 ring-cobalt-200 transition-all hover:bg-cobalt-50 active:scale-95"
+        >
+          Sign in with Google
+        </button>
+      </div>
+    )
+  } else {
+    body = (
+      <>
         <form
           onSubmit={handleCreate}
           className="mb-10 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-soft sm:flex-row"
@@ -299,6 +313,29 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
             onClose={() => setShareTarget(null)}
           />
         )}
+      </>
+    )
+  }
+
+  return (
+    <div className="app-bg min-h-dvh w-full">
+      <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
+        <header className="mb-8 flex items-center gap-3">
+          <span className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-cobalt-600 text-white shadow-soft">
+            <Network className="h-6 w-6" />
+          </span>
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-800">
+              Family Trees
+            </h1>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Create a new family tree or open an existing one.
+            </p>
+          </div>
+          <AccountMenu />
+        </header>
+
+        {body}
       </div>
     </div>
   )

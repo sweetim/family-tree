@@ -1,10 +1,8 @@
 "use client"
 
 import { useParams, usePathname, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
 import { authClient, useSession } from "@/lib/auth-client"
-import { useTreeIndex } from "@/store"
-import { getSyncEngine, type SyncStatus } from "@/sync/engine"
+import { useHydrated, useTreeIndex } from "@/store"
 import { TreeView } from "@/TreeView"
 
 export default function TreePage() {
@@ -24,19 +22,14 @@ export default function TreePage() {
 }
 
 /**
- * Shown when the tree id isn't in the local store. A signed-out visitor may
- * have access once they authenticate; a signed-in visitor whose sync has
- * finished simply doesn't have the tree.
+ * Shown when the tree id isn't loaded. A signed-out visitor may have access
+ * once they authenticate; a signed-in visitor whose initial pull has finished
+ * simply doesn't have the tree.
  */
 function TreeNotFound() {
   const { data: session, isPending } = useSession()
-  const [status, setStatus] = useState<SyncStatus>("idle")
+  const hydrated = useHydrated()
   const pathname = usePathname()
-
-  useEffect(() => {
-    const engine = getSyncEngine()
-    return engine.subscribe(setStatus)
-  }, [])
 
   if (isPending) return null
 
@@ -66,8 +59,7 @@ function TreeNotFound() {
     )
   }
 
-  // Signed in: if sync hasn't completed yet, the tree may still arrive.
-  if (status === "idle" || status === "syncing") {
+  if (!hydrated) {
     return (
       <CenteredCard>
         <p className="text-sm text-slate-500">Loading…</p>

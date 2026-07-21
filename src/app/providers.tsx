@@ -1,30 +1,64 @@
 "use client"
 
-import { type ReactNode, useEffect, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { ConfirmProvider } from "@/components/Confirm"
 import { ToastProvider } from "@/components/Toast"
 import { useSession } from "@/lib/auth-client"
-import { getSyncEngine } from "@/sync/engine"
+import { applyRemote, resetStore, setHydrated } from "@/store"
+import type { SyncPullResponse } from "@/sync/types"
+
+const EPOCH = "1970-01-01T00:00:00.000Z"
 
 /**
- * Starts/stops the sync engine with the session lifecycle. Rendered once
+ * Hydrates the in-memory store from the server when a session is present, and
+ * clears it on sign-out so a previous user's data does not leak. Rendered once
  * inside Providers so it only runs after mount (client-only).
  */
-function SyncEngineBootstrap() {
+function ServerDataBootstrap() {
   const { data: session } = useSession()
+  const userId = session?.user?.id ?? null
+  const prevId = useRef<string | null>(null)
+
   useEffect(() => {
-    if (!session) return
-    const engine = getSyncEngine()
-    engine.start()
-    return () => engine.stop()
-  }, [session])
+    if (!userId) {
+      if (prevId.current !== null) resetStore()
+      prevId.current = null
+      return
+    }
+    prevId.current = userId
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/sync?since=${encodeURIComponent(EPOCH)}`, {
+          credentials: "include",
+        })
+        if (!res.ok) return
+        const data = (await res.json()) as SyncPullResponse
+        if (cancelled) return
+        applyRemote({ persons: data.own.persons, trees: data.own.trees })
+        for (const shared of data.shared) {
+          applyRemote({ persons: shared.persons, trees: [shared.tree] })
+        }
+        setHydrated(true)
+      } catch (err) {
+        console.error("initial sync pull failed", err)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [userId])
+
   return null
 }
 
 /**
- * App-wide providers + sync bootstrap. Renders nothing until mounted on the
- * client: the store is localStorage-backed (no meaningful SSR output), and
- * gating here avoids hydration mismatches across all pages in one place.
+ * App-wide providers + server-data bootstrap. Renders nothing until mounted on
+ * the client: the store fetches from the server at runtime (no meaningful SSR
+ * output), and gating here avoids hydration mismatches across all pages in one
+ * place.
  */
 export function Providers({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false)
@@ -35,7 +69,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <ToastProvider>
       <ConfirmProvider>
-        <SyncEngineBootstrap />
+        <ServerDataBootstrap />
         {children}
       </ConfirmProvider>
     </ToastProvider>

@@ -5,10 +5,10 @@ date of birth, location and a photo, and see them laid out automatically as a
 tree.
 
 Built with **Next.js (App Router) + React 19 + Tailwind CSS v4 + React Flow
-(@xyflow/react)**, auto-layout by **dagre**. Data is persisted in the browser's
-localStorage; photos are downscaled client-side before being stored.
-Export/Import lets you back up or share a tree as JSON. Sign in with Google
-(Better Auth) enables cloud sync and per-tree sharing via Neon Postgres.
+(@xyflow/react)**, auto-layout by **dagre**. Sign in with Google (Better Auth)
+is required — trees are stored in Neon Postgres and per-tree sharing
+(viewer + editor roles) is built in. Photos are downscaled client-side before
+upload. Export/Import lets you back up or share a tree as JSON.
 
 ## Development
 

@@ -1,59 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import type * as Store from "./store"
 import type { TreeEdges } from "./types"
-
-/** Minimal in-memory Storage so the store (which reads localStorage at load) works under Bun. */
-function makeLocalStorage(): Storage {
-  const store = new Map<string, string>()
-  return {
-    getItem: (k: string) => store.get(k) ?? null,
-    setItem: (k: string, v: string) => {
-      store.set(k, v)
-    },
-    removeItem: (k: string) => {
-      store.delete(k)
-    },
-    clear: () => store.clear(),
-    key: (i: number) => [...store.keys()][i] ?? null,
-    get length() {
-      return store.size
-    },
-  } as unknown as Storage
-}
-
-// IMPORTANT: the migration test runs first. The store builds its graph once,
-// on first import, so the legacy keys must be in place before that import.
-describe("store migration", () => {
-  test("migrates legacy per-tree data into a single global graph", async () => {
-    const ls = makeLocalStorage()
-    ls.setItem(
-      "family-trees-index",
-      JSON.stringify([{ id: "ho", name: "Ho Family", createdAt: "x" }]),
-    )
-    ls.setItem(
-      "family-tree-v2:ho",
-      JSON.stringify({
-        tim: { id: "tim", name: "Tim", parents: [], spouseIds: ["yumi"] },
-        yumi: { id: "yumi", name: "Yumi", parents: [], spouseIds: ["tim"] },
-      }),
-    )
-    ;(globalThis as unknown as { localStorage: Storage }).localStorage = ls
-
-    const { countMembers } = await import("./store")
-
-    const graph = JSON.parse(ls.getItem("family-graph-v1")!)
-    expect(graph.index[0].id).toBe("ho")
-    expect(graph.trees.ho.members.sort()).toEqual(["tim", "yumi"])
-    expect(graph.trees.ho.spouses).toEqual([["tim", "yumi"]])
-    expect(graph.persons.tim.name).toBe("Tim")
-    expect(countMembers("ho")).toBe(2)
-  })
-})
 
 describe("store helpers", () => {
   test("normalizeImport converts v1 and passes v2 through", async () => {
-    ;(globalThis as unknown as { localStorage: Storage }).localStorage =
-      makeLocalStorage()
     const { normalizeImport } = await import("./store")
 
     const v1 = {
@@ -71,8 +20,6 @@ describe("store helpers", () => {
   })
 
   test("seedData yields members, spouses, and parent edges", async () => {
-    ;(globalThis as unknown as { localStorage: Storage }).localStorage =
-      makeLocalStorage()
     const { seedData } = await import("./store")
     const seed = seedData()
     expect(seed.edges.members).toHaveLength(5)
@@ -81,8 +28,6 @@ describe("store helpers", () => {
   })
 
   test("rewriteEdges remaps a dropped id onto the kept id, deduping edges", async () => {
-    ;(globalThis as unknown as { localStorage: Storage }).localStorage =
-      makeLocalStorage()
     const { rewriteEdges } = await import("./store")
 
     const e: TreeEdges = {
@@ -106,8 +51,6 @@ describe("store helpers", () => {
   })
 
   test("rewriteEdges drops self-links and caps parents at two", async () => {
-    ;(globalThis as unknown as { localStorage: Storage }).localStorage =
-      makeLocalStorage()
     const { rewriteEdges } = await import("./store")
 
     const e: TreeEdges = {
@@ -124,8 +67,6 @@ describe("store helpers", () => {
   })
 
   test("propagateSurvivor mirrors a person's relatives into every tree they belong to", async () => {
-    ;(globalThis as unknown as { localStorage: Storage }).localStorage =
-      makeLocalStorage()
     const { propagateSurvivor } = await import("./store")
 
     const trees: Record<string, TreeEdges> = {
@@ -153,132 +94,68 @@ describe("store helpers", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Sync seam: dirty diff, LWW merge, first-login union.
-// Each test gets a fresh localStorage so the module-level store starts empty.
+// applyRemote LWW merge. Each test resets the in-memory store via resetStore.
 // ---------------------------------------------------------------------------
 
 async function freshStore() {
-  const ls = makeLocalStorage()
-  ;(globalThis as unknown as { localStorage: Storage }).localStorage = ls
   const store = await import("./store")
-  store.resetFromStorageForTest()
-  return { store, ls }
+  store.resetStore()
+  return store
 }
 
-/** Seed a person via the local mutation path (the same path React mutators use). */
-function addPersonViaMutate(
-  store: typeof Store,
-  id: string,
-  name: string,
-): void {
-  store.mutate((prev) => ({
-    ...prev,
-    persons: { ...prev.persons, [id]: { id, name } },
-  }))
-}
-
-describe("sync seam — dirty diff + stamping", () => {
-  test("a local mutation stamps updatedAt and enqueues an upsert", async () => {
-    const { store } = await freshStore()
-    addPersonViaMutate(store, "p1", "Ada")
-
-    const snap = store.snapshotDirty()
-    expect(snap.persons.get("p1")).toBe("upsert")
-    expect(store.getSnapshot().persons.p1!.updatedAt).toBeTruthy()
-  })
-
-  test("deleting a person enqueues a delete tombstone", async () => {
-    const { store } = await freshStore()
-    // Seed remote so it doesn't enqueue; then delete via local path.
-    store.applyRemote({
-      persons: [
-        { id: "p1", name: "Ada", updatedAt: "2024-01-01T00:00:00.000Z" },
-      ],
-    })
-    // The seed leaves the queue empty
-    expect([...store.snapshotDirty().persons.keys()]).toEqual([])
-
-    store.mutate((prev) => {
-      const persons = { ...prev.persons }
-      delete persons.p1
-      return { ...prev, persons }
-    })
-
-    expect(store.snapshotDirty().persons.get("p1")).toBe("delete")
-  })
-})
-
-describe("sync seam — applyRemote LWW merge", () => {
+describe("applyRemote LWW merge", () => {
   test("newer remote overwrites local; older is ignored", async () => {
-    const { store } = await freshStore()
-    addPersonViaMutate(store, "p1", "Local")
-    const local = store.getSnapshot().persons.p1!
-    const newer = new Date(Date.parse(local.updatedAt!) + 1000).toISOString()
-    const older = new Date(Date.parse(local.updatedAt!) - 1000).toISOString()
+    const store = await freshStore()
+    const t1 = "2024-01-01T00:00:00.000Z"
+    store.applyRemote({
+      persons: [{ id: "p1", name: "Local", updatedAt: t1 }],
+    })
 
     store.applyRemote({
-      persons: [{ id: "p1", name: "Stale", updatedAt: older }],
+      persons: [{ id: "p1", name: "Stale", updatedAt: "2023-01-01T00:00:00.000Z" }],
     })
     expect(store.getSnapshot().persons.p1!.name).toBe("Local")
 
     store.applyRemote({
-      persons: [{ id: "p1", name: "Fresh", updatedAt: newer }],
+      persons: [{ id: "p1", name: "Fresh", updatedAt: "2025-01-01T00:00:00.000Z" }],
     })
     expect(store.getSnapshot().persons.p1!.name).toBe("Fresh")
   })
 
   test("remote tombstone removes the local record", async () => {
-    const { store } = await freshStore()
-    addPersonViaMutate(store, "p1", "Ghost")
-
+    const store = await freshStore()
     store.applyRemote({
       persons: [
-        {
-          id: "p1",
-          name: "",
-          updatedAt: new Date().toISOString(),
-          deletedAt: new Date().toISOString(),
-        },
+        { id: "p1", name: "Ghost", updatedAt: "2024-01-01T00:00:00.000Z" },
+      ],
+    })
+
+    const now = new Date().toISOString()
+    store.applyRemote({
+      persons: [
+        { id: "p1", name: "", updatedAt: now, deletedAt: now },
       ],
     })
     expect(store.getSnapshot().persons.p1).toBeUndefined()
   })
 
   test("applyRemote does not enqueue dirty ids", async () => {
-    const { store } = await freshStore()
-    addPersonViaMutate(store, "p1", "P") // enqueues p1 as upsert
-    store.clearDirty({ persons: ["p1"] })
+    const store = await freshStore()
+    store.applyRemote({
+      persons: [{ id: "p1", name: "P", updatedAt: "2024-01-01T00:00:00.000Z" }],
+    })
+    // Seeding via the remote path leaves the dirty queue empty.
+    expect([...store.snapshotDirty().persons.keys()]).toEqual([])
 
     store.applyRemote({
       persons: [
         {
           id: "p1",
           name: "Updated",
-          updatedAt: new Date(Date.now() + 10_000).toISOString(),
+          updatedAt: "2025-01-01T00:00:00.000Z",
         },
       ],
     })
     expect([...store.snapshotDirty().persons.keys()]).not.toContain("p1")
-  })
-})
-
-describe("sync seam — first-login union (markAllDirty)", () => {
-  test("markAllDirty enqueues every existing record as upsert + stamps updatedAt", async () => {
-    const { store, ls } = await freshStore()
-    addPersonViaMutate(store, "p1", "P")
-
-    store.clearDirty({ persons: ["p1"] })
-    store.markAllDirty()
-
-    const snap = store.snapshotDirty()
-    expect(snap.persons.size).toBe(1)
-    expect(snap.persons.get("p1")).toBe("upsert")
-
-    for (const p of Object.values(store.getSnapshot().persons)) {
-      expect(p.updatedAt).toBeTruthy()
-    }
-
-    const persisted = JSON.parse(ls.getItem("family-sync-queue-v1")!)
-    expect(persisted.persons.length).toBe(1)
   })
 })

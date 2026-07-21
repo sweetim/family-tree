@@ -12,17 +12,6 @@ import {
   type TreeEdges,
 } from "./types"
 
-const GRAPH_KEY = "family-graph-v1"
-/** Pre-global keys: per-tree data + a tree index, plus single-tree legacies. */
-const LEGACY_INDEX_KEY = "family-trees-index"
-const LEGACY_TREE_PREFIX = "family-tree-v2:"
-const LEGACY_V2_KEY = "family-tree-v2"
-const LEGACY_V1_KEY = "family-tree-v1"
-
-/** Sync dirty-queue + last-pull timestamp (only present once sync has run). */
-const SYNC_QUEUE_KEY = "family-sync-queue-v1"
-const SYNC_LAST_PULL_KEY = "family-sync-last-pull-v1"
-
 export type ShareRole = "viewer" | "editor"
 export type LocalRole = "owner" | ShareRole
 
@@ -47,15 +36,6 @@ export interface GlobalState {
   /** Per-tree relationship edges, keyed by tree id. */
   trees: Record<string, TreeEdges>
   index: TreeMeta[]
-}
-
-/**
- * Exposed for the sync engine + tests. Component code goes through the React
- * hooks; this is the underlying local-mutation entry point that stamps
- * `updatedAt` and enqueues dirty ids.
- */
-export function mutate(updater: (prev: GlobalState) => GlobalState): void {
-  update(updater)
 }
 
 function newId(): string {
@@ -96,263 +76,24 @@ export function normalizeImport(data: Record<string, any>): FamilyData {
 }
 
 // ---------------------------------------------------------------------------
-// One-time migration from the pre-global per-tree storage into a single graph.
-// Persons that were cross-linked across trees are merged into one identity.
-// ---------------------------------------------------------------------------
-
-function readLegacyTree(treeId: string): FamilyData | null {
-  try {
-    const raw = localStorage.getItem(LEGACY_TREE_PREFIX + treeId)
-    if (raw) return normalizeImport(JSON.parse(raw))
-  } catch (err) {
-    console.error("Failed to read legacy tree", err)
-  }
-  return null
-}
-
-function legacyTreeToGlobal(
-  index: TreeMeta[],
-  perTree: Record<string, FamilyData>,
-): GlobalState {
-  // Union-find over person ids: a legacy `links` entry marks two ids (in
-  // different trees) as the same person, so they collapse to one identity.
-  const parent = new Map<string, string>()
-  const find = (x: string): string => {
-    let cur = x
-    while (parent.get(cur) && parent.get(cur) !== cur) cur = parent.get(cur)!
-    let n = x
-    while (parent.get(n) && parent.get(n) !== cur) {
-      const nxt = parent.get(n)!
-      parent.set(n, cur)
-      n = nxt
-    }
-    return cur
-  }
-  const ensure = (x: string) => {
-    if (!parent.has(x)) parent.set(x, x)
-  }
-  const union = (a: string, b: string) => {
-    ensure(a)
-    ensure(b)
-    const ra = find(a)
-    const rb = find(b)
-    if (ra !== rb) parent.set(ra, rb)
-  }
-
-  const rawIdent: Record<string, PersonIdentity> = {}
-  const mergeInto = (
-    dst: PersonIdentity,
-    src: PersonIdentity,
-  ): PersonIdentity => ({
-    id: dst.id,
-    name: dst.name || src.name,
-    dob: dst.dob ?? src.dob,
-    dod: dst.dod ?? src.dod,
-    gender: dst.gender ?? src.gender,
-    location: dst.location ?? src.location,
-    photo: dst.photo ?? src.photo,
-  })
-
-  for (const data of Object.values(perTree)) {
-    for (const p of Object.values(data)) {
-      const ident: PersonIdentity = {
-        id: p.id,
-        name: p.name,
-        dob: p.dob,
-        dod: p.dod,
-        gender: p.gender,
-        location: p.location,
-        photo: p.photo,
-      }
-      rawIdent[p.id] = rawIdent[p.id]
-        ? mergeInto(rawIdent[p.id]!, ident)
-        : ident
-      for (const link of (p as { links?: { personId: string }[] }).links
-        ?? []) {
-        union(p.id, link.personId)
-      }
-    }
-  }
-
-  const persons: Record<string, PersonIdentity> = {}
-  for (const id of Object.keys(rawIdent)) {
-    const root = find(id)
-    const src = rawIdent[id]!
-    persons[root] = persons[root]
-      ? mergeInto(persons[root]!, { ...src, id: root })
-      : { ...src, id: root }
-  }
-  const rootOf = (id: string) => {
-    ensure(id)
-    return find(id)
-  }
-
-  const trees: Record<string, TreeEdges> = {}
-  for (const t of index) {
-    const data = perTree[t.id]
-    if (!data) {
-      trees[t.id] = emptyEdges()
-      continue
-    }
-    const members: string[] = []
-    const memberSet = new Set<string>()
-    const spouses: [string, string][] = []
-    const seenPair = new Set<string>()
-    const parents: Record<string, ParentLink[]> = {}
-
-    for (const p of Object.values(data)) {
-      const r = rootOf(p.id)
-      if (!memberSet.has(r)) {
-        memberSet.add(r)
-        members.push(r)
-      }
-    }
-    for (const p of Object.values(data)) {
-      const cr = rootOf(p.id)
-      if (p.parents.length) {
-        const links: ParentLink[] = []
-        for (const l of p.parents) {
-          const pid = rootOf(l.id)
-          if (
-            pid !== cr
-            && !links.some((x) => x.id === pid)
-            && links.length < 2
-          ) {
-            links.push({ id: pid, adopted: l.adopted })
-          }
-        }
-        if (links.length) parents[cr] = links
-      }
-      for (const sid of p.spouseIds) {
-        const sr = rootOf(sid)
-        if (sr === cr) continue
-        const key = cr < sr ? `${cr}:${sr}` : `${sr}:${cr}`
-        if (seenPair.has(key)) continue
-        seenPair.add(key)
-        spouses.push([cr, sr])
-      }
-    }
-    trees[t.id] = { members, spouses, parents }
-  }
-
-  return { persons, trees, index }
-}
-
-function migrateFromLegacy(): GlobalState {
-  let index: TreeMeta[] = []
-  try {
-    const raw = localStorage.getItem(LEGACY_INDEX_KEY)
-    if (raw) index = JSON.parse(raw) as TreeMeta[]
-  } catch (err) {
-    console.error("Failed to read legacy index", err)
-  }
-
-  if (index.length === 0) {
-    const legacy =
-      localStorage.getItem(LEGACY_V2_KEY) ?? localStorage.getItem(LEGACY_V1_KEY)
-    if (legacy) {
-      try {
-        const data = normalizeImport(JSON.parse(legacy))
-        const id = newId()
-        index = [{ id, name: "My Family", createdAt: new Date().toISOString() }]
-        return legacyTreeToGlobal(index, { [id]: data })
-      } catch (err) {
-        console.error("Failed to adopt legacy single tree", err)
-      }
-    }
-    return { persons: {}, trees: {}, index: [] }
-  }
-
-  const perTree: Record<string, FamilyData> = {}
-  for (const t of index) {
-    const data = readLegacyTree(t.id)
-    if (data) perTree[t.id] = data
-  }
-  return legacyTreeToGlobal(index, perTree)
-}
-
-function loadGlobal(): GlobalState {
-  if (typeof localStorage === "undefined")
-    return { persons: {}, trees: {}, index: [] }
-  try {
-    const raw = localStorage.getItem(GRAPH_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      return {
-        persons: parsed.persons ?? {},
-        trees: parsed.trees ?? {},
-        index: parsed.index ?? [],
-      }
-    }
-  } catch (err) {
-    console.error("Failed to load graph, migrating", err)
-  }
-  const migrated = migrateFromLegacy()
-  persistGraph(migrated)
-  return migrated
-}
-
-function persistGraph(s: GlobalState): void {
-  try {
-    localStorage.setItem(GRAPH_KEY, JSON.stringify(s))
-  } catch (err) {
-    console.error("Failed to persist graph", err)
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Sync seam: dirty-id tracking + remote-merge entry point.
+// Sync seam: in-memory dirty-id tracking + remote-merge entry point.
 //
 // Mutators funnel through `update()`, which diffs prev vs next by reference
 // equality (every mutator creates a fresh object ref for the record it
 // touched). Each changed/added/removed record gets stamped with `updatedAt`
-// (if missing) and enqueued for push. Remote merges bypass the queue.
+// (if missing), enqueued, and the diff is POSTed to /api/sync. Remote merges
+// (initial pull) bypass the queue.
 // ---------------------------------------------------------------------------
 
 export type DirtyAction = "upsert" | "delete"
 export type DirtyMap = Map<string, DirtyAction>
 
-interface PersistedQueue {
-  persons: [string, DirtyAction][]
-  trees: [string, DirtyAction][]
-}
-
-let dirtyPersons: DirtyMap = loadQueue().persons
-let dirtyTrees: DirtyMap = loadQueue().trees
-
-function loadQueue(): { persons: DirtyMap; trees: DirtyMap } {
-  if (typeof localStorage === "undefined")
-    return { persons: new Map(), trees: new Map() }
-  try {
-    const raw = localStorage.getItem(SYNC_QUEUE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as PersistedQueue
-      return {
-        persons: new Map(parsed.persons),
-        trees: new Map(parsed.trees),
-      }
-    }
-  } catch (err) {
-    console.error("Failed to load sync queue", err)
-  }
-  return { persons: new Map(), trees: new Map() }
-}
-
-function persistQueue(): void {
-  try {
-    const payload: PersistedQueue = {
-      persons: [...dirtyPersons.entries()],
-      trees: [...dirtyTrees.entries()],
-    }
-    localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(payload))
-  } catch (err) {
-    console.error("Failed to persist sync queue", err)
-  }
-}
+let dirtyPersons: DirtyMap = new Map()
+let dirtyTrees: DirtyMap = new Map()
 
 /**
  * Stamp `updatedAt` on every changed record (ref-equality diff) and enqueue
- * those ids for the sync push. Returns the next state with stamps applied.
+ * those ids for the next push. Returns the next state with stamps applied.
  * Called from `update()` for local mutations only — remote merges bypass it.
  */
 function stampAndEnqueue(prev: GlobalState, next: GlobalState): GlobalState {
@@ -411,7 +152,6 @@ function stampAndEnqueue(prev: GlobalState, next: GlobalState): GlobalState {
     if (changed) index = stamped
   }
 
-  persistQueue()
   return { ...next, persons, index }
 }
 
@@ -429,12 +169,11 @@ function update(
   if (next === prev) return
   const finalState = opts?.remote ? next : stampAndEnqueue(prev, next)
   state = finalState
-  persistGraph(state)
   for (const l of listeners) l()
+  if (!opts?.remote) void pushDirty()
 }
 
-// --- engine entry points ---
-
+/** Exposed for tests to seed state directly via the remote path. */
 export function getSnapshot(): GlobalState {
   return state
 }
@@ -450,64 +189,95 @@ export function clearDirty(ids: {
   persons?: Iterable<string>
   trees?: Iterable<string>
 }): void {
-  let changed = false
-  for (const id of ids.persons ?? [])
-    changed = dirtyPersons.delete(id) || changed
-  for (const id of ids.trees ?? []) changed = dirtyTrees.delete(id) || changed
-  if (changed) persistQueue()
-}
-
-/** Enqueue every local record for push (used on first sign-in). */
-export function markAllDirty(): void {
-  const now = new Date().toISOString()
-  const nextPersons: Record<string, PersonIdentity> = {}
-  for (const [id, p] of Object.entries(state.persons)) {
-    const stamped = p.updatedAt ? p : { ...p, updatedAt: now }
-    nextPersons[id] = stamped
-    dirtyPersons.set(id, "upsert")
-  }
-  const nextIndex = state.index.map((t) => {
-    dirtyTrees.set(t.id, "upsert")
-    return t.updatedAt ? t : { ...t, updatedAt: now }
-  })
-  state = { ...state, persons: nextPersons, index: nextIndex }
-  persistGraph(state)
-  persistQueue()
-  for (const l of listeners) l()
-}
-
-export function getLastSyncAt(): string | null {
-  try {
-    return localStorage.getItem(SYNC_LAST_PULL_KEY)
-  } catch {
-    return null
-  }
-}
-
-export function setLastSyncAt(iso: string): void {
-  try {
-    localStorage.setItem(SYNC_LAST_PULL_KEY, iso)
-  } catch {
-    /* ignore quota errors */
-  }
+  for (const id of ids.persons ?? []) dirtyPersons.delete(id)
+  for (const id of ids.trees ?? []) dirtyTrees.delete(id)
 }
 
 /**
- * Re-read state + dirty queue from the current localStorage. Production code
- * never needs this (the store loads once at module init); it exists so tests
- * can swap in a fresh localStorage between cases.
+ * POST the current dirty diff to /api/sync (fire-and-forget). On success the
+ * shipped records are cleared from the dirty maps. Failures are logged and the
+ * ids stay dirty, but with no persistence they're lost on the next reload.
  */
-export function resetFromStorageForTest(): void {
-  state = loadGlobal()
-  dirtyPersons = loadQueue().persons
-  dirtyTrees = loadQueue().trees
+async function pushDirty(): Promise<void> {
+  const dirty = snapshotDirty()
+  const snapshot = getSnapshot()
+  const now = new Date().toISOString()
+
+  const personWires: PersonWire[] = []
+  for (const [id, action] of dirty.persons) {
+    const p = snapshot.persons[id]
+    if (action === "delete" || !p) {
+      personWires.push({
+        id,
+        name: "",
+        updatedAt: p?.updatedAt ?? now,
+        deletedAt: now,
+      })
+    } else {
+      personWires.push({
+        id,
+        name: p.name,
+        dob: p.dob,
+        dod: p.dod,
+        gender: p.gender,
+        location: p.location,
+        photo: p.photo,
+        updatedAt: p.updatedAt ?? now,
+      })
+    }
+  }
+
+  const treeWires: TreeWire[] = []
+  for (const [id, action] of dirty.trees) {
+    const meta = snapshot.index.find((t) => t.id === id)
+    const edges = snapshot.trees[id] ?? emptyEdges()
+    if (action === "delete" || !meta) {
+      if (!meta) continue // never existed locally; nothing to tell the server
+      treeWires.push({
+        id,
+        name: meta.name,
+        edges: emptyEdges() as TreeEdges,
+        createdAt: meta.createdAt,
+        updatedAt: meta.updatedAt ?? now,
+        deletedAt: now,
+        ownerId: meta.ownerId ?? "",
+      })
+    } else {
+      treeWires.push({
+        id,
+        name: meta.name,
+        edges,
+        createdAt: meta.createdAt,
+        updatedAt: meta.updatedAt ?? now,
+        ownerId: meta.ownerId ?? "",
+      })
+    }
+  }
+
+  if (personWires.length === 0 && treeWires.length === 0) return
+
+  try {
+    const res = await fetch("/api/sync", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ persons: personWires, trees: treeWires }),
+    })
+    if (!res.ok) throw new Error(`push failed: ${res.status}`)
+    clearDirty({
+      persons: [...dirty.persons.keys()],
+      trees: [...dirty.trees.keys()],
+    })
+  } catch (err) {
+    console.error("sync push failed", err)
+  }
 }
 
 /**
- * Merge records fetched from the server into the local store. Newer
- * `updatedAt` wins; tombstones (`deletedAt`) remove the local record. Runs
- * as a remote update so it does NOT enqueue dirty ids — the server is the
- * source of these changes, pushing them back would loop.
+ * Merge records fetched from the server into the store. Newer `updatedAt`
+ * wins; tombstones (`deletedAt`) remove the local record. Runs as a remote
+ * update so it does NOT enqueue dirty ids — the server is the source of
+ * these changes, pushing them back would loop.
  */
 export function applyRemote(remote: {
   persons?: Iterable<PersonWire>
@@ -598,15 +368,21 @@ export function applyRemote(remote: {
 }
 
 // ---------------------------------------------------------------------------
-// Global store + React binding (useSyncExternalStore gives cross-tree updates:
-// editing a person in one tree re-renders every other tree they belong to).
+// In-memory store + React binding (useSyncExternalStore gives cross-tree
+// updates: editing a person in one tree re-renders every other tree they
+// belong to). The store starts empty; Providers hydrates it from the server
+// once a session is available.
 // ---------------------------------------------------------------------------
 
-let state: GlobalState = loadGlobal()
+let state: GlobalState = { persons: {}, trees: {}, index: [] }
+let hydrated = false
 const listeners = new Set<() => void>()
 
 function getGraph(): GlobalState {
   return state
+}
+function getHydrated(): boolean {
+  return hydrated
 }
 
 function subscribe(listener: () => void): () => void {
@@ -617,11 +393,28 @@ function subscribe(listener: () => void): () => void {
 }
 
 /**
- * External subscribe — used by the sync engine to schedule a debounced push
- * whenever the store changes. Returns an unsubscribe.
+ * Mark the store as having received its initial server pull. Pages use this
+ * to distinguish "loading" from "empty account".
  */
-export function subscribeStore(listener: () => void): () => void {
-  return subscribe(listener)
+export function setHydrated(value: boolean): void {
+  if (hydrated === value) return
+  hydrated = value
+  for (const l of listeners) l()
+}
+
+/**
+ * Empty the in-memory store + dirty maps and mark unhydrated. Called on
+ * sign-out so a previous user's data does not leak into the next session.
+ */
+export function resetStore(): void {
+  state = { persons: {}, trees: {}, index: [] }
+  dirtyPersons = new Map()
+  dirtyTrees = new Map()
+  setHydrated(false)
+}
+
+export function useHydrated(): boolean {
+  return useSyncExternalStore(subscribe, getHydrated, getHydrated)
 }
 
 // --- edge helpers (mutate a cloned TreeEdges) ---
