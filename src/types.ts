@@ -1,8 +1,8 @@
-export type Gender = "male" | "female" | "other";
+export type Gender = "male" | "female" | "other"
 
 export interface ParentLink {
-  id: string;
-  adopted?: boolean;
+  id: string
+  adopted?: boolean
 }
 
 /**
@@ -11,18 +11,18 @@ export interface ParentLink {
  * (see {@link TreeEdges}) and are merged in at projection time.
  */
 export interface PersonIdentity {
-  id: string;
-  name: string;
+  id: string
+  name: string
   /** ISO date string, e.g. "1985-04-12" */
-  dob?: string;
+  dob?: string
   /** Date of death — set when the person is deceased */
-  dod?: string;
-  gender?: Gender;
-  location?: string;
+  dod?: string
+  gender?: Gender
+  location?: string
   /** Compressed data-URL of the uploaded photo */
-  photo?: string;
+  photo?: string
   /** ISO timestamp of the last edit. Set by the sync seam; untouched by mutators. */
-  updatedAt?: string;
+  updatedAt?: string
 }
 
 /**
@@ -32,12 +32,12 @@ export interface PersonIdentity {
  */
 export interface Person extends PersonIdentity {
   /** 0..2 parents in this tree, each link can be marked as adoptive */
-  parents: ParentLink[];
+  parents: ParentLink[]
   /** Supports multiple marriages, in this tree */
-  spouseIds: string[];
+  spouseIds: string[]
 }
 
-export type FamilyData = Record<string, Person>;
+export type FamilyData = Record<string, Person>
 
 /**
  * A tree's relationship edges — who appears in it and how they relate.
@@ -47,13 +47,13 @@ export type FamilyData = Record<string, Person>;
  * across families is just adding each to the other's tree.
  */
 export interface TreeEdges {
-  members: string[];
-  spouses: [string, string][];
-  parents: Record<string, ParentLink[]>;
+  members: string[]
+  spouses: [string, string][]
+  parents: Record<string, ParentLink[]>
 }
 
 export function emptyEdges(): TreeEdges {
-  return { members: [], spouses: [], parents: {} };
+  return { members: [], spouses: [], parents: {} }
 }
 
 /** Derive the per-tree {@link FamilyData} view from global identities + edges. */
@@ -62,53 +62,66 @@ export function projectTree(
   edges: TreeEdges,
 ): FamilyData {
   const spousesOf = (id: string): string[] => {
-    const out: string[] = [];
+    const out: string[] = []
     for (const [a, b] of edges.spouses) {
-      if (a === id) out.push(b);
-      else if (b === id) out.push(a);
+      if (a === id) out.push(b)
+      else if (b === id) out.push(a)
     }
-    return out;
-  };
-  const family: FamilyData = {};
-  for (const id of edges.members) {
-    const ident = identities[id];
-    if (!ident) continue;
-    family[id] = { ...ident, parents: edges.parents[id] ?? [], spouseIds: spousesOf(id) };
+    return out
   }
-  return family;
+  const family: FamilyData = {}
+  for (const id of edges.members) {
+    const ident = identities[id]
+    if (!ident) continue
+    family[id] = {
+      ...ident,
+      parents: edges.parents[id] ?? [],
+      spouseIds: spousesOf(id),
+    }
+  }
+  return family
 }
 
 export type Relationship =
   | { kind: "root" }
-  | { kind: "child"; parentId: string; otherParentId?: string; adopted?: boolean }
+  | {
+      kind: "child"
+      parentId: string
+      otherParentId?: string
+      adopted?: boolean
+    }
   | { kind: "spouse"; partnerId: string }
-  | { kind: "parent"; childId: string; marryExisting?: boolean };
+  | { kind: "parent"; childId: string; marryExisting?: boolean }
 
 export interface PersonInput {
-  name: string;
-  dob?: string;
-  dod?: string;
-  gender?: Gender;
-  location?: string;
-  photo?: string;
+  name: string
+  dob?: string
+  dod?: string
+  gender?: Gender
+  location?: string
+  photo?: string
 }
 
 export function childrenOf(people: FamilyData, id: string): Person[] {
-  return Object.values(people).filter(p => p.parents.some(link => link.id === id));
+  return Object.values(people).filter((p) =>
+    p.parents.some((link) => link.id === id),
+  )
 }
 
 export function descendantsOf(people: FamilyData, id: string): Set<string> {
-  const seen = new Set<string>();
-  const stack = [id];
+  const seen = new Set<string>()
+  const stack = [id]
   while (stack.length > 0) {
-    for (const child of childrenOf(people, stack.pop()!)) {
+    const current = stack.pop()
+    if (current === undefined) break
+    for (const child of childrenOf(people, current)) {
       if (!seen.has(child.id)) {
-        seen.add(child.id);
-        stack.push(child.id);
+        seen.add(child.id)
+        stack.push(child.id)
       }
     }
   }
-  return seen;
+  return seen
 }
 
 /**
@@ -118,30 +131,37 @@ export function descendantsOf(people: FamilyData, id: string): Set<string> {
  * spouses are shown, but their own families are not.
  */
 export function focusFamily(people: FamilyData, focusId: string): FamilyData {
-  if (!people[focusId]) return people;
-  const blood = new Set<string>([focusId, ...ancestorsOf(people, focusId)]);
+  if (!people[focusId]) return people
+  const blood = new Set<string>([focusId, ...ancestorsOf(people, focusId)])
   for (const id of [...blood]) {
-    for (const d of descendantsOf(people, id)) blood.add(d);
+    for (const d of descendantsOf(people, id)) blood.add(d)
   }
-  const included = new Set(blood);
+  const included = new Set(blood)
   for (const id of blood) {
     for (const sid of people[id]?.spouseIds ?? []) {
-      if (people[sid]) included.add(sid);
+      if (people[sid]) included.add(sid)
     }
   }
-  return Object.fromEntries([...included].map(id => [id, people[id]!]));
+  const result: FamilyData = {}
+  for (const id of included) {
+    const person = people[id]
+    if (person) result[id] = person
+  }
+  return result
 }
 
 export function ancestorsOf(people: FamilyData, id: string): Set<string> {
-  const seen = new Set<string>();
-  const stack = [id];
+  const seen = new Set<string>()
+  const stack = [id]
   while (stack.length > 0) {
-    for (const link of people[stack.pop()!]?.parents ?? []) {
+    const current = stack.pop()
+    if (current === undefined) break
+    for (const link of people[current]?.parents ?? []) {
       if (people[link.id] && !seen.has(link.id)) {
-        seen.add(link.id);
-        stack.push(link.id);
+        seen.add(link.id)
+        stack.push(link.id)
       }
     }
   }
-  return seen;
+  return seen
 }

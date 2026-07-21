@@ -10,8 +10,8 @@ describe("store helpers", () => {
       b: { id: "b", name: "B" },
       p: { id: "p", name: "P" },
     }
-    expect(normalizeImport(v1).a!.parents).toEqual([{ id: "p" }])
-    expect(normalizeImport(v1).a!.spouseIds).toEqual(["b"])
+    expect(normalizeImport(v1).a?.parents).toEqual([{ id: "p" }])
+    expect(normalizeImport(v1).a?.spouseIds).toEqual(["b"])
 
     const v2 = {
       a: { id: "a", name: "A", parents: [{ id: "p" }], spouseIds: ["b"] },
@@ -46,8 +46,8 @@ describe("store helpers", () => {
       ["keeps", "y1"],
     ])
     expect(Object.keys(r.parents).sort()).toEqual(["keeps", "y1"])
-    expect(r.parents["y1"]!.map((l) => l.id)).toEqual(["p1"])
-    expect(r.parents.keeps!.map((l) => l.id)).toEqual(["p1", "y1"])
+    expect(r.parents.y1?.map((l) => l.id)).toEqual(["p1"])
+    expect(r.parents.keeps?.map((l) => l.id)).toEqual(["p1", "y1"])
   })
 
   test("rewriteEdges drops self-links and caps parents at two", async () => {
@@ -63,7 +63,7 @@ describe("store helpers", () => {
     // a married b, both collapse to a -> self-pair dropped
     expect(r.spouses).toEqual([])
     // a's parents included b (now self -> dropped), leaving c, d (capped at 2)
-    expect(r.parents.a!.map((l) => l.id)).toEqual(["c", "d"])
+    expect(r.parents.a?.map((l) => l.id)).toEqual(["c", "d"])
   })
 
   test("propagateSurvivor mirrors a person's relatives into every tree they belong to", async () => {
@@ -79,15 +79,17 @@ describe("store helpers", () => {
     }
     propagateSurvivor(trees, "yumi")
 
-    const ho = trees.ho!
+    const ho = trees.ho
+    if (!ho) throw new Error("missing ho tree")
     expect([...ho.members].sort()).toEqual(["c1", "p1", "p2", "tim", "yumi"])
     const pairs = (s: [string, string][]) =>
       s.map(([a, b]) => (a < b ? `${a},${b}` : `${b},${a}`)).sort()
     expect(pairs(ho.spouses)).toEqual(["tim,yumi"])
-    expect(ho.parents.yumi!.map((l) => l.id).sort()).toEqual(["p1", "p2"])
-    expect(ho.parents.c1!.map((l) => l.id)).toEqual(["yumi"])
+    expect(ho.parents.yumi?.map((l) => l.id).sort()).toEqual(["p1", "p2"])
+    expect(ho.parents.c1?.map((l) => l.id)).toEqual(["yumi"])
 
-    const hayashi = trees.hayashi!
+    const hayashi = trees.hayashi
+    if (!hayashi) throw new Error("missing hayashi tree")
     expect(hayashi.members.includes("tim")).toBe(true)
     expect(pairs(hayashi.spouses)).toEqual(["tim,yumi"])
   })
@@ -112,14 +114,18 @@ describe("applyRemote LWW merge", () => {
     })
 
     store.applyRemote({
-      persons: [{ id: "p1", name: "Stale", updatedAt: "2023-01-01T00:00:00.000Z" }],
+      persons: [
+        { id: "p1", name: "Stale", updatedAt: "2023-01-01T00:00:00.000Z" },
+      ],
     })
-    expect(store.getSnapshot().persons.p1!.name).toBe("Local")
+    expect(store.getSnapshot().persons.p1?.name).toBe("Local")
 
     store.applyRemote({
-      persons: [{ id: "p1", name: "Fresh", updatedAt: "2025-01-01T00:00:00.000Z" }],
+      persons: [
+        { id: "p1", name: "Fresh", updatedAt: "2025-01-01T00:00:00.000Z" },
+      ],
     })
-    expect(store.getSnapshot().persons.p1!.name).toBe("Fresh")
+    expect(store.getSnapshot().persons.p1?.name).toBe("Fresh")
   })
 
   test("remote tombstone removes the local record", async () => {
@@ -132,9 +138,7 @@ describe("applyRemote LWW merge", () => {
 
     const now = new Date().toISOString()
     store.applyRemote({
-      persons: [
-        { id: "p1", name: "", updatedAt: now, deletedAt: now },
-      ],
+      persons: [{ id: "p1", name: "", updatedAt: now, deletedAt: now }],
     })
     expect(store.getSnapshot().persons.p1).toBeUndefined()
   })

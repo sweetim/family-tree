@@ -9,7 +9,15 @@ import {
   Panel,
   ReactFlow,
 } from "@xyflow/react"
-import { Check, Crosshair, Link2, Maximize2, Menu, Pencil, X } from "lucide-react"
+import {
+  Check,
+  Crosshair,
+  Link2,
+  Maximize2,
+  Menu,
+  Pencil,
+  X,
+} from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useConfirm } from "./components/Confirm"
 import { PersonNode } from "./components/PersonNode"
@@ -325,6 +333,7 @@ export function TreeView({
             onNodesDelete={onNodesDelete}
             fitView
             fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+            minZoom={0.1}
             nodesConnectable={false}
             nodesDraggable={false}
             proOptions={{ hideAttribution: true }}
@@ -361,6 +370,7 @@ export function TreeView({
                     )}
                   </span>
                   <button
+                    type="button"
                     onClick={() => setLink(undefined)}
                     className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
                   >
@@ -380,6 +390,7 @@ export function TreeView({
                     {Object.keys(family.people).length} people
                   </span>
                   <button
+                    type="button"
                     onClick={() => setFocusId(undefined)}
                     className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
                   >

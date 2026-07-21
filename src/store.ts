@@ -4,6 +4,7 @@ import {
   descendantsOf,
   emptyEdges,
   type FamilyData,
+  type Gender,
   type ParentLink,
   type PersonIdentity,
   type PersonInput,
@@ -16,18 +17,18 @@ export type ShareRole = "viewer" | "editor"
 export type LocalRole = "owner" | ShareRole
 
 export interface TreeMeta {
-  id: string;
-  name: string;
+  id: string
+  name: string
   /** ISO timestamp */
-  createdAt: string;
+  createdAt: string
   /** ISO timestamp of the last local-or-remote edit; stamped by the sync seam. */
-  updatedAt?: string;
+  updatedAt?: string
   /** Owner user id (set when a record arrived from the server). */
-  ownerId?: string;
+  ownerId?: string
   /** Owner email (set when a tree arrived via a share; null/undefined for own trees). */
-  ownerEmail?: string | null;
+  ownerEmail?: string | null
   /** Sharing role the current user has on this tree ("owner" for own trees). */
-  role?: LocalRole;
+  role?: LocalRole
 }
 
 export interface GlobalState {
@@ -46,10 +47,25 @@ function newId(): string {
 // Legacy import (JSON export) normalisation — kept so Import JSON still works.
 // ---------------------------------------------------------------------------
 
+/** Shape of a v1 record — only `id` is required, the rest is best-effort. */
+type LegacyPerson = Partial<{
+  id: string
+  name: string
+  dob: string
+  dod: string
+  gender: Gender
+  location: string
+  photo: string
+  parentIds: string[]
+  spouseId: string
+  parents: ParentLink[]
+  spouseIds: string[]
+}>
+
 /** v1 stored `parentIds: string[]` and a single `spouseId`. */
-function migrateLegacy(old: Record<string, any>): FamilyData {
+function migrateLegacy(old: Record<string, LegacyPerson>): FamilyData {
   const next: FamilyData = {}
-  for (const p of Object.values(old) as any[]) {
+  for (const p of Object.values(old)) {
     if (!p || typeof p.id !== "string") continue
     next[p.id] = {
       id: p.id,
@@ -60,7 +76,7 @@ function migrateLegacy(old: Record<string, any>): FamilyData {
       location: p.location,
       photo: p.photo,
       parents: Array.isArray(p.parentIds)
-        ? p.parentIds.map((id: string) => ({ id }))
+        ? p.parentIds.map((id) => ({ id }))
         : (p.parents ?? []),
       spouseIds: p.spouseId ? [p.spouseId] : (p.spouseIds ?? []),
     }
@@ -68,11 +84,16 @@ function migrateLegacy(old: Record<string, any>): FamilyData {
   return next
 }
 
-export function normalizeImport(data: Record<string, any>): FamilyData {
-  const looksLegacy = Object.values(data).some(
-    (p: any) => Array.isArray(p?.parentIds) || p?.spouseId,
-  )
-  return looksLegacy ? migrateLegacy(data) : (data as FamilyData)
+export function normalizeImport(data: Record<string, unknown>): FamilyData {
+  const looksLegacy = Object.values(data).some((p) => {
+    const candidate = p as LegacyPerson | null | undefined
+    return (
+      Array.isArray(candidate?.parentIds) || candidate?.spouseId !== undefined
+    )
+  })
+  return looksLegacy
+    ? migrateLegacy(data as Record<string, LegacyPerson>)
+    : (data as FamilyData)
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +148,8 @@ function stampAndEnqueue(prev: GlobalState, next: GlobalState): GlobalState {
     const stamped: TreeMeta[] = new Array(index.length)
     let changed = false
     for (let i = 0; i < index.length; i++) {
-      const meta = index[i]!
+      const meta = index[i]
+      if (meta === undefined) continue
       const oldMeta = prevMetaById.get(meta.id)
       const edgesChanged = next.trees[meta.id] !== prev.trees[meta.id]
       const metaChanged = meta !== oldMeta
@@ -499,7 +521,8 @@ export function rewriteEdges(
   const parents: Record<string, ParentLink[]> = {}
   for (const [cid, links] of Object.entries(e.parents)) {
     const childId = mapId(cid)
-    const acc = parents[childId] ? [...parents[childId]!] : []
+    const existing = parents[childId]
+    const acc = existing ? [...existing] : []
     for (const l of links) {
       const pid = mapId(l.id)
       if (pid === childId || acc.some((o) => o.id === pid) || acc.length >= 2)
@@ -732,7 +755,7 @@ export function useFamily(treeId: string) {
     [g, treeId],
   )
   const readOnly = useMemo(() => {
-    const meta = g.index.find(t => t.id === treeId)
+    const meta = g.index.find((t) => t.id === treeId)
     return meta?.role === "viewer"
   }, [g, treeId])
 
@@ -961,8 +984,7 @@ export function useFamily(treeId: string) {
           if (t.id === treeId || t.id === otherTreeId) continue
           const e = prev.trees[t.id]
           if (
-            e
-            && e.members.includes(personId)
+            e?.members.includes(personId)
             && e.members.includes(otherPersonId)
           ) {
             addSpouseEdge(d.tree(t.id), personId, otherPersonId)

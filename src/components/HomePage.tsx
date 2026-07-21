@@ -8,8 +8,8 @@ import {
   Trash2,
   Users,
 } from "lucide-react"
-import { type FormEvent, type ReactNode, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
+import { type FormEvent, type ReactNode, useMemo, useState } from "react"
 import { authClient, useSession } from "../lib/auth-client"
 import {
   countMembers,
@@ -65,7 +65,6 @@ function TreeCard({
           className="flex gap-2"
         >
           <input
-            autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
             onBlur={submitRename}
@@ -74,6 +73,7 @@ function TreeCard({
         </form>
       ) : (
         <button
+          type="button"
           onClick={() => navigate(`/tree/${tree.id}`)}
           className="text-left text-base font-semibold tracking-tight text-slate-800 transition-colors hover:text-cobalt-700"
         >
@@ -88,6 +88,7 @@ function TreeCard({
 
       <div className="mt-4 flex items-center gap-2">
         <button
+          type="button"
           onClick={() => navigate(`/tree/${tree.id}`)}
           className={`${primaryBtn} flex-1`}
         >
@@ -149,6 +150,7 @@ function SharedTreeCard({
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-soft transition-all duration-200 hover:border-cobalt-200 hover:shadow-lift">
       <div className="min-w-0">
         <button
+          type="button"
           onClick={() => navigate(`/tree/${tree.id}`)}
           className="block truncate text-left text-sm font-semibold tracking-tight text-slate-800 transition-colors hover:text-cobalt-700"
         >
@@ -259,6 +261,7 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
               works.
             </p>
             <button
+              type="button"
               onClick={() =>
                 navigate(`/tree/${createTree("Sample Family", seedData())}`)
               }

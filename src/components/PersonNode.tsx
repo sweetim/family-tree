@@ -23,7 +23,7 @@ function initials(name: string): string {
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
-    .map((w) => w[0]!.toUpperCase())
+    .map((w) => w[0]?.toUpperCase() ?? "")
     .join("")
 }
 
@@ -73,8 +73,8 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const avatarFill = AVATAR_FILL[genderKey]
 
   let lifeline: string | null = null
-  if (deceased) {
-    lifeline = `${person.dob ? yearOf(person.dob) : "?"} – ${yearOf(person.dod!)} †`
+  if (deceased && person.dod) {
+    lifeline = `${person.dob ? yearOf(person.dob) : "?"} – ${yearOf(person.dod)} †`
   } else if (person.dob) {
     lifeline = `${yearOf(person.dob)}${age !== null ? ` · ${age} yrs` : ""}`
   }
@@ -119,6 +119,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
               className={`rounded-full bg-linear-to-br p-[3px] ${avatarRing} ${deceased ? "grayscale" : ""}`}
             >
               {person.photo ? (
+                // biome-ignore lint/performance/noImgElement: photo is a compressed data URL, Next/Image offers no benefit
                 <img
                   src={person.photo}
                   alt={person.name}
@@ -163,6 +164,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
               <div className="mt-1.5 flex flex-wrap justify-center gap-1">
                 {otherTrees.map((t) => (
                   <button
+                    type="button"
                     key={t.id}
                     title={`Open in ${t.name}`}
                     className="nodrag nopan inline-flex max-w-full items-center gap-1 truncate rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 transition-colors hover:bg-amber-100"
@@ -185,6 +187,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
           {person.parents.length < 2 && (
             <div className="absolute -top-3.5 left-1/2 flex -translate-x-1/2 gap-1.5">
               <button
+                type="button"
                 title="Add new parent"
                 className={addBtn}
                 onClick={(e) => {
@@ -199,6 +202,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 <Plus className="h-4 w-4" />
               </button>
               <button
+                type="button"
                 title="Connect existing person as parent (their spouse joins too)"
                 className={linkBtn}
                 onClick={(e) => {
@@ -212,6 +216,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
           )}
           <div className="absolute -right-3.5 top-1/2 flex -translate-y-1/2 flex-col gap-1.5">
             <button
+              type="button"
               title="Add new spouse"
               className={addBtn}
               onClick={(e) => {
@@ -222,6 +227,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
               <Plus className="h-4 w-4" />
             </button>
             <button
+              type="button"
               title="Connect existing person as spouse"
               className={linkBtn}
               onClick={(e) => {
@@ -234,6 +240,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
           </div>
           <div className="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 gap-1.5">
             <button
+              type="button"
               title="Add new child"
               className={addBtn}
               onClick={(e) => {
@@ -244,6 +251,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
               <Plus className="h-4 w-4" />
             </button>
             <button
+              type="button"
               title="Connect existing person as child"
               className={linkBtn}
               onClick={(e) => {

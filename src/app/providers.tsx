@@ -30,9 +30,12 @@ function ServerDataBootstrap() {
     let cancelled = false
     void (async () => {
       try {
-        const res = await fetch(`/api/sync?since=${encodeURIComponent(EPOCH)}`, {
-          credentials: "include",
-        })
+        const res = await fetch(
+          `/api/sync?since=${encodeURIComponent(EPOCH)}`,
+          {
+            credentials: "include",
+          },
+        )
         if (!res.ok) return
         const data = (await res.json()) as SyncPullResponse
         if (cancelled) return

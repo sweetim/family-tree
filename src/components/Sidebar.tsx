@@ -2,6 +2,7 @@ import {
   Baby,
   ChevronDown,
   ChevronLeft,
+  Clipboard,
   Crosshair,
   Download,
   GitMerge,
@@ -16,17 +17,18 @@ import {
   Venus,
   X,
 } from "lucide-react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   type ComponentType,
   type FormEvent,
   type ReactNode,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { fileToAvatar } from "../lib/image"
+import { fileToImageSrc } from "../lib/image"
 import {
   type FamilyStore,
   normalizeImport,
@@ -44,6 +46,7 @@ import {
   type Relationship,
 } from "../types"
 import { AccountMenu } from "./AccountMenu"
+import { AvatarCropper } from "./AvatarCropper"
 import { useConfirm } from "./Confirm"
 import { useToast } from "./Toast"
 
@@ -176,24 +179,50 @@ function PersonFields({
   onChange: (f: Fields) => void
 }) {
   const [photoError, setPhotoError] = useState<string>()
+  const [cropSrc, setCropSrc] = useState<string>()
 
-  async function handlePhoto(file: File | undefined) {
+  async function startCrop(file: File | Blob | undefined) {
     if (!file) return
+    if (!file.type.startsWith("image/")) {
+      setPhotoError("That wasn't an image file.")
+      return
+    }
     setPhotoError(undefined)
     try {
-      onChange({ ...fields, photo: await fileToAvatar(file) })
+      setCropSrc(await fileToImageSrc(file))
     } catch (err) {
       console.error(err)
       setPhotoError("Could not read that image, try another file.")
     }
   }
 
+  // Allow pasting an image from the clipboard while this form is open.
+  useEffect(() => {
+    const onPaste = (event: ClipboardEvent) => {
+      const item = Array.from(event.clipboardData?.items ?? []).find((i) =>
+        i.type.startsWith("image/"),
+      )
+      const file = item?.getAsFile()
+      if (file) {
+        event.preventDefault()
+        startCrop(file)
+      }
+    }
+    window.addEventListener("paste", onPaste)
+    return () => window.removeEventListener("paste", onPaste)
+  }, [])
+
   return (
     <div className="space-y-4">
       <div>
-        <label className={labelCls}>Name *</label>
+        <label
+          htmlFor="field-name"
+          className={labelCls}
+        >
+          Name *
+        </label>
         <input
-          autoFocus
+          id="field-name"
           required
           value={fields.name}
           onChange={(e) => onChange({ ...fields, name: e.target.value })}
@@ -203,7 +232,7 @@ function PersonFields({
       </div>
 
       <div>
-        <label className={labelCls}>Gender</label>
+        <span className={labelCls}>Gender</span>
         <div className="flex gap-2">
           {GENDER_OPTIONS.map(({ value, label, Icon, active }) => {
             const selected = fields.gender === value
@@ -231,8 +260,14 @@ function PersonFields({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className={labelCls}>Born</label>
+          <label
+            htmlFor="field-dob"
+            className={labelCls}
+          >
+            Born
+          </label>
           <input
+            id="field-dob"
             type="date"
             value={fields.dob}
             onChange={(e) => onChange({ ...fields, dob: e.target.value })}
@@ -240,8 +275,14 @@ function PersonFields({
           />
         </div>
         <div>
-          <label className={labelCls}>Died</label>
+          <label
+            htmlFor="field-dod"
+            className={labelCls}
+          >
+            Died
+          </label>
           <input
+            id="field-dod"
             type="date"
             value={fields.dod}
             onChange={(e) => onChange({ ...fields, dod: e.target.value })}
@@ -251,8 +292,14 @@ function PersonFields({
       </div>
 
       <div>
-        <label className={labelCls}>Location</label>
+        <label
+          htmlFor="field-location"
+          className={labelCls}
+        >
+          Location
+        </label>
         <input
+          id="field-location"
           value={fields.location}
           onChange={(e) => onChange({ ...fields, location: e.target.value })}
           placeholder="e.g. Singapore"
@@ -261,9 +308,10 @@ function PersonFields({
       </div>
 
       <div>
-        <label className={labelCls}>Photo</label>
+        <span className={labelCls}>Photo</span>
         <div className="flex items-center gap-3">
           {fields.photo ? (
+            // biome-ignore lint/performance/noImgElement: data-URL preview of an uploaded photo
             <img
               src={fields.photo}
               alt="preview"
@@ -272,17 +320,49 @@ function PersonFields({
           ) : (
             <div className="h-12 w-12 rounded-full bg-slate-100 ring-2 ring-slate-200" />
           )}
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => handlePhoto(e.target.files?.[0])}
-            className="text-xs text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-cobalt-50 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-cobalt-600 hover:file:bg-cobalt-100"
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-cobalt-50 px-3 py-1.5 text-xs font-medium text-cobalt-600 transition-colors hover:bg-cobalt-100">
+              <Upload className="h-3.5 w-3.5" /> Upload
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  startCrop(e.target.files?.[0])
+                  e.target.value = ""
+                }}
+                className="hidden"
+              />
+            </label>
+            {fields.photo && (
+              <button
+                type="button"
+                onClick={() => onChange({ ...fields, photo: undefined })}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-red-600"
+              >
+                <X className="h-3.5 w-3.5" /> Remove
+              </button>
+            )}
+          </div>
         </div>
+        <p className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-slate-400">
+          <Clipboard className="h-3 w-3" /> You can also paste an image from
+          your clipboard (Ctrl/Cmd+V).
+        </p>
         {photoError && (
           <p className="mt-1 text-xs text-red-500">{photoError}</p>
         )}
       </div>
+
+      {cropSrc && (
+        <AvatarCropper
+          src={cropSrc}
+          onCancel={() => setCropSrc(undefined)}
+          onConfirm={(avatar) => {
+            onChange({ ...fields, photo: avatar })
+            setCropSrc(undefined)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -356,8 +436,14 @@ function AddForm({
       {rel.kind === "child" && parent && (
         <div className="space-y-2">
           <div>
-            <label className={labelCls}>Other parent</label>
+            <label
+              htmlFor="field-other-parent"
+              className={labelCls}
+            >
+              Other parent
+            </label>
             <select
+              id="field-other-parent"
               value={otherParentId}
               onChange={(e) => setOtherParentId(e.target.value)}
               className={inputCls}
@@ -370,7 +456,7 @@ function AddForm({
                     key={sid}
                     value={sid}
                   >
-                    {people[sid]!.name}
+                    {people[sid]?.name}
                   </option>
                 ))}
             </select>
@@ -496,8 +582,9 @@ function EditForm({
   if (person.parents.length === 0) {
     for (const p of parentCandidates) {
       for (const sid of p.spouseIds) {
-        if (p.id < sid && candidateIds.has(sid))
-          coupleCandidates.push([p, people[sid]!])
+        const spouse = people[sid]
+        if (p.id < sid && candidateIds.has(sid) && spouse)
+          coupleCandidates.push([p, spouse])
       }
     }
   }
@@ -973,6 +1060,7 @@ function ReadonlyDetails({
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft">
         <div className="flex items-center gap-3">
           {person.photo ? (
+            // biome-ignore lint/performance/noImgElement: data-URL of the person's photo
             <img
               src={person.photo}
               alt={person.name}
@@ -987,7 +1075,9 @@ function ReadonlyDetails({
             <h2 className="truncate text-base font-semibold tracking-tight text-slate-800">
               {person.name}
             </h2>
-            {lifeline && <p className="mt-0.5 text-xs text-slate-500">{lifeline}</p>}
+            {lifeline && (
+              <p className="mt-0.5 text-xs text-slate-500">{lifeline}</p>
+            )}
             {person.location && (
               <p className="mt-0.5 inline-flex items-center gap-0.5 text-xs text-slate-400">
                 <MapPin className="h-3 w-3" /> {person.location}
@@ -1002,14 +1092,35 @@ function ReadonlyDetails({
         </div>
       </div>
 
-      <Section title="Parents" icon={Users} count={parents.length}>
-        <RelationList people={parents} onSelect={onSelect} />
+      <Section
+        title="Parents"
+        icon={Users}
+        count={parents.length}
+      >
+        <RelationList
+          people={parents}
+          onSelect={onSelect}
+        />
       </Section>
-      <Section title="Spouses" icon={Heart} count={spouses.length}>
-        <RelationList people={spouses} onSelect={onSelect} />
+      <Section
+        title="Spouses"
+        icon={Heart}
+        count={spouses.length}
+      >
+        <RelationList
+          people={spouses}
+          onSelect={onSelect}
+        />
       </Section>
-      <Section title="Children" icon={Baby} count={children.length}>
-        <RelationList people={children} onSelect={onSelect} />
+      <Section
+        title="Children"
+        icon={Baby}
+        count={children.length}
+      >
+        <RelationList
+          people={children}
+          onSelect={onSelect}
+        />
       </Section>
     </div>
   )
@@ -1133,14 +1244,14 @@ export function Sidebar({
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
               <p className="text-sm leading-relaxed text-slate-500">
                 Click a card to edit it, or hover a card and use the{" "}
-                <b className="font-semibold text-slate-700">+</b> buttons to
-                add a new parent, spouse or child — or the{" "}
-                <b className="font-semibold text-slate-700">link</b> buttons
-                to connect two people already in the tree by clicking their
-                cards.
+                <b className="font-semibold text-slate-700">+</b> buttons to add
+                a new parent, spouse or child — or the{" "}
+                <b className="font-semibold text-slate-700">link</b> buttons to
+                connect two people already in the tree by clicking their cards.
               </p>
             </div>
             <button
+              type="button"
               onClick={onAddRoot}
               className={`${primaryBtn} w-full`}
             >
@@ -1160,12 +1271,14 @@ export function Sidebar({
 
       <div className="grid grid-cols-2 gap-2 border-t border-slate-200 px-5 py-4">
         <button
+          type="button"
           onClick={exportJson}
           className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
         >
           <Download className="h-4 w-4" /> Export
         </button>
         <button
+          type="button"
           onClick={() => importRef.current?.click()}
           disabled={!editable}
           className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95 disabled:pointer-events-none disabled:opacity-50"

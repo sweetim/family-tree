@@ -53,7 +53,7 @@ export function AccountMenu() {
       >
         <span className="relative inline-block">
           {session.user.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
+            // biome-ignore lint/performance/noImgElement: external OAuth avatar URL with unknown dimensions
             <img
               src={session.user.image}
               alt=""

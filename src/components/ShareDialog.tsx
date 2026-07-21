@@ -51,6 +51,14 @@ export function ShareDialog({
     void refresh()
   }, [treeId])
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
+
   async function add(e: FormEvent) {
     e.preventDefault()
     const trimmed = email.trim().toLowerCase()
@@ -100,14 +108,15 @@ export function ShareDialog({
   }
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a convenience; Escape (handled above) is the keyboard equivalent
+    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close is via the Escape listener in the effect above
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
     >
-      <div
-        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-lift"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-lift">
         <div className="mb-1 flex items-start justify-between gap-2">
           <div>
             <h2 className="text-lg font-bold tracking-tight text-slate-800">
@@ -132,10 +141,14 @@ export function ShareDialog({
           onSubmit={add}
           className="mt-4 flex flex-col gap-2 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200"
         >
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <label
+            htmlFor="share-email-input"
+            className="text-xs font-semibold uppercase tracking-wide text-slate-500"
+          >
             Invite by email
           </label>
           <input
+            id="share-email-input"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}

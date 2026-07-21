@@ -21,17 +21,17 @@ export interface PersonWire {
 
 /** Wire shape for a tree over the sync API. */
 export interface TreeWire {
-  id: string;
-  name: string;
-  edges: TreeEdges;
-  createdAt: string;
-  updatedAt: string;
-  deletedAt?: string;
-  ownerId: string;
+  id: string
+  name: string
+  edges: TreeEdges
+  createdAt: string
+  updatedAt: string
+  deletedAt?: string
+  ownerId: string
   /** Email of the tree's owner. Populated by the server for shared trees. */
-  ownerEmail?: string | null;
+  ownerEmail?: string | null
   /** Role the *current user* has on this tree — populated by the server. */
-  role?: LocalRole;
+  role?: LocalRole
 }
 
 export interface SharedTreeWire {
