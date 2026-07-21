@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --hot src/index.ts",
-    "build": "bun run build.ts",
-    "start": "NODE_ENV=production bun src/index.ts",
+    "dev": "next dev --turbo",
+    "build": "next build",
+    "start": "next start",
     "typecheck": "bunx tsc --noEmit",
+    "test": "bun test",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate"
@@ -15,20 +16,21 @@
   "dependencies": {
     "@biomejs/biome": "^2.5.4",
     "@neondatabase/serverless": "^1.1.0",
+    "@tailwindcss/postcss": "^4.3.2",
     "@xyflow/react": "^12.11.2",
     "better-auth": "^1.6.23",
-    "bun-plugin-tailwind": "^0.1.2",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.24.0",
+    "next": "^15.0.0",
     "react": "^19",
     "react-dom": "^19",
-    "react-router": "^8.2.0",
     "tailwindcss": "^4.3.2"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "^0.31.10",
+    "typescript": "5.8.2"
   }
 }

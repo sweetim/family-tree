@@ -23,7 +23,8 @@ import {
   useRef,
   useState,
 } from "react"
-import { Link, useNavigate } from "react-router"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { fileToAvatar } from "../lib/image"
 import {
   type FamilyStore,
@@ -426,7 +427,8 @@ function EditForm({
 }) {
   const { people } = family
   const [fields, setFields] = useState<Fields>(fieldsFrom(person))
-  const navigate = useNavigate()
+  const router = useRouter()
+  const navigate = (to: string) => router.push(to)
   const confirm = useConfirm()
 
   const otherTrees = allTrees.filter((t) => t.id !== treeId)
@@ -955,7 +957,7 @@ export function Sidebar({
       <div className="border-b border-slate-200 px-5 py-4">
         <div className="flex items-center gap-1.5">
           <Link
-            to="/"
+            href="/"
             title="All trees"
             className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
           >

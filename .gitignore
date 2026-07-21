@@ -1,14 +1,11 @@
 # dependencies (bun install)
 node_modules
 
-# output
+# next.js
+.next/
 out
 dist
 *.tgz
-
-# bundled Vercel api functions (build output from api/*.ts)
-api/**/*.js
-api/**/*.js.map
 
 # code coverage
 coverage

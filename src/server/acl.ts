@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm"
 import type { DB } from "../db"
-import { persons, treeShares, trees, user } from "../db/schema.js"
+import { persons, treeShares, trees, user } from "../db/schema"
 
 export type Role = "owner" | "editor" | "viewer"
 

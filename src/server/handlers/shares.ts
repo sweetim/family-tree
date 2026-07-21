@@ -1,8 +1,8 @@
 import { and, eq } from "drizzle-orm"
-import { getDB } from "../../db/index.js"
-import { treeShares, user } from "../../db/schema.js"
-import { treeRole } from "../acl.js"
-import { requireSession } from "./sync.js"
+import { getDB } from "../../db/index"
+import { treeShares, user } from "../../db/schema"
+import { treeRole } from "../acl"
+import { requireSession } from "./sync"
 
 interface ShareRow {
   email: string

@@ -9,7 +9,7 @@ import {
   Users,
 } from "lucide-react"
 import { type FormEvent, useMemo, useState } from "react"
-import { useNavigate } from "react-router"
+import { useRouter } from "next/navigation"
 import {
   countMembers,
   seedData,
@@ -175,7 +175,8 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
   const { trees, createTree, renameTree, deleteTree } = index
   const [name, setName] = useState("")
   const [shareTarget, setShareTarget] = useState<TreeMeta | null>(null)
-  const navigate = useNavigate()
+  const router = useRouter()
+  const navigate = (to: string) => router.push(to)
 
   const own = useMemo(
     () => trees.filter((t) => t.role !== "viewer" && t.role !== "editor"),

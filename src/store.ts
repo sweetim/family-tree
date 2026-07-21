@@ -272,6 +272,8 @@ function migrateFromLegacy(): GlobalState {
 }
 
 function loadGlobal(): GlobalState {
+  if (typeof localStorage === "undefined")
+    return { persons: {}, trees: {}, index: [] }
   try {
     const raw = localStorage.getItem(GRAPH_KEY)
     if (raw) {
@@ -319,6 +321,8 @@ let dirtyPersons: DirtyMap = loadQueue().persons
 let dirtyTrees: DirtyMap = loadQueue().trees
 
 function loadQueue(): { persons: DirtyMap; trees: DirtyMap } {
+  if (typeof localStorage === "undefined")
+    return { persons: new Map(), trees: new Map() }
   try {
     const raw = localStorage.getItem(SYNC_QUEUE_KEY)
     if (raw) {

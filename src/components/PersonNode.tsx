@@ -1,6 +1,6 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react"
 import { ArrowLeftRight, Link2, MapPin, Plus } from "lucide-react"
-import { useNavigate, useParams } from "react-router"
+import { useParams, useRouter } from "next/navigation"
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
 import { useTreeActions } from "../lib/tree-actions"
 import { useMemberTrees } from "../store"
@@ -62,8 +62,9 @@ const CARD_BORDER: Record<string, string> = {
 export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const { person, linkState } = data
   const { openAdd, startLink, readOnly } = useTreeActions()
-  const navigate = useNavigate()
-  const { treeId } = useParams()
+  const router = useRouter()
+  const navigate = (to: string) => router.push(to)
+  const { treeId } = useParams<{ treeId: string }>()
   const otherTrees = useMemberTrees(person.id).filter((t) => t.id !== treeId)
   const deceased = !!person.dod
   const age = person.dob ? ageOf(person.dob, person.dod) : null
