@@ -6,6 +6,7 @@ import {
   Download,
   GitMerge,
   Heart,
+  MapPin,
   Mars,
   Network,
   Plus,
@@ -58,6 +59,7 @@ interface Props {
   allTrees: TreeMeta[]
   state: SidebarState
   open: boolean
+  editable: boolean
   onSelect: (id: string) => void
   onAddRoot: () => void
   onFocus: (id: string) => void
@@ -127,6 +129,11 @@ function toInput(f: Fields): PersonInput {
     location: f.location.trim() || undefined,
     photo: f.photo,
   }
+}
+
+function yearOf(iso: string): string {
+  const y = new Date(iso).getFullYear()
+  return Number.isNaN(y) ? "?" : String(y)
 }
 
 type SectionProps = {
@@ -902,6 +909,112 @@ function EditForm({
   )
 }
 
+function RelationList({
+  people,
+  onSelect,
+}: {
+  people: Person[]
+  onSelect: (id: string) => void
+}) {
+  if (people.length === 0) return <p className="text-xs text-slate-400">None</p>
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {people.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          onClick={() => onSelect(p.id)}
+          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-cobalt-50 hover:text-cobalt-700"
+        >
+          {p.name}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function ReadonlyDetails({
+  family,
+  person,
+  onSelect,
+}: {
+  family: FamilyStore
+  person: Person
+  onSelect: (id: string) => void
+}) {
+  const { people } = family
+  const spouses = person.spouseIds
+    .map((id) => people[id])
+    .filter((p): p is Person => !!p)
+  const parents = person.parents
+    .map((link) => people[link.id])
+    .filter((p): p is Person => !!p)
+  const children = childrenOf(people, person.id)
+
+  const deceased = !!person.dod
+  let lifeline: string | null = null
+  if (deceased && person.dod) {
+    lifeline = `${person.dob ? yearOf(person.dob) : "?"} – ${yearOf(person.dod)} †`
+  } else if (person.dob) {
+    lifeline = yearOf(person.dob)
+  }
+
+  const initials =
+    person.name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase() || "?"
+
+  return (
+    <div className="animate-slide-up space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft">
+        <div className="flex items-center gap-3">
+          {person.photo ? (
+            <img
+              src={person.photo}
+              alt={person.name}
+              className="h-14 w-14 rounded-full object-cover ring-2 ring-slate-100"
+            />
+          ) : (
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-lg font-semibold text-slate-500">
+              {initials}
+            </div>
+          )}
+          <div className="min-w-0">
+            <h2 className="truncate text-base font-semibold tracking-tight text-slate-800">
+              {person.name}
+            </h2>
+            {lifeline && <p className="mt-0.5 text-xs text-slate-500">{lifeline}</p>}
+            {person.location && (
+              <p className="mt-0.5 inline-flex items-center gap-0.5 text-xs text-slate-400">
+                <MapPin className="h-3 w-3" /> {person.location}
+              </p>
+            )}
+            {person.gender && (
+              <p className="mt-0.5 text-xs capitalize text-slate-400">
+                {person.gender}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <Section title="Parents" icon={Users} count={parents.length}>
+        <RelationList people={parents} onSelect={onSelect} />
+      </Section>
+      <Section title="Spouses" icon={Heart} count={spouses.length}>
+        <RelationList people={spouses} onSelect={onSelect} />
+      </Section>
+      <Section title="Children" icon={Baby} count={children.length}>
+        <RelationList people={children} onSelect={onSelect} />
+      </Section>
+    </div>
+  )
+}
+
 export function Sidebar({
   family,
   treeId,
@@ -909,6 +1022,7 @@ export function Sidebar({
   allTrees,
   state,
   open,
+  editable,
   onSelect,
   onAddRoot,
   onFocus,
@@ -984,7 +1098,7 @@ export function Sidebar({
       </div>
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
-        {state.mode === "add" && (
+        {state.mode === "add" && editable ? (
           <AddForm
             key={JSON.stringify(state.rel)}
             family={family}
@@ -992,9 +1106,7 @@ export function Sidebar({
             onDone={onClose}
             onClose={onClose}
           />
-        )}
-
-        {editingPerson && (
+        ) : editingPerson && editable ? (
           <EditForm
             key={editingPerson.id}
             family={family}
@@ -1005,35 +1117,45 @@ export function Sidebar({
             onFocus={onFocus}
             onClose={onClose}
           />
+        ) : editingPerson ? (
+          <ReadonlyDetails
+            family={family}
+            person={editingPerson}
+            onSelect={onSelect}
+          />
+        ) : readOnly ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-800">
+            You have a <b>viewer</b> role on this tree — read-only. Ask the
+            owner for editor access to add or edit people.
+          </div>
+        ) : editable ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
+              <p className="text-sm leading-relaxed text-slate-500">
+                Click a card to edit it, or hover a card and use the{" "}
+                <b className="font-semibold text-slate-700">+</b> buttons to
+                add a new parent, spouse or child — or the{" "}
+                <b className="font-semibold text-slate-700">link</b> buttons
+                to connect two people already in the tree by clicking their
+                cards.
+              </p>
+            </div>
+            <button
+              onClick={onAddRoot}
+              className={`${primaryBtn} w-full`}
+            >
+              <Plus className="h-4 w-4" /> Add unconnected member
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
+            <p className="text-sm leading-relaxed text-slate-500">
+              Tap a card to view its details. Tap{" "}
+              <b className="font-semibold text-slate-700">Edit</b> to add or
+              change people.
+            </p>
+          </div>
         )}
-
-        {state.mode === "idle" || (state.mode === "edit" && !editingPerson) ? (
-          readOnly ? (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-800">
-              You have a <b>viewer</b> role on this tree — read-only. Ask the
-              owner for editor access to add or edit people.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
-                <p className="text-sm leading-relaxed text-slate-500">
-                  Click a card to edit it, or hover a card and use the{" "}
-                  <b className="font-semibold text-slate-700">+</b> buttons to
-                  add a new parent, spouse or child — or the{" "}
-                  <b className="font-semibold text-slate-700">link</b> buttons
-                  to connect two people already in the tree by clicking their
-                  cards.
-                </p>
-              </div>
-              <button
-                onClick={onAddRoot}
-                className={`${primaryBtn} w-full`}
-              >
-                <Plus className="h-4 w-4" /> Add unconnected member
-              </button>
-            </div>
-          )
-        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-2 border-t border-slate-200 px-5 py-4">
@@ -1045,7 +1167,7 @@ export function Sidebar({
         </button>
         <button
           onClick={() => importRef.current?.click()}
-          disabled={readOnly}
+          disabled={!editable}
           className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
         >
           <Upload className="h-4 w-4" /> Import

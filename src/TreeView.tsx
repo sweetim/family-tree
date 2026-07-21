@@ -9,7 +9,7 @@ import {
   Panel,
   ReactFlow,
 } from "@xyflow/react"
-import { Crosshair, Link2, Maximize2, Menu, X } from "lucide-react"
+import { Check, Crosshair, Link2, Maximize2, Menu, Pencil, X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useConfirm } from "./components/Confirm"
 import { PersonNode } from "./components/PersonNode"
@@ -44,6 +44,8 @@ export function TreeView({
   const [focusId, setFocusId] = useState<string>()
   const [link, setLink] = useState<{ kind: LinkKind; sourceId: string }>()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(false)
 
   // Follow cross-tree jumps that land on this already-mounted tree.
   useEffect(() => {
@@ -52,6 +54,19 @@ export function TreeView({
       setDrawerOpen(true)
     }
   }, [openPersonId])
+
+  // Desktop has no Edit toggle — it stays editable (hover-to-add). Mobile
+  // defaults to read-only until the user taps Edit. Viewport width is read
+  // after mount to avoid an SSR/hydration mismatch.
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)")
+    const update = () => setIsDesktop(mq.matches)
+    update()
+    mq.addEventListener("change", update)
+    return () => mq.removeEventListener("change", update)
+  }, [])
+
+  const canEdit = !family.readOnly && (isDesktop || editMode)
 
   const focusPerson = focusId ? family.people[focusId] : undefined
   const visiblePeople = useMemo(
@@ -130,9 +145,9 @@ export function TreeView({
         setDrawerOpen(true)
       },
       startLink: (kind, sourceId) => setLink({ kind, sourceId }),
-      readOnly: family.readOnly,
+      readOnly: !canEdit,
     }),
-    [family.readOnly],
+    [canEdit],
   )
 
   // Linking a married person as a parent brings their spouse into the other
@@ -236,6 +251,7 @@ export function TreeView({
           allTrees={allTrees}
           state={sidebar}
           open={drawerOpen}
+          editable={canEdit}
           onSelect={(id) => {
             setSidebar({ mode: "edit", personId: id })
             setDrawerOpen(true)
@@ -263,14 +279,35 @@ export function TreeView({
         )}
 
         <div className="relative min-w-0 flex-1">
-          <button
-            aria-label="Open panel"
-            className="absolute left-3 top-3 z-20 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95 md:hidden"
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-          >
-            <Menu className="h-5 w-5" />
-          </button>
+          <div className="absolute left-3 top-3 z-20 flex items-center gap-2 md:hidden">
+            <button
+              aria-label="Open panel"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95"
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            {!family.readOnly && (
+              <button
+                aria-label={editMode ? "Done editing" : "Edit tree"}
+                type="button"
+                onClick={() => setEditMode((v) => !v)}
+                className={`inline-flex h-10 items-center gap-1.5 rounded-xl px-3 text-sm font-medium shadow-soft ring-1 transition-colors active:scale-95 ${
+                  editMode
+                    ? "bg-cobalt-600 text-white ring-cobalt-600 hover:bg-cobalt-700"
+                    : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                {editMode ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Pencil className="h-4 w-4" />
+                )}
+                {editMode ? "Done" : "Edit"}
+              </button>
+            )}
+          </div>
           <ReactFlow
             key={focusPerson?.id ?? "all"}
             nodes={nodes}
