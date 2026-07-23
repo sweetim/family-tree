@@ -19,18 +19,18 @@ import {
   X,
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import { useConfirm } from "./components/Confirm"
-import { PersonNode } from "./components/PersonNode"
-import { Sidebar, type SidebarState } from "./components/Sidebar"
-import { UnionNode } from "./components/UnionNode"
-import { buildFlow, type FlowEdge, type FlowNode } from "./lib/layout"
+import { useConfirm } from "@/components/Confirm"
+import { PersonNode } from "@/components/PersonNode"
+import { UnionNode } from "@/components/UnionNode"
+import { buildFlow, type FlowEdge, type FlowNode } from "@/lib/layout"
 import {
   type LinkKind,
   type TreeActions,
   TreeActionsContext,
-} from "./lib/tree-actions"
-import { type TreeMeta, useFamily } from "./store"
-import { ancestorsOf, descendantsOf, focusFamily } from "./types"
+} from "@/lib/tree-actions"
+import { type TreeMeta, useFamily } from "@/store"
+import { ancestorsOf, descendantsOf, focusFamily } from "@/types"
+import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
 
 const nodeTypes = { person: PersonNode, union: UnionNode }
 

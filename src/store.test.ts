@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import type { GlobalState } from "./store"
 import type { TreeEdges } from "./types"
 
 describe("store helpers", () => {
@@ -161,5 +162,61 @@ describe("applyRemote LWW merge", () => {
       ],
     })
     expect([...store.snapshotDirty().persons.keys()]).not.toContain("p1")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// stampAndEnqueue — every local mutation must refresh `updatedAt` so the
+// change wins the server's last-write-wins comparison. Regression coverage
+// for the bug where edits to already-synced records kept a stale timestamp
+// and were silently dropped by the server on push.
+// ---------------------------------------------------------------------------
+
+describe("stampAndEnqueue", () => {
+  test("re-stamps updatedAt on a local edit to an already-synced person", async () => {
+    const store = await freshStore()
+    const { stampAndEnqueue } = store
+    const t0 = "2024-01-01T00:00:00.000Z"
+
+    const prev: GlobalState = {
+      persons: { p1: { id: "p1", name: "Alice", updatedAt: t0 } },
+      trees: {},
+      index: [],
+    }
+    // Simulate an edit: new object ref, new photo, but the mutator left the
+    // stale `updatedAt` from the server untouched.
+    const next: GlobalState = {
+      persons: {
+        p1: { id: "p1", name: "Alice", photo: "data:image/jpeg;base64,…", updatedAt: t0 },
+      },
+      trees: {},
+      index: [],
+    }
+
+    const result = stampAndEnqueue(prev, next)
+    expect(result.persons.p1?.updatedAt).not.toBe(t0)
+    expect(result.persons.p1?.updatedAt).toBeTruthy()
+    expect([...store.snapshotDirty().persons.keys()]).toContain("p1")
+  })
+
+  test("re-stamps tree meta when its edges change", async () => {
+    const store = await freshStore()
+    const { stampAndEnqueue } = store
+    const t0 = "2024-01-01T00:00:00.000Z"
+
+    const prev: GlobalState = {
+      persons: {},
+      trees: { tr1: { members: [], spouses: [], parents: {} } },
+      index: [{ id: "tr1", name: "Fam", createdAt: t0, updatedAt: t0 }],
+    }
+    const next: GlobalState = {
+      persons: {},
+      trees: { tr1: { members: ["a"], spouses: [], parents: {} } },
+      index: [{ id: "tr1", name: "Fam", createdAt: t0, updatedAt: t0 }],
+    }
+
+    const result = stampAndEnqueue(prev, next)
+    expect(result.index[0]?.updatedAt).not.toBe(t0)
+    expect([...store.snapshotDirty().trees.keys()]).toContain("tr1")
   })
 })

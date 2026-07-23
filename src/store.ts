@@ -116,8 +116,9 @@ let dirtyTrees: DirtyMap = new Map()
  * Stamp `updatedAt` on every changed record (ref-equality diff) and enqueue
  * those ids for the next push. Returns the next state with stamps applied.
  * Called from `update()` for local mutations only — remote merges bypass it.
+ * Exported for direct unit testing of the stamping/dirty-queue logic.
  */
-function stampAndEnqueue(prev: GlobalState, next: GlobalState): GlobalState {
+export function stampAndEnqueue(prev: GlobalState, next: GlobalState): GlobalState {
   if (prev === next) return next
   const now = new Date().toISOString()
 

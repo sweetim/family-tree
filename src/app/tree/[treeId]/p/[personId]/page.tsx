@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation"
 import { useTreeIndex } from "@/store"
-import { TreeView } from "@/TreeView"
+import { TreeView } from "../../_tree/TreeView"
 
 export default function TreePersonPage() {
   const params = useParams<{ treeId: string; personId: string }>()

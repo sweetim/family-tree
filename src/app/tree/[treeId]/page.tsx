@@ -3,7 +3,7 @@
 import { useParams, usePathname, useRouter } from "next/navigation"
 import { authClient, useSession } from "@/lib/auth-client"
 import { useHydrated, useTreeIndex } from "@/store"
-import { TreeView } from "@/TreeView"
+import { TreeView } from "./_tree/TreeView"
 
 export default function TreePage() {
   const params = useParams<{ treeId: string }>()
