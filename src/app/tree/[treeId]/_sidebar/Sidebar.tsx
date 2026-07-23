@@ -1,4 +1,11 @@
-import { ChevronLeft, Download, Plus, Upload, Users } from "lucide-react"
+import {
+  ChevronLeft,
+  Download,
+  Plus,
+  Settings,
+  Upload,
+  Users,
+} from "lucide-react"
 import Link from "next/link"
 import { useRef } from "react"
 import { AccountMenu } from "@/components/AccountMenu"
@@ -7,6 +14,7 @@ import { type FamilyStore, normalizeImport, type TreeMeta } from "@/store"
 import { AddForm } from "./AddForm"
 import { EditForm } from "./EditForm"
 import { ReadonlyDetails } from "./ReadonlyDetails"
+import { SettingsPanel } from "./SettingsPanel"
 import { primaryBtn, type SidebarState } from "./shared"
 
 export type { SidebarState }
@@ -22,7 +30,10 @@ interface Props {
   onSelect: (id: string) => void
   onAddRoot: () => void
   onFocus: (id: string) => void
+  onOpenSettings: () => void
   onClose: () => void
+  collapsed: boolean
+  onCollapse: () => void
 }
 
 export function Sidebar({
@@ -36,7 +47,10 @@ export function Sidebar({
   onSelect,
   onAddRoot,
   onFocus,
+  onOpenSettings,
   onClose,
+  collapsed,
+  onCollapse,
 }: Props) {
   const importRef = useRef<HTMLInputElement>(null)
   const toast = useToast()
@@ -80,10 +94,21 @@ export function Sidebar({
 
   return (
     <aside
-      className={`flex h-full w-[88vw] max-w-sm shrink-0 flex-col border-r border-slate-200 bg-white/95 backdrop-blur-sm transition-transform duration-200 fixed inset-y-0 left-0 z-40 md:static md:w-80 md:max-w-none md:translate-x-0 ${
-        open ? "translate-x-0" : "-translate-x-full"
-      }`}
+      className={`flex h-full w-[88vw] max-w-sm shrink-0 flex-col border-r border-slate-200 bg-white/95 backdrop-blur-sm transition-transform duration-200 fixed inset-y-0 left-0 z-40 ${
+        collapsed
+          ? "md:hidden"
+          : "md:relative md:w-80 md:max-w-none md:translate-x-0"
+      } ${open ? "translate-x-0" : "-translate-x-full"}`}
     >
+      <button
+        type="button"
+        aria-label="Collapse panel"
+        title="Collapse panel"
+        onClick={onCollapse}
+        className="absolute top-3 right-0 z-50 hidden h-8 w-8 translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-soft transition-colors hover:bg-slate-50 hover:text-slate-700 md:inline-flex"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
       <div className="border-b border-slate-200 px-5 py-4">
         <div className="flex items-center gap-1.5">
           <Link
@@ -108,7 +133,9 @@ export function Sidebar({
       </div>
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
-        {state.mode === "add" && editable ? (
+        {state.mode === "settings" ? (
+          <SettingsPanel onClose={onClose} />
+        ) : state.mode === "add" && editable ? (
           <AddForm
             key={JSON.stringify(state.rel)}
             family={family}
@@ -168,22 +195,31 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 border-t border-slate-200 px-5 py-4">
+      <div className="space-y-2 border-t border-slate-200 px-5 py-4">
         <button
           type="button"
-          onClick={exportJson}
-          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
+          onClick={onOpenSettings}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
         >
-          <Download className="h-4 w-4" /> Export
+          <Settings className="h-4 w-4" /> Settings
         </button>
-        <button
-          type="button"
-          onClick={() => importRef.current?.click()}
-          disabled={!editable}
-          className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" /> Import
-        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={exportJson}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
+          >
+            <Download className="h-4 w-4" /> Export
+          </button>
+          <button
+            type="button"
+            onClick={() => importRef.current?.click()}
+            disabled={!editable}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" /> Import
+          </button>
+        </div>
         <input
           ref={importRef}
           type="file"

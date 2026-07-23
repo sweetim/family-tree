@@ -15,6 +15,7 @@ import {
   Link2,
   Maximize2,
   Menu,
+  PanelLeftOpen,
   Pencil,
   X,
 } from "lucide-react"
@@ -28,6 +29,7 @@ import {
   type TreeActions,
   TreeActionsContext,
 } from "@/lib/tree-actions"
+import { useViewSettings } from "@/lib/view-settings"
 import { type TreeMeta, useFamily } from "@/store"
 import { ancestorsOf, descendantsOf, focusFamily } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
@@ -46,12 +48,14 @@ export function TreeView({
 }) {
   const family = useFamily(tree.id)
   const confirm = useConfirm()
+  const { settings } = useViewSettings()
   const [sidebar, setSidebar] = useState<SidebarState>(() =>
     openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },
   )
   const [focusId, setFocusId] = useState<string>()
   const [link, setLink] = useState<{ kind: LinkKind; sourceId: string }>()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [sidebarHidden, setSidebarHidden] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [isDesktop, setIsDesktop] = useState(false)
 
@@ -60,6 +64,7 @@ export function TreeView({
     if (openPersonId) {
       setSidebar({ mode: "edit", personId: openPersonId })
       setDrawerOpen(true)
+      setSidebarHidden(false)
     }
   }, [openPersonId])
 
@@ -182,6 +187,7 @@ export function TreeView({
     }
     setSidebar({ mode: "edit", personId: node.id })
     setDrawerOpen(true)
+    setSidebarHidden(false)
   }
 
   const onEdgeClick: EdgeMouseHandler<FlowEdge> = async (_e, edge) => {
@@ -260,17 +266,26 @@ export function TreeView({
           state={sidebar}
           open={drawerOpen}
           editable={canEdit}
+          collapsed={sidebarHidden}
+          onCollapse={() => setSidebarHidden(true)}
           onSelect={(id) => {
             setSidebar({ mode: "edit", personId: id })
             setDrawerOpen(true)
+            setSidebarHidden(false)
           }}
           onAddRoot={() => {
             setSidebar({ mode: "add", rel: { kind: "root" } })
             setDrawerOpen(true)
+            setSidebarHidden(false)
           }}
           onFocus={(id) => {
             setFocusId(id)
             setDrawerOpen(false)
+          }}
+          onOpenSettings={() => {
+            setSidebar({ mode: "settings" })
+            setDrawerOpen(true)
+            setSidebarHidden(false)
           }}
           onClose={() => {
             setSidebar({ mode: "idle" })
@@ -287,6 +302,17 @@ export function TreeView({
         )}
 
         <div className="relative min-w-0 flex-1">
+          {sidebarHidden && (
+            <button
+              type="button"
+              aria-label="Show panel"
+              title="Show panel"
+              onClick={() => setSidebarHidden(false)}
+              className="absolute left-3 top-3 z-20 hidden h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95 md:inline-flex"
+            >
+              <PanelLeftOpen className="h-5 w-5" />
+            </button>
+          )}
           <div className="absolute left-3 top-3 z-20 flex items-center gap-2 md:hidden">
             <button
               aria-label="Open panel"
@@ -344,11 +370,13 @@ export function TreeView({
               color="#cbd5e1"
             />
             <Controls showInteractive={false} />
-            <MiniMap
-              pannable
-              zoomable
-              className="!bg-slate-100 hidden md:block"
-            />
+            {settings.minimap && (
+              <MiniMap
+                pannable
+                zoomable
+                className="!bg-slate-100 hidden md:block"
+              />
+            )}
 
             {link && linkSource && (
               <Panel position="top-center">

@@ -13,6 +13,7 @@ export type SidebarState =
   | { mode: "idle" }
   | { mode: "add"; rel: Relationship }
   | { mode: "edit"; personId: string }
+  | { mode: "settings" }
 
 export type Fields = {
   name: string
