@@ -174,6 +174,7 @@ export function TreeView({
   }
 
   const onNodeClick: NodeMouseHandler<FlowNode> = (_e, node) => {
+    if (sidebar.mode === "settings") return
     if (node.type !== "person") return
     if (link) {
       if (node.id === link.sourceId) return setLink(undefined)
@@ -350,6 +351,7 @@ export function TreeView({
             onNodeClick={onNodeClick}
             onEdgeClick={onEdgeClick}
             onPaneClick={() => {
+              if (sidebar.mode === "settings") return
               setLink(undefined)
               setSidebar({ mode: "idle" })
               setDrawerOpen(false)
