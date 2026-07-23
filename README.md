@@ -10,6 +10,12 @@ is required — trees are stored in Neon Postgres and per-tree sharing
 (viewer + editor roles) is built in. Photos are downscaled client-side before
 upload. Export/Import lets you back up or share a tree as JSON.
 
+## Documentation
+
+Detailed, AI-agent-friendly reference docs live in [`docs/`](./docs). Start with
+[`docs/README.md`](./docs/README.md), which indexes architecture, domain model,
+state/sync, database, auth/ACL, API, layout, components, and conventions.
+
 ## Development
 
 ```bash

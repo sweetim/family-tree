@@ -1,16 +1,7 @@
-import {
-  ChevronLeft,
-  Download,
-  Plus,
-  Settings,
-  Upload,
-  Users,
-} from "lucide-react"
+import { ChevronLeft, Plus, Settings, Users } from "lucide-react"
 import Link from "next/link"
-import { useRef } from "react"
 import { AccountMenu } from "@/components/AccountMenu"
-import { useToast } from "@/components/Toast"
-import { type FamilyStore, normalizeImport, type TreeMeta } from "@/store"
+import type { FamilyStore, TreeMeta } from "@/store"
 import { AddForm } from "./AddForm"
 import { EditForm } from "./EditForm"
 import { ReadonlyDetails } from "./ReadonlyDetails"
@@ -52,42 +43,8 @@ export function Sidebar({
   collapsed,
   onCollapse,
 }: Props) {
-  const importRef = useRef<HTMLInputElement>(null)
-  const toast = useToast()
   const count = Object.keys(family.people).length
   const readOnly = family.readOnly
-
-  function exportJson() {
-    const blob = new Blob([JSON.stringify(family.people, null, 2)], {
-      type: "application/json",
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = "family-tree.json"
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  async function importJson(file: File | undefined) {
-    if (!file) return
-    try {
-      const data = normalizeImport(JSON.parse(await file.text()))
-      const valid = Object.values(data).every(
-        (p) =>
-          p
-          && typeof p.id === "string"
-          && typeof p.name === "string"
-          && Array.isArray(p.parents),
-      )
-      if (!valid) throw new Error("Unrecognised format")
-      family.replaceAll(data)
-      onClose()
-    } catch (err) {
-      console.error(err)
-      toast("That file doesn't look like an exported family tree.", "error")
-    }
-  }
 
   const editingPerson =
     state.mode === "edit" ? family.people[state.personId] : undefined
@@ -105,7 +62,7 @@ export function Sidebar({
         aria-label="Collapse panel"
         title="Collapse panel"
         onClick={onCollapse}
-        className="absolute top-3 right-0 z-50 hidden h-8 w-8 translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-soft transition-colors hover:bg-slate-50 hover:text-slate-700 md:inline-flex"
+        className="absolute top-4 right-0 z-50 hidden h-9 w-9 translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-soft transition-colors hover:bg-slate-50 hover:text-slate-700 md:inline-flex"
       >
         <ChevronLeft className="h-4 w-4" />
       </button>
@@ -119,7 +76,7 @@ export function Sidebar({
             <ChevronLeft className="h-4 w-4" />
           </Link>
           <span className="text-xs font-medium text-slate-400">All trees</span>
-          <div className="ml-auto">
+          <div className="ml-auto mr-3">
             <AccountMenu />
           </div>
         </div>
@@ -134,7 +91,11 @@ export function Sidebar({
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
         {state.mode === "settings" ? (
-          <SettingsPanel onClose={onClose} />
+          <SettingsPanel
+            family={family}
+            editable={editable}
+            onClose={onClose}
+          />
         ) : state.mode === "add" && editable ? (
           <AddForm
             key={JSON.stringify(state.rel)}
@@ -203,33 +164,6 @@ export function Sidebar({
         >
           <Settings className="h-4 w-4" /> Settings
         </button>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={exportJson}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
-          >
-            <Download className="h-4 w-4" /> Export
-          </button>
-          <button
-            type="button"
-            onClick={() => importRef.current?.click()}
-            disabled={!editable}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
-          >
-            <Upload className="h-4 w-4" /> Import
-          </button>
-        </div>
-        <input
-          ref={importRef}
-          type="file"
-          accept="application/json"
-          className="hidden"
-          onChange={(e) => {
-            importJson(e.target.files?.[0])
-            e.target.value = ""
-          }}
-        />
       </div>
     </aside>
   )
