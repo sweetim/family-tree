@@ -23,7 +23,14 @@ import { useEffect, useMemo, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
 import { PersonNode } from "@/components/PersonNode"
 import { UnionNode } from "@/components/UnionNode"
-import { buildFlow, type FlowEdge, type FlowNode } from "@/lib/layout"
+import {
+  buildFlow,
+  type FamilyRoot,
+  type FlowEdge,
+  type FlowNode,
+  findRoots,
+  withCollapsedRoots,
+} from "@/lib/layout"
 import {
   type LinkKind,
   type TreeActions,
@@ -31,7 +38,12 @@ import {
 } from "@/lib/tree-actions"
 import { useViewSettings } from "@/lib/view-settings"
 import { type TreeMeta, useFamily } from "@/store"
-import { ancestorsOf, descendantsOf, focusFamily } from "@/types"
+import {
+  ancestorsOf,
+  descendantsOf,
+  type FamilyData,
+  focusFamily,
+} from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
 
 const nodeTypes = { person: PersonNode, union: UnionNode }
@@ -88,6 +100,38 @@ export function TreeView({
     [family.people, focusPerson],
   )
 
+  const roots = useMemo(() => findRoots(visiblePeople), [visiblePeople])
+  const [activeRootId, setActiveRootId] = useState<string>()
+
+  // In single-root mode keep an expanded root selected: default to the first
+  // root, and reset if the active one disappeared (e.g. its family merged or
+  // was deleted).
+  useEffect(() => {
+    if (settings.multiRoot) return
+    if (!roots.some((r) => r.id === activeRootId)) {
+      setActiveRootId(roots[0]?.id)
+    }
+  }, [roots, activeRootId, settings.multiRoot])
+
+  const activeRoot = settings.multiRoot
+    ? undefined
+    : (roots.find((r) => r.id === activeRootId) ?? roots[0])
+
+  const activeMembers = useMemo<FamilyData>(() => {
+    if (!activeRoot) return visiblePeople
+    const subset: FamilyData = {}
+    for (const id of activeRoot.members) {
+      const person = visiblePeople[id]
+      if (person) subset[id] = person
+    }
+    return subset
+  }, [visiblePeople, activeRoot])
+
+  const collapsedRoots = useMemo<FamilyRoot[]>(
+    () => (activeRoot ? roots.filter((r) => r.id !== activeRoot.id) : []),
+    [roots, activeRoot],
+  )
+
   const linkSource = link ? family.people[link.sourceId] : undefined
 
   // Cancel link mode if the source disappears (e.g. deleted from the sidebar).
@@ -139,17 +183,25 @@ export function TreeView({
   }, [link, linkSource, family.people, visiblePeople])
 
   const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
-  const { nodes, edges } = useMemo(
-    () =>
-      buildFlow(
-        visiblePeople,
-        selectedId,
-        link && linkEligible
-          ? { sourceId: link.sourceId, eligible: linkEligible }
-          : undefined,
-      ),
-    [visiblePeople, selectedId, link, linkEligible],
-  )
+  const { nodes, edges } = useMemo(() => {
+    const flow = buildFlow(
+      activeMembers,
+      selectedId,
+      link && linkEligible
+        ? { sourceId: link.sourceId, eligible: linkEligible }
+        : undefined,
+    )
+    return collapsedRoots.length > 0
+      ? withCollapsedRoots(flow, collapsedRoots, visiblePeople)
+      : flow
+  }, [
+    activeMembers,
+    selectedId,
+    link,
+    linkEligible,
+    collapsedRoots,
+    visiblePeople,
+  ])
 
   const actions = useMemo<TreeActions>(
     () => ({
@@ -184,6 +236,11 @@ export function TreeView({
         linkCoupleAsParents(link.sourceId, node.id)
       else linkCoupleAsParents(node.id, link.sourceId)
       setLink(undefined)
+      return
+    }
+    // A collapsed root card expands its family instead of opening the editor.
+    if (node.data.collapsedRoot) {
+      setActiveRootId(node.id)
       return
     }
     setSidebar({ mode: "edit", personId: node.id })
@@ -344,7 +401,7 @@ export function TreeView({
             )}
           </div>
           <ReactFlow
-            key={focusPerson?.id ?? "all"}
+            key={`${focusPerson?.id ?? "all"}:${settings.multiRoot ? "multi" : (activeRootId ?? "none")}`}
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}

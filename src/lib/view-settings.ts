@@ -7,10 +7,16 @@ import { useSyncExternalStore } from "react"
  */
 export type ViewSettings = {
   minimap: boolean
+  /**
+   * Show every disconnected family at once. Off (default): single-root mode
+   * — one family is expanded and the other roots appear as collapsed cards
+   * that expand on click.
+   */
+  multiRoot: boolean
 }
 
 const STORAGE_KEY = "family-tree:view-settings"
-const DEFAULTS: ViewSettings = { minimap: true }
+const DEFAULTS: ViewSettings = { minimap: true, multiRoot: false }
 
 function load(): ViewSettings {
   if (typeof window === "undefined") return DEFAULTS

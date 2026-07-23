@@ -24,7 +24,14 @@ const ROOT_GAP = 120
 /** How a card participates in click-to-connect mode. */
 export type LinkState = "source" | "eligible" | "blocked"
 export type PersonNodeType = Node<
-  { person: Person; linkState?: LinkState },
+  {
+    person: Person
+    linkState?: LinkState
+    /** A collapsed family root in single-root mode — click to expand. */
+    collapsedRoot?: boolean
+    /** People hidden behind a collapsed root card. */
+    collapsedCount?: number
+  },
   "person"
 >
 export type UnionNodeType = Node<Record<string, never>, "union">
@@ -371,4 +378,140 @@ export function buildFlow(
   }
 
   return { nodes, edges }
+}
+
+/** A connected component of a family with a representative root person. */
+export type FamilyRoot = {
+  /** Anchor person id — the card shown when this root is collapsed. */
+  id: string
+  /** Every person in this disconnected family. */
+  members: Set<string>
+}
+
+/**
+ * Splits a family into its disconnected components (roots) and picks an
+ * anchor for each. The anchor preference mirrors {@link computePositions}:
+ * a rootless person whose partners are also rootless, else any rootless
+ * person, else the earliest-added member.
+ */
+export function findRoots(people: FamilyData): FamilyRoot[] {
+  const ids = Object.keys(people)
+  const adj = new Map<string, string[]>()
+  const link = (a: string, b: string) => {
+    if (!people[a] || !people[b] || a === b) return
+    let la = adj.get(a)
+    if (!la) {
+      la = []
+      adj.set(a, la)
+    }
+    la.push(b)
+    let lb = adj.get(b)
+    if (!lb) {
+      lb = []
+      adj.set(b, lb)
+    }
+    lb.push(a)
+  }
+  for (const p of Object.values(people)) {
+    for (const sid of p.spouseIds) link(p.id, sid)
+    for (const parent of p.parents) link(p.id, parent.id)
+    // Co-parents of a shared child are partners in the same couple unit.
+    const parents = p.parents.filter((l) => people[l.id])
+    for (let i = 0; i < parents.length; i++) {
+      for (let j = i + 1; j < parents.length; j++) {
+        const a = parents[i]
+        const b = parents[j]
+        if (a && b) link(a.id, b.id)
+      }
+    }
+  }
+
+  const order = new Map(ids.map((id, i) => [id, i]))
+  const hasVisibleParents = (id: string) =>
+    (people[id]?.parents ?? []).some((l) => people[l.id])
+  const partnersOf = (id: string) => adj.get(id) ?? []
+  const pickAnchor = (members: string[], fallback: string): string => {
+    const sorted = [...members].sort(
+      (a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0),
+    )
+    return (
+      sorted.find(
+        (id) =>
+          !hasVisibleParents(id)
+          && partnersOf(id).every((pid) => !hasVisibleParents(pid)),
+      )
+      ?? sorted.find((id) => !hasVisibleParents(id))
+      ?? sorted[0]
+      ?? fallback
+    )
+  }
+
+  const seen = new Set<string>()
+  const roots: FamilyRoot[] = []
+  for (const id of ids) {
+    if (seen.has(id)) continue
+    const component: string[] = []
+    const stack = [id]
+    while (stack.length > 0) {
+      const cur = stack.pop()
+      if (cur === undefined || seen.has(cur)) continue
+      seen.add(cur)
+      component.push(cur)
+      for (const n of adj.get(cur) ?? []) if (!seen.has(n)) stack.push(n)
+    }
+    roots.push({ id: pickAnchor(component, id), members: new Set(component) })
+  }
+  roots.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  return roots
+}
+
+/**
+ * Lays the collapsed family-root cards in a centered row above the expanded
+ * family. Only used in single-root mode; the active family comes in via
+ * {@link buildFlow}, the rest arrive here as single anchor cards.
+ */
+export function withCollapsedRoots(
+  flow: { nodes: FlowNode[]; edges: FlowEdge[] },
+  collapsed: FamilyRoot[],
+  people: FamilyData,
+): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  if (collapsed.length === 0) return flow
+
+  const personNodes = flow.nodes.filter(
+    (n): n is PersonNodeType => n.type === "person",
+  )
+  const lefts = personNodes.map((n) => n.position.x)
+  const rights = personNodes.map((n) => n.position.x + NODE_WIDTH)
+  const tops = personNodes.map((n) => n.position.y)
+
+  const minX = lefts.length > 0 ? Math.min(...lefts) : 0
+  const maxX = rights.length > 0 ? Math.max(...rights) : 0
+  const topY = tops.length > 0 ? Math.min(...tops) : 0
+  const centerX = (minX + maxX) / 2
+  const rowY = topY - NODE_HEIGHT - ROOT_GAP
+
+  const total =
+    collapsed.length * NODE_WIDTH + (collapsed.length - 1) * ROOT_GAP
+  const startX = centerX - total / 2
+
+  const extra: FlowNode[] = []
+  let slot = 0
+  for (const root of collapsed) {
+    const person = people[root.id]
+    if (!person) continue
+    const center = startX + slot * (NODE_WIDTH + ROOT_GAP) + NODE_WIDTH / 2
+    slot += 1
+    extra.push({
+      id: root.id,
+      type: "person",
+      position: { x: center - NODE_WIDTH / 2, y: rowY },
+      data: {
+        person,
+        collapsedRoot: true,
+        collapsedCount: Math.max(0, root.members.size - 1),
+      },
+    })
+  }
+
+  return { nodes: [...flow.nodes, ...extra], edges: flow.edges }
 }

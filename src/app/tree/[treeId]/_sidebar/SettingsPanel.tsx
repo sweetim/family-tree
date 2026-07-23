@@ -79,6 +79,24 @@ export function SettingsPanel({
         />
       </label>
 
+      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+        <span>
+          <span className="block text-sm font-medium text-slate-700">
+            View multiple family roots
+          </span>
+          <span className="block text-xs text-slate-500">
+            Show every disconnected family at once. Off: one family at a time —
+            click a root card to expand it.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={settings.multiRoot}
+          onChange={(e) => update({ multiRoot: e.target.checked })}
+          className="h-4 w-4 rounded border-slate-300 text-cobalt-600 focus:ring-cobalt-500"
+        />
+      </label>
+
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-slate-800">Data</h2>
         <div className="grid grid-cols-2 gap-2">
