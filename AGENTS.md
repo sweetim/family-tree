@@ -65,6 +65,15 @@ For multi-step tasks, state a brief plan:
 Strong success criteria let you loop independently. Weak criteria ("make it
 work") require constant clarification.
 
+## 5. Keep Docs And Verify UI In Sync
+
+**Docs track the code. UI changes need human eyes.**
+
+- After code changes that affect documented behavior, update the relevant docs
+  (README, AGENTS.md, inline docs) to match the new behavior.
+- After UI-related changes, provide the user with clear manual testing steps
+  describing what to verify and how to reach the affected UI.
+
 # Coding Rules
 
 - Use `type` instead of `interface` when defining TypeScript types to ensure

@@ -38,12 +38,7 @@ import {
 } from "@/lib/tree-actions"
 import { useViewSettings } from "@/lib/view-settings"
 import { type TreeMeta, useFamily } from "@/store"
-import {
-  ancestorsOf,
-  descendantsOf,
-  type FamilyData,
-  focusFamily,
-} from "@/types"
+import { ancestorsOf, descendantsOf, focusFamily } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
 
 const nodeTypes = { person: PersonNode, union: UnionNode }
@@ -103,34 +98,35 @@ export function TreeView({
   const roots = useMemo(() => findRoots(visiblePeople), [visiblePeople])
   const [activeRootId, setActiveRootId] = useState<string>()
 
-  // In single-root mode keep an expanded root selected: default to the first
-  // root, and reset if the active one disappeared (e.g. its family merged or
-  // was deleted).
+  // In single-root mode keep one ancestral line expanded: default to the first
+  // root, and reset if the active one disappeared (e.g. its line merged or was
+  // deleted).
   useEffect(() => {
     if (settings.multiRoot) return
-    if (!roots.some((r) => r.id === activeRootId)) {
-      setActiveRootId(roots[0]?.id)
+    if (!roots.some((r) => r.representative === activeRootId)) {
+      setActiveRootId(roots[0]?.representative)
     }
   }, [roots, activeRootId, settings.multiRoot])
 
   const activeRoot = settings.multiRoot
     ? undefined
-    : (roots.find((r) => r.id === activeRootId) ?? roots[0])
+    : (roots.find((r) => r.representative === activeRootId) ?? roots[0])
 
-  const activeMembers = useMemo<FamilyData>(() => {
-    if (!activeRoot) return visiblePeople
-    const subset: FamilyData = {}
-    for (const id of activeRoot.members) {
-      const person = visiblePeople[id]
-      if (person) subset[id] = person
-    }
-    return subset
-  }, [visiblePeople, activeRoot])
-
-  const collapsedRoots = useMemo<FamilyRoot[]>(
-    () => (activeRoot ? roots.filter((r) => r.id !== activeRoot.id) : []),
-    [roots, activeRoot],
+  // Expanded view = the active root's blood line + spouses of blood relatives.
+  const expandedPeople = useMemo(
+    () =>
+      activeRoot
+        ? focusFamily(visiblePeople, activeRoot.representative)
+        : visiblePeople,
+    [visiblePeople, activeRoot],
   )
+
+  // Collapsed cards = other top-level lines whose heads aren't already shown.
+  const collapsedRoots = useMemo<FamilyRoot[]>(() => {
+    if (!activeRoot) return []
+    const expandedIds = new Set(Object.keys(expandedPeople))
+    return roots.filter((r) => !r.heads.some((h) => expandedIds.has(h)))
+  }, [roots, activeRoot, expandedPeople])
 
   const linkSource = link ? family.people[link.sourceId] : undefined
 
@@ -185,7 +181,7 @@ export function TreeView({
   const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
   const { nodes, edges } = useMemo(() => {
     const flow = buildFlow(
-      activeMembers,
+      expandedPeople,
       selectedId,
       link && linkEligible
         ? { sourceId: link.sourceId, eligible: linkEligible }
@@ -195,7 +191,7 @@ export function TreeView({
       ? withCollapsedRoots(flow, collapsedRoots, visiblePeople)
       : flow
   }, [
-    activeMembers,
+    expandedPeople,
     selectedId,
     link,
     linkEligible,
@@ -238,9 +234,11 @@ export function TreeView({
       setLink(undefined)
       return
     }
-    // A collapsed root card expands its family instead of opening the editor.
+    // A collapsed root card expands its ancestral line instead of opening
+    // the editor.
     if (node.data.collapsedRoot) {
-      setActiveRootId(node.id)
+      const root = roots.find((r) => r.heads.includes(node.id))
+      if (root) setActiveRootId(root.representative)
       return
     }
     setSidebar({ mode: "edit", personId: node.id })
@@ -251,7 +249,7 @@ export function TreeView({
   const onEdgeClick: EdgeMouseHandler<FlowEdge> = async (_e, edge) => {
     if (link) return
     const data = edge.data
-    if (!data) return
+    if (!data || data.collapsed) return
 
     if (data.kind === "couple" && data.a && data.b) {
       const a = family.people[data.a]

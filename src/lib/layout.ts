@@ -1,5 +1,5 @@
 import type { Edge, Node } from "@xyflow/react"
-import type { FamilyData, Person } from "../types"
+import { type FamilyData, focusFamily, type Person } from "../types"
 
 export const NODE_WIDTH = 176
 export const NODE_HEIGHT = 220
@@ -46,6 +46,8 @@ export interface RelEdgeData extends Record<string, unknown> {
   /** child: who hangs from this line and from whom */
   childId?: string
   parentIds?: string[]
+  /** Marks edges inside a collapsed-root card so clicks are ignored. */
+  collapsed?: boolean
 }
 export type FlowEdge = Edge<RelEdgeData>
 
@@ -380,95 +382,96 @@ export function buildFlow(
   return { nodes, edges }
 }
 
-/** A connected component of a family with a representative root person. */
+/** A top-level ancestral line: a rootless person, or a married/co-parent couple. */
 export type FamilyRoot = {
-  /** Anchor person id — the card shown when this root is collapsed. */
-  id: string
-  /** Every person in this disconnected family. */
-  members: Set<string>
+  /** Rootless people forming this line — one person, or a couple. */
+  heads: string[]
+  /** Head whose blood line is shown when this root is expanded. */
+  representative: string
 }
 
 /**
- * Splits a family into its disconnected components (roots) and picks an
- * anchor for each. The anchor preference mirrors {@link computePositions}:
- * a rootless person whose partners are also rootless, else any rootless
- * person, else the earliest-added member.
+ * Finds the top-level ancestral lines of a family: people with no visible
+ * parents, grouped into couples by marriage or a shared child. Each group is
+ * one collapsible root. The representative (earliest-added head) drives the
+ * expanded view via {@link focusFamily}.
  */
 export function findRoots(people: FamilyData): FamilyRoot[] {
-  const ids = Object.keys(people)
-  const adj = new Map<string, string[]>()
+  const order = new Map(Object.keys(people).map((id, i) => [id, i]))
+  const hasVisibleParents = (id: string) =>
+    (people[id]?.parents ?? []).some((l) => people[l.id])
+  const rootlessIds = Object.values(people)
+    .filter((p) => !hasVisibleParents(p.id))
+    .map((p) => p.id)
+  const rootSet = new Set(rootlessIds)
+
+  // Adjacency among rootless people only: marriages + shared-child co-parents.
+  const adj = new Map<string, Set<string>>()
   const link = (a: string, b: string) => {
-    if (!people[a] || !people[b] || a === b) return
-    let la = adj.get(a)
-    if (!la) {
-      la = []
-      adj.set(a, la)
+    if (!rootSet.has(a) || !rootSet.has(b) || a === b) return
+    let sa = adj.get(a)
+    if (!sa) {
+      sa = new Set()
+      adj.set(a, sa)
     }
-    la.push(b)
-    let lb = adj.get(b)
-    if (!lb) {
-      lb = []
-      adj.set(b, lb)
+    sa.add(b)
+    let sb = adj.get(b)
+    if (!sb) {
+      sb = new Set()
+      adj.set(b, sb)
     }
-    lb.push(a)
+    sb.add(a)
   }
-  for (const p of Object.values(people)) {
-    for (const sid of p.spouseIds) link(p.id, sid)
-    for (const parent of p.parents) link(p.id, parent.id)
-    // Co-parents of a shared child are partners in the same couple unit.
-    const parents = p.parents.filter((l) => people[l.id])
+  for (const id of rootlessIds) {
+    const p = people[id]
+    if (!p) continue
+    for (const sid of p.spouseIds) link(id, sid)
+  }
+  for (const child of Object.values(people)) {
+    const parents = child.parents
+      .filter((l) => rootSet.has(l.id))
+      .map((l) => l.id)
     for (let i = 0; i < parents.length; i++) {
       for (let j = i + 1; j < parents.length; j++) {
         const a = parents[i]
         const b = parents[j]
-        if (a && b) link(a.id, b.id)
+        if (a && b) link(a, b)
       }
     }
   }
 
-  const order = new Map(ids.map((id, i) => [id, i]))
-  const hasVisibleParents = (id: string) =>
-    (people[id]?.parents ?? []).some((l) => people[l.id])
-  const partnersOf = (id: string) => adj.get(id) ?? []
-  const pickAnchor = (members: string[], fallback: string): string => {
-    const sorted = [...members].sort(
-      (a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0),
-    )
-    return (
-      sorted.find(
-        (id) =>
-          !hasVisibleParents(id)
-          && partnersOf(id).every((pid) => !hasVisibleParents(pid)),
-      )
-      ?? sorted.find((id) => !hasVisibleParents(id))
-      ?? sorted[0]
-      ?? fallback
-    )
-  }
-
+  // Components among rootless people = root groups (couples).
   const seen = new Set<string>()
-  const roots: FamilyRoot[] = []
-  for (const id of ids) {
+  const groups: string[][] = []
+  for (const id of rootlessIds) {
     if (seen.has(id)) continue
-    const component: string[] = []
+    const group: string[] = []
     const stack = [id]
     while (stack.length > 0) {
       const cur = stack.pop()
       if (cur === undefined || seen.has(cur)) continue
       seen.add(cur)
-      component.push(cur)
+      group.push(cur)
       for (const n of adj.get(cur) ?? []) if (!seen.has(n)) stack.push(n)
     }
-    roots.push({ id: pickAnchor(component, id), members: new Set(component) })
+    group.sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0))
+    groups.push(group)
   }
-  roots.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
-  return roots
+  groups.sort(
+    (a, b) => (order.get(a[0] ?? "") ?? 0) - (order.get(b[0] ?? "") ?? 0),
+  )
+
+  return groups.map((heads) => ({
+    heads,
+    representative: heads[0] ?? "",
+  }))
 }
 
 /**
- * Lays the collapsed family-root cards in a centered row above the expanded
- * family. Only used in single-root mode; the active family comes in via
- * {@link buildFlow}, the rest arrive here as single anchor cards.
+ * Renders the collapsed top-level roots as a centered row of couple/single
+ * cards above the expanded family. Each collapsed root is laid out afresh via
+ * {@link buildFlow} (so a married couple keeps its marriage line) then offset
+ * into the row. Only used in single-root mode.
  */
 export function withCollapsedRoots(
   flow: { nodes: FlowNode[]; edges: FlowEdge[] },
@@ -480,38 +483,96 @@ export function withCollapsedRoots(
   const personNodes = flow.nodes.filter(
     (n): n is PersonNodeType => n.type === "person",
   )
-  const lefts = personNodes.map((n) => n.position.x)
-  const rights = personNodes.map((n) => n.position.x + NODE_WIDTH)
-  const tops = personNodes.map((n) => n.position.y)
-
-  const minX = lefts.length > 0 ? Math.min(...lefts) : 0
-  const maxX = rights.length > 0 ? Math.max(...rights) : 0
-  const topY = tops.length > 0 ? Math.min(...tops) : 0
+  const expandedLeft = personNodes.map((n) => n.position.x)
+  const expandedRight = personNodes.map((n) => n.position.x + NODE_WIDTH)
+  const expandedTop = personNodes.map((n) => n.position.y)
+  const minX = expandedLeft.length > 0 ? Math.min(...expandedLeft) : 0
+  const maxX = expandedRight.length > 0 ? Math.max(...expandedRight) : 0
+  const topY = expandedTop.length > 0 ? Math.min(...expandedTop) : 0
   const centerX = (minX + maxX) / 2
   const rowY = topY - NODE_HEIGHT - ROOT_GAP
 
-  const total =
-    collapsed.length * NODE_WIDTH + (collapsed.length - 1) * ROOT_GAP
-  const startX = centerX - total / 2
-
-  const extra: FlowNode[] = []
-  let slot = 0
+  type Block = {
+    nodes: FlowNode[]
+    edges: FlowEdge[]
+    width: number
+    minX: number
+    minY: number
+    hidden: number
+  }
+  const blocks: Block[] = []
   for (const root of collapsed) {
-    const person = people[root.id]
-    if (!person) continue
-    const center = startX + slot * (NODE_WIDTH + ROOT_GAP) + NODE_WIDTH / 2
-    slot += 1
-    extra.push({
-      id: root.id,
-      type: "person",
-      position: { x: center - NODE_WIDTH / 2, y: rowY },
-      data: {
-        person,
-        collapsedRoot: true,
-        collapsedCount: Math.max(0, root.members.size - 1),
-      },
+    const subset: FamilyData = {}
+    for (const id of root.heads) {
+      const person = people[id]
+      if (person) subset[id] = person
+    }
+    const sub = buildFlow(subset)
+    const subPersons = sub.nodes.filter(
+      (n): n is PersonNodeType => n.type === "person",
+    )
+    const lo =
+      subPersons.length > 0
+        ? Math.min(...subPersons.map((n) => n.position.x))
+        : 0
+    const hi =
+      subPersons.length > 0
+        ? Math.max(...subPersons.map((n) => n.position.x + NODE_WIDTH))
+        : NODE_WIDTH
+    const ty =
+      subPersons.length > 0
+        ? Math.min(...subPersons.map((n) => n.position.y))
+        : 0
+    const hidden = Math.max(
+      0,
+      Object.keys(focusFamily(people, root.representative)).length
+        - root.heads.length,
+    )
+    blocks.push({
+      nodes: sub.nodes,
+      edges: sub.edges,
+      width: Math.max(NODE_WIDTH, hi - lo),
+      minX: lo,
+      minY: ty,
+      hidden,
     })
   }
 
-  return { nodes: [...flow.nodes, ...extra], edges: flow.edges }
+  const totalWidth =
+    blocks.reduce((sum, b) => sum + b.width, 0)
+    + Math.max(0, blocks.length - 1) * ROOT_GAP
+  let cursor = centerX - totalWidth / 2
+
+  const extraNodes: FlowNode[] = []
+  const extraEdges: FlowEdge[] = []
+  for (const block of blocks) {
+    const dx = cursor - block.minX
+    const dy = rowY - block.minY
+    for (const node of block.nodes) {
+      const position = { x: node.position.x + dx, y: node.position.y + dy }
+      if (node.type === "person") {
+        extraNodes.push({
+          ...node,
+          position,
+          data: {
+            ...node.data,
+            collapsedRoot: true,
+            collapsedCount: block.hidden,
+          },
+        })
+      } else {
+        extraNodes.push({ ...node, position })
+      }
+    }
+    for (const edge of block.edges) {
+      if (!edge.data) continue
+      extraEdges.push({ ...edge, data: { ...edge.data, collapsed: true } })
+    }
+    cursor += block.width + ROOT_GAP
+  }
+
+  return {
+    nodes: [...flow.nodes, ...extraNodes],
+    edges: [...flow.edges, ...extraEdges],
+  }
 }
