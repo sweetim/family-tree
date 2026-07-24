@@ -4,21 +4,31 @@ import {
   GitMerge,
   Heart,
   Network,
+  Plus,
   Trash2,
   Users,
   X,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { type FormEvent, useMemo, useState } from "react"
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
 import { Section } from "@/components/Section"
+import { findRoots } from "@/lib/layout"
 import {
   type FamilyStore,
   type TreeMeta,
+  type TreeSeed,
   useMembersOf,
   useMemberTrees,
+  useTreeIndex,
 } from "@/store"
-import { ancestorsOf, childrenOf, descendantsOf, type Person } from "@/types"
+import {
+  ancestorsOf,
+  childrenOf,
+  descendantsOf,
+  type ParentLink,
+  type Person,
+} from "@/types"
 import { PersonFields } from "./PersonFields"
 import {
   type Fields,
@@ -56,6 +66,18 @@ export function EditForm({
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
   const confirm = useConfirm()
+  const { createTree } = useTreeIndex()
+
+  const rootGroup = useMemo(
+    () => findRoots(people).find((r) => r.heads.includes(person.id)),
+    [people, person.id],
+  )
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState("")
+  const nameInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (creating) nameInputRef.current?.select()
+  }, [creating])
 
   const otherTrees = allTrees.filter((t) => t.id !== treeId)
   const [linkTreeId, setLinkTreeId] = useState("")
@@ -126,6 +148,65 @@ export function EditForm({
     const input = toInput(fields)
     if (!input.name) return
     family.updatePerson(person.id, input)
+  }
+
+  function openCreateFamily() {
+    if (!rootGroup) return
+    const heads = rootGroup.heads.map((id) => people[id]).filter(Boolean)
+    setNewName(
+      heads.length >= 2 && heads[0] && heads[1]
+        ? `${heads[0].name} & ${heads[1].name} family`
+        : `${person.name}'s family`,
+    )
+    setCreating(true)
+  }
+
+  function createFamily() {
+    const trimmed = newName.trim()
+    if (!trimmed || !rootGroup) return
+    const include = new Set<string>()
+    for (const headId of rootGroup.heads) {
+      if (!people[headId]) continue
+      include.add(headId)
+      for (const descendant of descendantsOf(people, headId))
+        include.add(descendant)
+    }
+    for (const id of [...include]) {
+      for (const sid of people[id]?.spouseIds ?? []) {
+        if (people[sid]) include.add(sid)
+      }
+    }
+    const members = Object.values(people)
+      .filter((p) => include.has(p.id))
+      .map((p) => p.id)
+    const seenPair = new Set<string>()
+    const spouses: [string, string][] = []
+    const parents: Record<string, ParentLink[]> = {}
+    for (const id of members) {
+      const person = people[id]
+      if (!person) continue
+      const links = person.parents.filter((link) => include.has(link.id))
+      if (links.length)
+        parents[id] = links.map((link) => ({
+          id: link.id,
+          adopted: link.adopted,
+        }))
+      for (const sid of person.spouseIds) {
+        if (!include.has(sid) || id === sid) continue
+        const key = id < sid ? `${id}:${sid}` : `${sid}:${id}`
+        if (seenPair.has(key)) continue
+        seenPair.add(key)
+        spouses.push([id, sid])
+      }
+    }
+    const seed: TreeSeed = {
+      persons: {},
+      edges: { members, spouses, parents },
+    }
+    const newTreeId = createTree(trimmed, seed)
+    setCreating(false)
+    for (const id of members) family.removeFromTree(id, treeId)
+    navigate(`/tree/${newTreeId}`)
   }
 
   return (
@@ -438,6 +519,15 @@ export function EditForm({
               )}
             </div>
           )}
+          {rootGroup && (
+            <button
+              type="button"
+              onClick={openCreateFamily}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
+            >
+              <Plus className="h-4 w-4" /> Create new family
+            </button>
+          )}
         </Section>
 
         {otherTrees.length > 0 && (
@@ -524,6 +614,62 @@ export function EditForm({
       >
         <Trash2 className="h-4 w-4" /> Delete {person.name}
       </button>
+
+      {creating && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a convenience; Escape (handled on the input) is the keyboard equivalent
+        // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close is via the Escape handler on the input below
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-fade-in"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setCreating(false)
+          }}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              createFamily()
+            }}
+            className="w-full max-w-sm animate-scale-in rounded-2xl bg-white p-6 shadow-lift"
+          >
+            <h2 className="text-base font-semibold text-slate-800">
+              Create new family
+            </h2>
+            <p className="mt-1 text-sm leading-relaxed text-slate-500">
+              Start a new tree from {person.name}
+              {rootGroup && rootGroup.heads.length >= 2
+                ? " and their spouse"
+                : ""}
+              . They&rsquo;ll belong to both trees.
+            </p>
+            <input
+              ref={nameInputRef}
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setCreating(false)
+              }}
+              placeholder="Family name"
+              className={`${inputCls} mt-4`}
+            />
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCreating(false)}
+                className={ghostBtn}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!newName.trim()}
+                className={primaryBtn}
+              >
+                Create
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }
