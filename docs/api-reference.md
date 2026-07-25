@@ -87,6 +87,15 @@ Client timestamps more than five minutes in the future are rejected.
 New global facts that fail to gain any requested tree association are removed
 and reported as skipped, avoiding inaccessible orphan facts.
 
+## `/api/trees/[treeId]`
+
+`DELETE` requires the tree owner. It atomically tombstones the tree and its
+memberships, union associations, and parent/child associations using the server
+clock. The client removes the tree only after a successful response.
+
+Unauthenticated requests return `401`, invalid ids return `400`, and missing or
+non-owned trees return `404`.
+
 ## `/api/trees/[treeId]/shares`
 
 All methods are tree-owner-only. Unauthenticated requests return `401`; other

@@ -275,6 +275,23 @@ describe("legacy projected JSON compatibility", () => {
 })
 
 describe("normalized relationship mutations", () => {
+  test("adding an existing member to a tree includes their current spouse", async () => {
+    const store = await freshStore()
+    const previous = relationshipState()
+    delete previous.treeMembers['["b","tim"]']
+    delete previous.treeMembers['["b","yumi"]']
+    delete previous.treeUnions['["b","union"]']
+
+    const next = store.addMemberWithSpousesRecords(previous, "b", "yumi")
+
+    expect(next.treeMembers['["b","yumi"]']).toBeTruthy()
+    expect(next.treeMembers['["b","tim"]']).toBeTruthy()
+    expect(next.treeUnions['["b","union"]']).toBeTruthy()
+    expect(projectTree(next.persons, next, "b").yumi?.spouseIds).toEqual([
+      "tim",
+    ])
+  })
+
   test("link reuses one current union and skips viewer-only trees", async () => {
     const store = await freshStore()
     const previous = relationshipState()
@@ -1058,5 +1075,97 @@ describe("dirty tracking and push wires", () => {
       "unionEvents",
       "unions",
     ])
+  })
+
+  test("keeps a tree visible until server deletion succeeds", async () => {
+    const store = await freshStore()
+    store.applyFullPull(
+      fullPull({
+        persons: [
+          {
+            id: "tim",
+            name: "Tim",
+            updatedAt: timestamp,
+            ownerId: "owner",
+          },
+        ],
+        trees: [
+          {
+            id: "a",
+            name: "A",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            ownerId: "owner",
+          },
+        ],
+        treeMembers: [
+          {
+            treeId: "a",
+            personId: "tim",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      }),
+    )
+    const response = deferred<Response>()
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input, init) => {
+      expect(input).toBe("/api/trees/a")
+      expect(init?.method).toBe("DELETE")
+      expect(init?.credentials).toBe("include")
+      return response.promise
+    }) as typeof fetch
+
+    try {
+      const deletion = store.deleteTreeById("a")
+      expect(store.getSnapshot().index.some((tree) => tree.id === "a")).toBe(
+        true,
+      )
+      expect(Object.values(store.getSnapshot().treeMembers)).toHaveLength(1)
+
+      response.resolve(new Response(JSON.stringify({ ok: true })))
+      await deletion
+
+      expect(store.getSnapshot().index.some((tree) => tree.id === "a")).toBe(
+        false,
+      )
+      expect(Object.values(store.getSnapshot().treeMembers)).toHaveLength(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test("keeps a tree visible when server deletion fails", async () => {
+    const store = await freshStore()
+    store.applyFullPull(
+      fullPull({
+        trees: [
+          {
+            id: "a",
+            name: "A",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            ownerId: "owner",
+          },
+        ],
+      }),
+    )
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_input, _init) =>
+      new Response(JSON.stringify({ error: "tree not found" }), {
+        status: 404,
+      })) as typeof fetch
+
+    try {
+      await expect(store.deleteTreeById("a")).rejects.toThrow(
+        "delete failed: 404",
+      )
+      expect(store.getSnapshot().index.some((tree) => tree.id === "a")).toBe(
+        true,
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })

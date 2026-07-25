@@ -32,6 +32,7 @@ Read in order if you are new to the codebase, or jump to a topic:
 | [domain-model.md](./domain-model.md) | Before touching how people, trees, and relationships are represented. |
 | [state-and-sync.md](./state-and-sync.md) | Before touching client state, mutations, or the sync protocol. |
 | [database.md](./database.md) | Before touching the schema, migrations, or any server query. |
+| [development-database-testing.md](./development-database-testing.md) | When preparing or testing a development database migration and CRUD behavior. |
 | [auth-and-acl.md](./auth-and-acl.md) | Before touching sign-in, roles, or any permission check. |
 | [api-reference.md](./api-reference.md) | Before adding/changing routes or API endpoints. |
 | [layout.md](./layout.md) | Before touching how the tree is positioned or rendered. |

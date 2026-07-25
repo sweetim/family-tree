@@ -60,6 +60,7 @@ marks the store hydrated.
 |---|---|---|
 | `/api/auth/*` | GET, POST | Better Auth flows. |
 | `/api/sync` | GET, POST | Normalized pull and batched push. |
+| `/api/trees/[treeId]` | DELETE | Owner-only, server-authoritative tree deletion. |
 | `/api/trees/[treeId]/shares` | GET, POST, DELETE | Owner-only share management. |
 
 The sync protocol transports exactly `persons`, `trees`, `treeMembers`,

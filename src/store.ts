@@ -1171,6 +1171,26 @@ function addMember(graph: GlobalState, treeId: string, personId: string): void {
   }
 }
 
+function addMemberWithCurrentSpouses(
+  graph: GlobalState,
+  treeId: string,
+  personId: string,
+): void {
+  addMember(graph, treeId, personId)
+  for (const union of Object.values(graph.unions)) {
+    if (!unionIsCurrent(union.id, graph.unionEvents)) continue
+    const spouseId =
+      union.firstPersonId === personId
+        ? union.secondPersonId
+        : union.secondPersonId === personId
+          ? union.firstPersonId
+          : undefined
+    if (!spouseId) continue
+    addMember(graph, treeId, spouseId)
+    associateUnion(graph, treeId, union.id)
+  }
+}
+
 function removeMember(
   graph: GlobalState,
   treeId: string,
@@ -1699,6 +1719,23 @@ export function removeFromTreeRecords(
   return draft
 }
 
+export function addMemberWithSpousesRecords(
+  previous: GlobalState,
+  treeId: string,
+  personId: string,
+): GlobalState {
+  if (
+    !treeIsWritable(previous, treeId)
+    || !previous.persons[personId]
+    || hasMember(previous, treeId, personId)
+  ) {
+    return previous
+  }
+  const draft = makeDraft(previous)
+  addMemberWithCurrentSpouses(draft, treeId, personId)
+  return draft
+}
+
 export function deletePersonRecords(
   previous: GlobalState,
   personId: string,
@@ -1808,8 +1845,20 @@ export function useTreeIndex() {
     }))
   }, [])
 
-  const deleteTree = useCallback((id: string) => {
-    update((previous) => {
+  const deleteTree = useCallback(deleteTreeById, [])
+
+  return { trees: graph.index, createTree, renameTree, deleteTree }
+}
+
+export async function deleteTreeById(id: string): Promise<void> {
+  const response = await fetch(`/api/trees/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: "include",
+  })
+  if (!response.ok) throw new Error(`delete failed: ${response.status}`)
+
+  update(
+    (previous) => {
       const draft = makeDraft(previous)
       draft.index = previous.index.filter((tree) => tree.id !== id)
       for (const [key, member] of Object.entries(draft.treeMembers)) {
@@ -1826,10 +1875,9 @@ export function useTreeIndex() {
         }
       }
       return draft
-    })
-  }, [])
-
-  return { trees: graph.index, createTree, renameTree, deleteTree }
+    },
+    { remote: true },
+  )
 }
 
 export type TreeIndexStore = ReturnType<typeof useTreeIndex>
@@ -2192,7 +2240,9 @@ export function useFamily(treeId: string) {
         }
 
         const draft = makeDraft(previous)
-        for (const personId of included) addMember(draft, otherTreeId, personId)
+        for (const personId of included) {
+          addMemberWithCurrentSpouses(draft, otherTreeId, personId)
+        }
         for (const personId of included) {
           const person = currentFamily[personId]
           if (!person) continue

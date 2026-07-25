@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  Loader2,
   Network,
   Pencil,
   Plus,
@@ -21,6 +22,7 @@ import {
 import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
 import { ShareDialog } from "./ShareDialog"
+import { useToast } from "./Toast"
 
 const inputCls =
   "w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm text-slate-800 transition-colors placeholder:text-slate-400 focus:border-cobalt-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cobalt-200"
@@ -37,11 +39,13 @@ function TreeCard({
   tree: TreeMeta
   navigate: (to: string) => void
   onRename: (name: string) => void
-  onDelete: () => void
+  onDelete: () => Promise<void>
   onShare: () => void
 }) {
   const confirm = useConfirm()
+  const toast = useToast()
   const [renaming, setRenaming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [name, setName] = useState(tree.name)
   const members = countMembers(tree.id)
   const created = new Date(tree.createdAt).toLocaleDateString(undefined, {
@@ -125,12 +129,24 @@ function TreeCard({
                 tone: "danger",
               })
             ) {
-              onDelete()
+              setDeleting(true)
+              try {
+                await onDelete()
+              } catch (error) {
+                console.error(error)
+                toast("Couldn't delete tree.", "error")
+                setDeleting(false)
+              }
             }
           }}
+          disabled={deleting}
           className="inline-flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium text-red-500 ring-1 ring-red-200 transition-all hover:bg-red-50 active:scale-95"
         >
-          <Trash2 className="h-4 w-4" />
+          {deleting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
         </button>
       </div>
     </div>

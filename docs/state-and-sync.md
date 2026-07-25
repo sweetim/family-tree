@@ -21,7 +21,7 @@
 
 ## Local mutations
 
-`update` applies an optimistic mutation. `stampAndEnqueue` compares record
+Most mutations use `update` optimistically. `stampAndEnqueue` compares record
 references, stamps each changed record with a new client `updatedAt`, and puts
 its id in a per-collection dirty map. The exact dirty/sync collections are:
 
@@ -44,6 +44,10 @@ generation, and the loop sends newer dirty revisions after the current request
 returns. Failed records remain dirty in memory. Successful applied and skipped
 revisions are cleared; any skipped record schedules an authoritative epoch pull
 after newer pending edits have been pushed.
+
+Tree deletion is server-authoritative instead: the client awaits
+`DELETE /api/trees/[treeId]`, then removes the confirmed tree and its local
+associations. A failed request leaves the tree visible.
 
 ## Shared facts and local detach
 

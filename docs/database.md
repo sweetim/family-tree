@@ -91,3 +91,7 @@ migration.
 `db:validate` verifies the normalized columns, confirms the legacy column is
 gone, checks active association endpoints, canonical unions, person gender,
 parent limits and cycles, and prints counts for all normalized tables.
+
+See [development-database-testing.md](./development-database-testing.md) for the
+complete development backup, migration, validation, CRUD, and permission test
+workflow.
