@@ -17,7 +17,7 @@ describe("projectTree", () => {
     const identities = { tim, yumi, kid }
     const edges = {
       members: ["tim", "yumi", "kid"],
-      spouses: [["tim", "yumi"]] as [string, string][],
+      spouses: [{ a: "tim", b: "yumi", date: "2020-05-01" }],
       parents: { kid: [{ id: "tim" }, { id: "yumi" }] },
     }
 
@@ -25,6 +25,8 @@ describe("projectTree", () => {
 
     expect(family.tim?.spouseIds).toEqual(["yumi"])
     expect(family.yumi?.spouseIds).toEqual(["tim"])
+    expect(family.tim?.marriageDates).toEqual({ yumi: "2020-05-01" })
+    expect(family.yumi?.marriageDates).toEqual({ tim: "2020-05-01" })
     expect(family.kid?.parents.map((l) => l.id)).toEqual(["tim", "yumi"])
     expect(family.tim?.parents).toEqual([])
   })

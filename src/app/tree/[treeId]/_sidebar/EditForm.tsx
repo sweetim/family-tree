@@ -6,7 +6,6 @@ import {
   Network,
   Plus,
   Trash2,
-  Users,
   X,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -28,9 +27,13 @@ import {
   descendantsOf,
   type ParentLink,
   type Person,
+  type SpouseEdge,
 } from "@/types"
+import { ParentsSection } from "./ParentsSection"
 import { PersonFields } from "./PersonFields"
 import {
+  chip,
+  chipX,
   type Fields,
   fieldsFrom,
   ghostBtn,
@@ -38,11 +41,6 @@ import {
   primaryBtn,
   toInput,
 } from "./shared"
-
-const chip =
-  "inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 py-1 pl-3 pr-1 text-xs text-slate-700"
-const chipX =
-  "flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-red-100 hover:text-red-600"
 
 export function EditForm({
   family,
@@ -100,27 +98,14 @@ export function EditForm({
   const spouses = person.spouseIds
     .map((id) => people[id])
     .filter((p): p is Person => !!p)
-  const parents = person.parents
-    .map((link) => ({ link, person: people[link.id] }))
-    .filter(
-      (x): x is { link: (typeof person.parents)[number]; person: Person } =>
-        !!x.person,
-    )
   const children = childrenOf(people, person.id)
   const linkable = Object.values(people).filter(
     (p) => p.id !== person.id && !person.spouseIds.includes(p.id),
   )
 
-  // Linking an ancestor as a child (or a descendant as a parent) would
-  // make someone their own ancestor, so those candidates are excluded.
+  // Linking an ancestor as a child would make someone their own ancestor,
+  // so those candidates are excluded.
   const ancestors = ancestorsOf(people, person.id)
-  const descendants = descendantsOf(people, person.id)
-  const parentCandidates = Object.values(people).filter(
-    (p) =>
-      p.id !== person.id
-      && !person.parents.some((l) => l.id === p.id)
-      && !descendants.has(p.id),
-  )
   const childCandidates = Object.values(people).filter(
     (p) =>
       p.id !== person.id
@@ -128,20 +113,6 @@ export function EditForm({
       && !p.parents.some((l) => l.id === person.id)
       && !ancestors.has(p.id),
   )
-
-  // Married couples where both partners are eligible — offered as a single
-  // option that links both parents at once (needs both parent slots free).
-  const candidateIds = new Set(parentCandidates.map((p) => p.id))
-  const coupleCandidates: [Person, Person][] = []
-  if (person.parents.length === 0) {
-    for (const p of parentCandidates) {
-      for (const sid of p.spouseIds) {
-        const spouse = people[sid]
-        if (p.id < sid && candidateIds.has(sid) && spouse)
-          coupleCandidates.push([p, spouse])
-      }
-    }
-  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -180,7 +151,7 @@ export function EditForm({
       .filter((p) => include.has(p.id))
       .map((p) => p.id)
     const seenPair = new Set<string>()
-    const spouses: [string, string][] = []
+    const spouses: SpouseEdge[] = []
     const parents: Record<string, ParentLink[]> = {}
     for (const id of members) {
       const person = people[id]
@@ -193,10 +164,11 @@ export function EditForm({
         }))
       for (const sid of person.spouseIds) {
         if (!include.has(sid) || id === sid) continue
-        const key = id < sid ? `${id}:${sid}` : `${sid}:${id}`
+        const [x, y] = id < sid ? [id, sid] : [sid, id]
+        const key = `${x}:${y}`
         if (seenPair.has(key)) continue
         seenPair.add(key)
-        spouses.push([id, sid])
+        spouses.push({ a: x, b: y, date: person.marriageDates[sid] })
       }
     }
     const seed: TreeSeed = {
@@ -205,7 +177,6 @@ export function EditForm({
     }
     const newTreeId = createTree(trimmed, seed)
     setCreating(false)
-    for (const id of members) family.removeFromTree(id, treeId)
     navigate(`/tree/${newTreeId}`)
   }
 
@@ -260,22 +231,31 @@ export function EditForm({
           icon={Heart}
           count={spouses.length}
         >
-          <div className="flex flex-wrap gap-1.5">
+          <div className="space-y-1.5">
             {spouses.length === 0 && (
               <p className="text-xs text-slate-400">None</p>
             )}
             {spouses.map((s) => (
-              <span
+              <div
                 key={s.id}
-                className={chip}
+                className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-1.5"
               >
                 <button
                   type="button"
-                  className="font-medium hover:text-cobalt-700 hover:underline"
+                  className="text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
                   onClick={() => onSelect(s.id)}
                 >
                   {s.name}
                 </button>
+                <input
+                  type="date"
+                  aria-label={`Marriage date with ${s.name}`}
+                  value={person.marriageDates[s.id] ?? ""}
+                  onChange={(e) =>
+                    family.updateSpouseDate(person.id, s.id, e.target.value)
+                  }
+                  className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-slate-600 focus:border-cobalt-500 focus:outline-none focus:ring-1 focus:ring-cobalt-200"
+                />
                 <button
                   type="button"
                   title="Remove marriage"
@@ -284,7 +264,7 @@ export function EditForm({
                 >
                   <X className="h-3 w-3" />
                 </button>
-              </span>
+              </div>
             ))}
           </div>
           {linkable.length > 0 && (
@@ -308,90 +288,13 @@ export function EditForm({
           )}
         </Section>
 
-        <Section
-          title="Parents"
-          icon={Users}
-          count={parents.length}
-        >
-          {parents.length === 0 && (
-            <p className="text-xs text-slate-400">None</p>
-          )}
-          <div className="space-y-1.5">
-            {parents.map(({ link, person: par }) => (
-              <div
-                key={par.id}
-                className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5"
-              >
-                <button
-                  type="button"
-                  className="text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
-                  onClick={() => onSelect(par.id)}
-                >
-                  {par.name}
-                </button>
-                <div className="flex items-center gap-2">
-                  <label className="flex items-center gap-1 text-[11px] text-slate-500">
-                    <input
-                      type="checkbox"
-                      checked={!!link.adopted}
-                      onChange={(e) =>
-                        family.setParentAdopted(
-                          person.id,
-                          par.id,
-                          e.target.checked,
-                        )
-                      }
-                    />
-                    adopted
-                  </label>
-                  <button
-                    type="button"
-                    title="Remove parent link"
-                    className={chipX}
-                    onClick={() => family.removeParent(person.id, par.id)}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          {person.parents.length < 2 && parentCandidates.length > 0 && (
-            <select
-              value=""
-              onChange={(e) => {
-                for (const id of e.target.value.split("|").filter(Boolean)) {
-                  family.addParent(person.id, id)
-                }
-              }}
-              className={inputCls}
-            >
-              <option value="">+ Link existing person as parent…</option>
-              {coupleCandidates.length > 0 && (
-                <optgroup label="Couples (links both)">
-                  {coupleCandidates.map(([a, b]) => (
-                    <option
-                      key={`${a.id}|${b.id}`}
-                      value={`${a.id}|${b.id}`}
-                    >
-                      {a.name} &amp; {b.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              <optgroup label="Individuals">
-                {parentCandidates.map((p) => (
-                  <option
-                    key={p.id}
-                    value={p.id}
-                  >
-                    {p.name}
-                  </option>
-                ))}
-              </optgroup>
-            </select>
-          )}
-        </Section>
+        <ParentsSection
+          family={family}
+          treeId={treeId}
+          allTrees={allTrees}
+          person={person}
+          onSelect={onSelect}
+        />
 
         <Section
           title="Children"

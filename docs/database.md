@@ -32,7 +32,7 @@ default), so the auth instance needs no explicit mapping.
 | Table | Location | Key columns | Notes |
 |---|---|---|---|
 | `persons` | `:92` | `id`, `ownerId → user` (cascade), `name`, `dob`, `dod`, `gender`, `location`, `photo`, `updatedAt`, `deletedAt` | **Global identity rows** mirroring `PersonIdentity`. `photo` is a text data URL. `deletedAt` is the soft-delete tombstone. |
-| `trees` | `:109` | `id`, `ownerId → user` (cascade), `name`, `edges` (jsonb typed as `TreeEdges`), `createdAt`, `updatedAt`, `deletedAt` | **Relationship edges are stored as a single JSONB column** (`members`, `spouses`, `parents`). |
+| `trees` | `:109` | `id`, `ownerId → user` (cascade), `name`, `edges` (jsonb typed as `TreeEdges`), `createdAt`, `updatedAt`, `deletedAt` | **Relationship edges are stored as a single JSONB column** (`members`, `spouses`, `parents`). Each `spouses` entry is `{ a, b, date? }`; `date` holds the marriage date. No migration is needed to add the date — JSONB is schemaless. |
 | `shareRole` | `:125` | `pgEnum("share_role", ["viewer", "editor"])` | |
 | `treeShares` | `:127` | composite PK `(treeId, email)`; `email`, `userId → user` (set null), `role`, `createdAt` | `userId` is **nullable** so a share can be created before the invitee signs in (a "pending" share). |
 

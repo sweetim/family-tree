@@ -6,6 +6,13 @@ export interface ParentLink {
 }
 
 /**
+ * A marriage / co-parenting edge between two people, stored in canonical
+ * order (a < b) so the pair is symmetric and dedupable. `date` is an ISO
+ * calendar date string (e.g. "2001-06-20"), matching the dob/dod convention.
+ */
+export type SpouseEdge = { a: string; b: string; date?: string }
+
+/**
  * A person's identity — stored once globally so a name/photo/DOB edit shows
  * up in every tree the person belongs to. Relationship edges live per-tree
  * (see {@link TreeEdges}) and are merged in at projection time.
@@ -35,6 +42,8 @@ export interface Person extends PersonIdentity {
   parents: ParentLink[]
   /** Supports multiple marriages, in this tree */
   spouseIds: string[]
+  /** spouseId → ISO marriage date, for each spouse in this tree */
+  marriageDates: Record<string, string>
 }
 
 export type FamilyData = Record<string, Person>
@@ -48,7 +57,7 @@ export type FamilyData = Record<string, Person>
  */
 export interface TreeEdges {
   members: string[]
-  spouses: [string, string][]
+  spouses: SpouseEdge[]
   parents: Record<string, ParentLink[]>
 }
 
@@ -61,22 +70,26 @@ export function projectTree(
   identities: Record<string, PersonIdentity>,
   edges: TreeEdges,
 ): FamilyData {
-  const spousesOf = (id: string): string[] => {
-    const out: string[] = []
-    for (const [a, b] of edges.spouses) {
-      if (a === id) out.push(b)
-      else if (b === id) out.push(a)
-    }
-    return out
-  }
   const family: FamilyData = {}
   for (const id of edges.members) {
     const ident = identities[id]
     if (!ident) continue
+    const spouseIds: string[] = []
+    const marriageDates: Record<string, string> = {}
+    for (const { a, b, date } of edges.spouses) {
+      if (a === id) {
+        spouseIds.push(b)
+        if (date) marriageDates[b] = date
+      } else if (b === id) {
+        spouseIds.push(a)
+        if (date) marriageDates[a] = date
+      }
+    }
     family[id] = {
       ...ident,
       parents: edges.parents[id] ?? [],
-      spouseIds: spousesOf(id),
+      spouseIds,
+      marriageDates,
     }
   }
   return family

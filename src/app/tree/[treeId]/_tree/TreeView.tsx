@@ -205,7 +205,17 @@ export function TreeView({
         setSidebar({ mode: "add", rel })
         setDrawerOpen(true)
       },
-      startLink: (kind, sourceId) => setLink({ kind, sourceId }),
+      startLink: (kind, sourceId) => {
+        setLink({ kind, sourceId })
+        // For parents, also surface a focused sidebar panel so the cross-tree
+        // picker is reachable — the canvas can only target cards already in
+        // this tree.
+        if (kind === "parent") {
+          setSidebar({ mode: "linkParent", personId: sourceId })
+          setDrawerOpen(true)
+          setSidebarHidden(false)
+        }
+      },
       readOnly: !canEdit,
     }),
     [canEdit],

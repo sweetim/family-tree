@@ -45,7 +45,7 @@ export type PersonNodeType = Node<
   },
   "person"
 >
-export type UnionNodeType = Node<Record<string, never>, "union">
+export type UnionNodeType = Node<{ date?: string }, "union">
 export type FlowNode = PersonNodeType | UnionNodeType
 
 /** Attached to every edge so clicks can resolve which relationship to remove. */
@@ -323,12 +323,13 @@ export function buildFlow(
     const rowTop = (pa.y + pb.y) / 2 - NODE_HEIGHT / 2
     const dot = { x: (pa.x + pb.x) / 2, y: rowTop + COUPLE_LINE_Y }
     unionPos.set(unionId(a, b), dot)
+    const date = people[a]?.marriageDates[b] ?? people[b]?.marriageDates[a]
     nodes.push({
       id: unionId(a, b),
       type: "union",
       position: { x: dot.x - UNION_SIZE / 2, y: dot.y - UNION_SIZE / 2 },
       selectable: false,
-      data: {},
+      data: date ? { date } : {},
     })
   }
 

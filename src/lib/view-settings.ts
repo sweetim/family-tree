@@ -13,10 +13,20 @@ export type ViewSettings = {
    * that expand on click.
    */
   multiRoot: boolean
+  /**
+   * Show each marriage's year next to its union dot on the canvas. The full
+   * date is always available by hovering the dot; this only toggles the
+   * always-on year label.
+   */
+  marriageYears: boolean
 }
 
 const STORAGE_KEY = "family-tree:view-settings"
-const DEFAULTS: ViewSettings = { minimap: true, multiRoot: false }
+const DEFAULTS: ViewSettings = {
+  minimap: true,
+  multiRoot: false,
+  marriageYears: true,
+}
 
 function load(): ViewSettings {
   if (typeof window === "undefined") return DEFAULTS

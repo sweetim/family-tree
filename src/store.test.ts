@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { GlobalState } from "./store"
-import type { TreeEdges } from "./types"
+import type { SpouseEdge, TreeEdges } from "./types"
 
 describe("store helpers", () => {
   test("normalizeImport converts v1 and passes v2 through", async () => {
@@ -15,7 +15,13 @@ describe("store helpers", () => {
     expect(normalizeImport(v1).a?.spouseIds).toEqual(["b"])
 
     const v2 = {
-      a: { id: "a", name: "A", parents: [{ id: "p" }], spouseIds: ["b"] },
+      a: {
+        id: "a",
+        name: "A",
+        parents: [{ id: "p" }],
+        spouseIds: ["b"],
+        marriageDates: {},
+      },
     }
     expect(normalizeImport(v2)).toEqual(v2)
   })
@@ -34,8 +40,8 @@ describe("store helpers", () => {
     const e: TreeEdges = {
       members: ["tim", "y2", "keeps"],
       spouses: [
-        ["tim", "y2"],
-        ["keeps", "y2"],
+        { a: "tim", b: "y2" },
+        { a: "keeps", b: "y2" },
       ],
       parents: { y2: [{ id: "p1" }], keeps: [{ id: "p1" }, { id: "y2" }] },
     }
@@ -43,8 +49,8 @@ describe("store helpers", () => {
 
     expect(r.members).toEqual(["tim", "y1", "keeps"])
     expect(r.spouses).toEqual([
-      ["tim", "y1"],
-      ["keeps", "y1"],
+      { a: "tim", b: "y1" },
+      { a: "keeps", b: "y1" },
     ])
     expect(Object.keys(r.parents).sort()).toEqual(["keeps", "y1"])
     expect(r.parents.y1?.map((l) => l.id)).toEqual(["p1"])
@@ -56,7 +62,7 @@ describe("store helpers", () => {
 
     const e: TreeEdges = {
       members: ["a", "b"],
-      spouses: [["a", "b"]],
+      spouses: [{ a: "a", b: "b" }],
       parents: { a: [{ id: "b" }, { id: "c" }, { id: "d" }] },
     }
     const r = rewriteEdges(e, "a", "b")
@@ -71,7 +77,11 @@ describe("store helpers", () => {
     const { propagateSurvivor } = await import("./store")
 
     const trees: Record<string, TreeEdges> = {
-      ho: { members: ["tim", "yumi"], spouses: [["tim", "yumi"]], parents: {} },
+      ho: {
+        members: ["tim", "yumi"],
+        spouses: [{ a: "tim", b: "yumi" }],
+        parents: {},
+      },
       hayashi: {
         members: ["yumi", "p1", "p2", "c1"],
         spouses: [],
@@ -83,8 +93,8 @@ describe("store helpers", () => {
     const ho = trees.ho
     if (!ho) throw new Error("missing ho tree")
     expect([...ho.members].sort()).toEqual(["c1", "p1", "p2", "tim", "yumi"])
-    const pairs = (s: [string, string][]) =>
-      s.map(([a, b]) => (a < b ? `${a},${b}` : `${b},${a}`)).sort()
+    const pairs = (s: SpouseEdge[]) =>
+      s.map((e) => (e.a < e.b ? `${e.a},${e.b}` : `${e.b},${e.a}`)).sort()
     expect(pairs(ho.spouses)).toEqual(["tim,yumi"])
     expect(ho.parents.yumi?.map((l) => l.id).sort()).toEqual(["p1", "p2"])
     expect(ho.parents.c1?.map((l) => l.id)).toEqual(["yumi"])
@@ -163,6 +173,30 @@ describe("applyRemote LWW merge", () => {
     })
     expect([...store.snapshotDirty().persons.keys()]).not.toContain("p1")
   })
+
+  test("coerces legacy [a,b] spouse tuples into SpouseEdge objects", async () => {
+    const store = await freshStore()
+    store.applyRemote({
+      trees: [
+        {
+          id: "tr1",
+          name: "Fam",
+          // A tree persisted before marriage dates existed: spouses stored as
+          // plain [a, b] tuples, which the store must normalise on the way in.
+          edges: {
+            members: ["a", "b"],
+            spouses: [["a", "b"]] as unknown as SpouseEdge[],
+            parents: {},
+          },
+          createdAt: "2024-01-01T00:00:00.000Z",
+          updatedAt: "2024-01-01T00:00:00.000Z",
+          ownerId: "u1",
+        },
+      ],
+    })
+    const edges = store.getSnapshot().trees.tr1
+    expect(edges?.spouses).toEqual([{ a: "a", b: "b" }])
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -187,7 +221,12 @@ describe("stampAndEnqueue", () => {
     // stale `updatedAt` from the server untouched.
     const next: GlobalState = {
       persons: {
-        p1: { id: "p1", name: "Alice", photo: "data:image/jpeg;base64,…", updatedAt: t0 },
+        p1: {
+          id: "p1",
+          name: "Alice",
+          photo: "data:image/jpeg;base64,…",
+          updatedAt: t0,
+        },
       },
       trees: {},
       index: [],
@@ -218,5 +257,67 @@ describe("stampAndEnqueue", () => {
     const result = stampAndEnqueue(prev, next)
     expect(result.index[0]?.updatedAt).not.toBe(t0)
     expect([...store.snapshotDirty().trees.keys()]).toContain("tr1")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildPushWires — translates the dirty diff into the wire payload POSTed to
+// /api/sync. Regression coverage for the bug where deleting a tree never sent a
+// tombstone: by the time pushDirty snapshots state, the deleted tree is already
+// gone from the index, so the old code's `if (!meta) continue` dropped the
+// delete and the tree reappeared on the next reload.
+// ---------------------------------------------------------------------------
+
+describe("buildPushWires", () => {
+  test("emits a tombstone for a deleted tree even though it's gone from the snapshot", async () => {
+    const store = await freshStore()
+    const { buildPushWires } = store
+    const now = "2025-07-25T00:00:00.000Z"
+
+    // The post-delete snapshot: the tree is no longer in the index or trees
+    // map, exactly the state pushDirty observes after deleteTree runs.
+    const snapshot: GlobalState = { persons: {}, trees: {}, index: [] }
+    const dirty = {
+      persons: new Map<string, "upsert" | "delete">(),
+      trees: new Map<string, "upsert" | "delete">([["tr1", "delete"]]),
+    }
+
+    const { trees } = buildPushWires(snapshot, dirty, now)
+    expect(trees).toHaveLength(1)
+    expect(trees[0]?.id).toBe("tr1")
+    expect(trees[0]?.deletedAt).toBe(now)
+    // Fresh updatedAt so the tombstone wins the server's last-write-wins check.
+    expect(trees[0]?.updatedAt).toBe(now)
+  })
+
+  test("does not emit a wire for a tree that never existed locally", async () => {
+    const store = await freshStore()
+    const { buildPushWires } = store
+    const now = "2025-07-25T00:00:00.000Z"
+
+    const snapshot: GlobalState = { persons: {}, trees: {}, index: [] }
+    const dirty = {
+      persons: new Map<string, "upsert" | "delete">(),
+      trees: new Map<string, "upsert" | "delete">([["tr1", "upsert"]]),
+    }
+
+    expect(buildPushWires(snapshot, dirty, now).trees).toHaveLength(0)
+  })
+
+  test("emits a tombstone for a deleted person gone from the snapshot", async () => {
+    const store = await freshStore()
+    const { buildPushWires } = store
+    const now = "2025-07-25T00:00:00.000Z"
+
+    const snapshot: GlobalState = { persons: {}, trees: {}, index: [] }
+    const dirty = {
+      persons: new Map<string, "upsert" | "delete">([["p1", "delete"]]),
+      trees: new Map<string, "upsert" | "delete">(),
+    }
+
+    const { persons } = buildPushWires(snapshot, dirty, now)
+    expect(persons).toHaveLength(1)
+    expect(persons[0]?.id).toBe("p1")
+    expect(persons[0]?.deletedAt).toBe(now)
   })
 })

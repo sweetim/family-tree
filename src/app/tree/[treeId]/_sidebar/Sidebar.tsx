@@ -4,6 +4,7 @@ import { AccountMenu } from "@/components/AccountMenu"
 import type { FamilyStore, TreeMeta } from "@/store"
 import { AddForm } from "./AddForm"
 import { EditForm } from "./EditForm"
+import { LinkParentPanel } from "./LinkParentPanel"
 import { ReadonlyDetails } from "./ReadonlyDetails"
 import { SettingsPanel } from "./SettingsPanel"
 import { primaryBtn, type SidebarState } from "./shared"
@@ -48,6 +49,8 @@ export function Sidebar({
 
   const editingPerson =
     state.mode === "edit" ? family.people[state.personId] : undefined
+  const linkParentPerson =
+    state.mode === "linkParent" ? family.people[state.personId] : undefined
 
   return (
     <aside
@@ -102,6 +105,15 @@ export function Sidebar({
             family={family}
             rel={state.rel}
             onDone={onClose}
+            onClose={onClose}
+          />
+        ) : state.mode === "linkParent" && linkParentPerson && editable ? (
+          <LinkParentPanel
+            family={family}
+            treeId={treeId}
+            allTrees={allTrees}
+            person={linkParentPerson}
+            onSelect={onSelect}
             onClose={onClose}
           />
         ) : editingPerson && editable ? (

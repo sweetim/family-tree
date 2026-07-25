@@ -99,6 +99,7 @@ export function ReadonlyDetails({
         <RelationList
           people={spouses}
           onSelect={onSelect}
+          marriageDates={person.marriageDates}
         />
       </Section>
       <Section

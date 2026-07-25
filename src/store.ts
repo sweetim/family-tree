@@ -6,10 +6,12 @@ import {
   type FamilyData,
   type Gender,
   type ParentLink,
+  type Person,
   type PersonIdentity,
   type PersonInput,
   projectTree,
   type Relationship,
+  type SpouseEdge,
   type TreeEdges,
 } from "./types"
 
@@ -79,6 +81,7 @@ function migrateLegacy(old: Record<string, LegacyPerson>): FamilyData {
         ? p.parentIds.map((id) => ({ id }))
         : (p.parents ?? []),
       spouseIds: p.spouseId ? [p.spouseId] : (p.spouseIds ?? []),
+      marriageDates: {},
     }
   }
   return next
@@ -91,9 +94,14 @@ export function normalizeImport(data: Record<string, unknown>): FamilyData {
       Array.isArray(candidate?.parentIds) || candidate?.spouseId !== undefined
     )
   })
-  return looksLegacy
-    ? migrateLegacy(data as Record<string, LegacyPerson>)
-    : (data as FamilyData)
+  if (looksLegacy) return migrateLegacy(data as Record<string, LegacyPerson>)
+  // v2: ensure every person carries `marriageDates` (older exports predate it).
+  return Object.fromEntries(
+    Object.entries(data as FamilyData).map(([id, p]) => [
+      id,
+      { ...p, marriageDates: p.marriageDates ?? {} },
+    ]),
+  ) as FamilyData
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +126,10 @@ let dirtyTrees: DirtyMap = new Map()
  * Called from `update()` for local mutations only — remote merges bypass it.
  * Exported for direct unit testing of the stamping/dirty-queue logic.
  */
-export function stampAndEnqueue(prev: GlobalState, next: GlobalState): GlobalState {
+export function stampAndEnqueue(
+  prev: GlobalState,
+  next: GlobalState,
+): GlobalState {
   if (prev === next) return next
   const now = new Date().toISOString()
 
@@ -215,15 +226,20 @@ export function clearDirty(ids: {
 }
 
 /**
- * POST the current dirty diff to /api/sync (fire-and-forget). On success the
- * shipped records are cleared from the dirty maps. Failures are logged and the
- * ids stay dirty, but with no persistence they're lost on the next reload.
+ * Build the wire payloads to push for a dirty diff against the current
+ * snapshot. Pure — no IO, no state mutation — so the delete-tombstone path can
+ * be unit-tested without mocking `fetch`.
+ *
+ * A locally-deleted record is already gone from the snapshot, so for `delete`
+ * actions we emit a minimal tombstone (id + fresh `updatedAt` + `deletedAt`).
+ * The fresh `updatedAt` is required: a delete is a local mutation and must win
+ * the server's last-write-wins check, exactly like re-stamping on edits.
  */
-async function pushDirty(): Promise<void> {
-  const dirty = snapshotDirty()
-  const snapshot = getSnapshot()
-  const now = new Date().toISOString()
-
+export function buildPushWires(
+  snapshot: GlobalState,
+  dirty: { persons: DirtyMap; trees: DirtyMap },
+  now: string,
+): { persons: PersonWire[]; trees: TreeWire[] } {
   const personWires: PersonWire[] = []
   for (const [id, action] of dirty.persons) {
     const p = snapshot.persons[id]
@@ -251,19 +267,19 @@ async function pushDirty(): Promise<void> {
   const treeWires: TreeWire[] = []
   for (const [id, action] of dirty.trees) {
     const meta = snapshot.index.find((t) => t.id === id)
-    const edges = snapshot.trees[id] ?? emptyEdges()
-    if (action === "delete" || !meta) {
-      if (!meta) continue // never existed locally; nothing to tell the server
+    if (action === "delete") {
       treeWires.push({
         id,
-        name: meta.name,
+        name: meta?.name ?? "",
         edges: emptyEdges() as TreeEdges,
-        createdAt: meta.createdAt,
-        updatedAt: meta.updatedAt ?? now,
+        createdAt: meta?.createdAt ?? now,
+        updatedAt: now,
         deletedAt: now,
-        ownerId: meta.ownerId ?? "",
+        ownerId: meta?.ownerId ?? "",
       })
     } else {
+      if (!meta) continue // never existed locally; nothing to tell the server
+      const edges = snapshot.trees[id] ?? emptyEdges()
       treeWires.push({
         id,
         name: meta.name,
@@ -274,6 +290,23 @@ async function pushDirty(): Promise<void> {
       })
     }
   }
+
+  return { persons: personWires, trees: treeWires }
+}
+
+/**
+ * POST the current dirty diff to /api/sync (fire-and-forget). On success the
+ * shipped records are cleared from the dirty maps. Failures are logged and the
+ * ids stay dirty, but with no persistence they're lost on the next reload.
+ */
+async function pushDirty(): Promise<void> {
+  const dirty = snapshotDirty()
+  const now = new Date().toISOString()
+  const { persons: personWires, trees: treeWires } = buildPushWires(
+    getSnapshot(),
+    dirty,
+    now,
+  )
 
   if (personWires.length === 0 && treeWires.length === 0) return
 
@@ -372,7 +405,7 @@ export function applyRemote(remote: {
             indexById.set(w.id, replacement)
 
             if (trees === prev.trees) trees = { ...trees }
-            trees[w.id] = w.edges
+            trees[w.id] = normalizeEdges(w.edges)
             treesChanged = true
           }
         }
@@ -454,18 +487,43 @@ function addMember(e: TreeEdges, id: string): void {
 
 function pairHas(e: TreeEdges, a: string, b: string): boolean {
   return e.spouses.some(
-    ([x, y]) => (x === a && y === b) || (x === b && y === a),
+    (s) => (s.a === a && s.b === b) || (s.a === b && s.b === a),
   )
 }
 
 function addSpouseEdge(e: TreeEdges, a: string, b: string): void {
-  if (a !== b && !pairHas(e, a, b)) e.spouses.push([a, b])
+  if (a === b || pairHas(e, a, b)) return
+  const [x, y] = a < b ? [a, b] : [b, a]
+  e.spouses.push({ a: x, b: y })
 }
 
 function removeSpouseEdge(e: TreeEdges, a: string, b: string): void {
   e.spouses = e.spouses.filter(
-    ([x, y]) => !((x === a && y === b) || (x === b && y === a)),
+    (s) => !((s.a === a && s.b === b) || (s.a === b && s.b === a)),
   )
+}
+
+/**
+ * Coerce legacy `[a, b]` tuple spouses into {@link SpouseEdge} objects,
+ * canonicalise each pair (a < b) and drop duplicates / self-links. Run at the
+ * only boundary where externally-persisted edges enter the store
+ * ({@link applyRemote}); locally-created edges are already canonical.
+ */
+function normalizeEdges(e: TreeEdges): TreeEdges {
+  const spouses: SpouseEdge[] = []
+  const seen = new Set<string>()
+  for (const raw of e.spouses as Array<[string, string] | SpouseEdge>) {
+    const a = Array.isArray(raw) ? raw[0] : raw.a
+    const b = Array.isArray(raw) ? raw[1] : raw.b
+    const date = Array.isArray(raw) ? undefined : raw.date
+    if (!a || !b || a === b) continue
+    const [x, y] = a < b ? [a, b] : [b, a]
+    const key = `${x}:${y}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    spouses.push({ a: x, b: y, date })
+  }
+  return { ...e, spouses }
 }
 
 function addParentEdge(
@@ -506,16 +564,17 @@ export function rewriteEdges(
       members.push(id)
     }
   }
-  const spouses: [string, string][] = []
+  const spouses: SpouseEdge[] = []
   const seenPair = new Set<string>()
-  for (const [a, b] of e.spouses) {
-    const x = mapId(a)
-    const y = mapId(b)
+  for (const s of e.spouses) {
+    const x = mapId(s.a)
+    const y = mapId(s.b)
     if (x === y) continue
     const key = x < y ? `${x}:${y}` : `${y}:${x}`
     if (seenPair.has(key)) continue
     seenPair.add(key)
-    spouses.push([x, y])
+    const [lo, hi] = x < y ? [x, y] : [y, x]
+    spouses.push({ a: lo, b: hi, date: s.date })
   }
   const parents: Record<string, ParentLink[]> = {}
   for (const [cid, links] of Object.entries(e.parents)) {
@@ -541,7 +600,7 @@ export function propagateSurvivor(
   const parentIds = new Set<string>()
   const childIds = new Set<string>()
   for (const e of Object.values(trees)) {
-    for (const [a, b] of e.spouses) {
+    for (const { a, b } of e.spouses) {
       if (a === keepId) spouseIds.add(b)
       else if (b === keepId) spouseIds.add(a)
     }
@@ -673,8 +732,8 @@ export function seedData(): TreeSeed {
   const edges: TreeEdges = {
     members: [grandpa, grandma, dad, mom, kid],
     spouses: [
-      [grandpa, grandma],
-      [dad, mom],
+      { a: grandpa, b: grandma, date: "1971-09-14" },
+      { a: dad, b: mom, date: "2001-06-20" },
     ],
     parents: {
       [dad]: [{ id: grandpa }, { id: grandma }],
@@ -744,6 +803,18 @@ export function useMembersOf(
     if (!treeId) return []
     const members = g.trees[treeId]?.members ?? []
     return members.map((id) => ({ id, name: g.persons[id]?.name ?? "?" }))
+  }, [g, treeId])
+}
+
+/** Projected members of any tree (with that tree's spouse/parent edges) — used
+ *  to list couples as well as individuals when linking a parent across trees. */
+export function useTreePeople(treeId: string | undefined): Person[] {
+  const g = useSyncExternalStore(subscribe, getGraph, getGraph)
+  return useMemo(() => {
+    if (!treeId) return []
+    return Object.values(
+      projectTree(g.persons, g.trees[treeId] ?? emptyEdges()),
+    )
   }, [g, treeId])
 }
 
@@ -833,7 +904,7 @@ export function useFamily(treeId: string) {
       for (const [tid, e] of Object.entries(prev.trees)) {
         trees[tid] = {
           members: e.members.filter((m) => m !== id),
-          spouses: e.spouses.filter(([a, b]) => a !== id && b !== id),
+          spouses: e.spouses.filter((s) => s.a !== id && s.b !== id),
           parents: Object.fromEntries(
             Object.entries(e.parents)
               .filter(([cid]) => cid !== id)
@@ -899,6 +970,29 @@ export function useFamily(treeId: string) {
       return d.next
     })
   }, [])
+
+  /** Set/clear the marriage date for a couple across every tree they share. */
+  const updateSpouseDate = useCallback(
+    (aId: string, bId: string, date: string) => {
+      update((prev) => {
+        const d = makeDraft(prev)
+        let touched = false
+        for (const t of prev.index) {
+          const e = prev.trees[t.id]
+          if (!e || !pairHas(e, aId, bId)) continue
+          const te = d.tree(t.id)
+          te.spouses = te.spouses.map((s) =>
+            (s.a === aId && s.b === bId) || (s.a === bId && s.b === aId)
+              ? { ...s, date: date || undefined }
+              : s,
+          )
+          touched = true
+        }
+        return touched ? d.next : prev
+      })
+    },
+    [],
+  )
 
   const addParent = useCallback(
     (childId: string, parentId: string) => {
@@ -995,6 +1089,41 @@ export function useFamily(treeId: string) {
     [treeId],
   )
 
+  /** Pull a person from another tree into this tree as a parent of `childId`.
+   *  Their spouse (the other parent of the couple) joins too, mirroring the
+   *  canvas "connect existing person as parent" behaviour. Only this tree is
+   *  touched; the parent keeps their place in their original tree. */
+  const linkParentAcrossTrees = useCallback(
+    (childId: string, otherTreeId: string, otherPersonId: string) => {
+      if (otherTreeId === treeId) return
+      update((prev) => {
+        if (!prev.persons[childId] || !prev.persons[otherPersonId]) return prev
+        const d = makeDraft(prev)
+        const cur = d.tree(treeId)
+        // Refuse a link that would make someone their own ancestor.
+        const fam = projectTree(prev.persons, cur)
+        if (descendantsOf(fam, childId).has(otherPersonId)) return prev
+        addMember(cur, otherPersonId)
+        addParentEdge(cur, childId, otherPersonId)
+        // Their spouse joins as the second parent, up to the 2-parent cap.
+        const otherEdges = prev.trees[otherTreeId]
+        if (otherEdges) {
+          for (const s of otherEdges.spouses) {
+            if (s.a !== otherPersonId && s.b !== otherPersonId) continue
+            const sid = s.a === otherPersonId ? s.b : s.a
+            if (!prev.persons[sid]) continue
+            if ((cur.parents[childId] ?? []).length >= 2) break
+            addMember(cur, sid)
+            addSpouseEdge(cur, otherPersonId, sid)
+            addParentEdge(cur, childId, sid)
+          }
+        }
+        return d.next
+      })
+    },
+    [treeId],
+  )
+
   /** Drop a person from one tree only (membership + that tree's edges). */
   const removeFromTree = useCallback(
     (personId: string, targetTreeId: string) => {
@@ -1014,7 +1143,7 @@ export function useFamily(treeId: string) {
             [targetTreeId]: {
               members: e.members.filter((m) => m !== personId),
               spouses: e.spouses.filter(
-                ([a, b]) => a !== personId && b !== personId,
+                (s) => s.a !== personId && s.b !== personId,
               ),
               parents,
             },
@@ -1030,7 +1159,7 @@ export function useFamily(treeId: string) {
       update((prev) => {
         const persons = { ...prev.persons }
         const members: string[] = []
-        const spouses: [string, string][] = []
+        const spouses: SpouseEdge[] = []
         const parents: Record<string, ParentLink[]> = {}
         const seenPair = new Set<string>()
         for (const p of Object.values(data)) {
@@ -1051,10 +1180,11 @@ export function useFamily(treeId: string) {
             }))
           for (const sid of p.spouseIds) {
             if (p.id === sid) continue
-            const key = p.id < sid ? `${p.id}:${sid}` : `${sid}:${p.id}`
+            const [x, y] = p.id < sid ? [p.id, sid] : [sid, p.id]
+            const key = `${x}:${y}`
             if (seenPair.has(key)) continue
             seenPair.add(key)
-            spouses.push([p.id, sid])
+            spouses.push({ a: x, b: y, date: p.marriageDates[sid] })
           }
         }
         return {
@@ -1076,10 +1206,12 @@ export function useFamily(treeId: string) {
     mergePersons,
     linkSpouse,
     unlinkSpouse,
+    updateSpouseDate,
     addParent,
     removeParent,
     setParentAdopted,
     linkAcrossTrees,
+    linkParentAcrossTrees,
     removeFromTree,
     replaceAll,
   }

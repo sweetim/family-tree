@@ -22,10 +22,11 @@ person id to two trees' member lists** — there is no separate "link" entity.
 |---|---|---|
 | `Gender` | `src/types.ts:1` | `"male" \| "female" \| "other"`. |
 | `ParentLink` | `src/types.ts:3` | `{ id; adopted? }` — a parent reference that may be marked adoptive. |
+| `SpouseEdge` | `src/types.ts:9` | `{ a; b; date? }` — a marriage edge in canonical order (a < b). `date` is an ISO calendar string (e.g. "2001-06-20"). |
 | `PersonIdentity` | `src/types.ts:13` | Global identity: `id, name, dob?, dod?, gender?, location?, photo?, updatedAt?`. `photo` is a compressed data URL. `updatedAt` is set only by the sync seam, never by mutators. |
-| `Person` | `src/types.ts:33` | `PersonIdentity` plus this tree's edges: `parents: ParentLink[]` (0–2) and `spouseIds: string[]`. This is what layout/sidebar use. |
+| `Person` | `src/types.ts:33` | `PersonIdentity` plus this tree's edges: `parents: ParentLink[]` (0–2), `spouseIds: string[]`, and `marriageDates: Record<string, string>` (spouseId → ISO date). This is what layout/sidebar use. |
 | `FamilyData` | `src/types.ts:40` | `Record<string, Person>` — the projected view for a single tree. |
-| `TreeEdges` | `src/types.ts:49` | `members: string[]`, `spouses: [string,string][]`, `parents: Record<string, ParentLink[]>`. |
+| `TreeEdges` | `src/types.ts:49` | `members: string[]`, `spouses: SpouseEdge[]`, `parents: Record<string, ParentLink[]>`. |
 | `Relationship` | `src/types.ts:85` | Discriminated union for adding a member: `root`, `child`, `spouse`, `parent`. See below. |
 | `PersonInput` | `src/types.ts:96` | Writable subset of a person (no `id`/`updatedAt`). |
 
@@ -47,9 +48,10 @@ Used by `addPerson` to place a new member relative to existing people:
 - `emptyEdges()` — `src/types.ts:55`. Returns `{ members: [], spouses: [], parents: {} }`.
 - `projectTree(identities, edges)` — `src/types.ts:60`. **The projection seam.**
   Builds a `FamilyData` by merging global identities with a tree's edges:
-  derives each person's `spouseIds` from the symmetric `spouses` pairs, and
-  `parents` from `edges.parents[id]`. Members whose identity is missing are
-  dropped. This is what layout and the sidebar consume.
+  derives each person's `spouseIds` from the symmetric `spouses` edges, their
+  `marriageDates` from each edge's optional `date`, and `parents` from
+  `edges.parents[id]`. Members whose identity is missing are dropped. This is
+  what layout and the sidebar consume.
 
 ### Traversal (pure, operate on `FamilyData`)
 
@@ -67,8 +69,10 @@ Used by `addPerson` to place a new member relative to existing people:
 
 - A person has **0–2 parents** per tree (capped in edge helpers, see
   `src/store.ts` around `addParentEdge`).
-- `spouses` is a list of unordered pairs; spouse links are symmetric and are
-  derived per-person at projection time.
+- `spouses` is a list of `SpouseEdge` objects (`{ a, b, date? }`, canonical
+  `a < b`); spouse links are symmetric and the per-person `spouseIds` /
+  `marriageDates` are derived at projection time. Legacy data stored bare
+  `[a, b]` tuples, which `normalizeEdges` (in `applyRemote`) coerces on load.
 - Membership in multiple trees is normal and expected — it is how cross-family
   linking works.
 

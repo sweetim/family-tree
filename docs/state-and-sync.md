@@ -69,7 +69,10 @@ server's last-write-wins comparison even when a mutator left a stale
 These pure helpers manipulate `TreeEdges` and are used by mutations and merges:
 
 - `cloneTree`, `addMember`, `pairHas`, `addSpouseEdge`, `removeSpouseEdge`,
-  `addParentEdge`, `removeParentEdge` — `src/store.ts:443`–`491`.
+  `normalizeEdges`, `addParentEdge`, `removeParentEdge` — `src/store.ts:443`–`497`.
+  `normalizeEdges` coerces legacy `[a, b]` spouse tuples into `SpouseEdge`
+  objects at the only boundary where externally-persisted edges enter the store
+  (`applyRemote`).
 - `rewriteEdges(e, keep, drop)` — `src/store.ts:494`. Remaps a dropped id onto the
   kept id across members/spouses/parents, dedupes pairs, drops self-links, caps
   parents at 2. Used by `mergePersons`.
@@ -90,8 +93,9 @@ Mutations deliberately propagate membership across trees (see
 
 ## Import / export helpers
 
-- `normalizeImport(data)` — `src/store.ts:87`. Normalizes imported JSON into
-  `FamilyData` and auto-migrates legacy v1 records into the current edges shape.
+- `normalizeImport(data)` — `src/store.ts:88`. Normalizes imported JSON into
+  `FamilyData` and auto-migrates legacy v1 records into the current edges shape;
+  defaults `marriageDates: {}` on v2 records that predate the field.
 - `seedData()` — `src/store.ts:630`. Returns the built-in "Sample Family" seed
   (`TreeSeed`, defined at `src/store.ts:625`).
 
@@ -123,6 +127,7 @@ The workhorse. Returns projected `people` (via `projectTree`), `readOnly`
 | `mergePersons(keepId, dropId)` | `:852` | Merge two people into one (uses `rewriteEdges` + `propagateSurvivor`). |
 | `linkSpouse(aId, bId)` | `:877` | Marry two existing people. |
 | `unlinkSpouse(aId, bId)` | `:892` | Divorce. |
+| `updateSpouseDate(aId, bId, date)` | `:903` | Set/clear a marriage's date across every tree the couple shares. |
 | `addParent(childId, ...)` | `:903` | Add a parent link; **refuses to create a cycle** (a descendant cannot become a parent). |
 | `removeParent(childId, parentId)` | `:935` | Remove a parent link. |
 | `setParentAdopted(childId, parentId, adopted)` | `:948` | Toggle adoptive flag on a parent link. |
@@ -153,5 +158,6 @@ Wire types live in `src/sync/types.ts`; server behavior in
 Display settings (e.g. minimap on/off) live in a separate store, **never
 synced**, persisted to `localStorage`:
 
-- `src/lib/view-settings.ts` — `ViewSettings` (`:8`), `updateViewSettings` (`:36`),
-  `useViewSettings()` (`:46`).
+- `src/lib/view-settings.ts` — `ViewSettings` (`:8`, fields: `minimap`,
+  `multiRoot`, `marriageYears`), `updateViewSettings` (`:52`), `useViewSettings()`
+  (`:62`).
