@@ -10,7 +10,6 @@ export {
   setHydrated,
   snapshotDirty,
   stampAndEnqueue,
-  syncPendingChanges,
   takeDirtyBatch,
   treeMemberKey,
   treeParentChildRelationshipKey,
@@ -18,19 +17,12 @@ export {
   useHydrated,
 } from "./state"
 export type {
-  DirtyAction,
-  DirtyCollection,
-  DirtyMap,
-  DirtyRecord,
   DirtyState,
   GlobalState,
-  LocalRole,
-  RemoteRecords,
-  ShareRole,
   TreeMeta,
 } from "./state"
 
-export { normalizeImport, validateImportedFamily } from "./import"
+export { normalizeImport } from "./import"
 
 export { seedData, type TreeSeed } from "./seed"
 

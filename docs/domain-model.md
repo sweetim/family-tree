@@ -68,8 +68,8 @@ Missing identities or endpoints are ignored. Ordering is stable by creation
 time and id. `withForeignParents` can additionally include direct parents known
 through another accessible tree for the optional expanded view.
 
-Traversal helpers such as `childrenOf`, `descendantsOf`, `ancestorsOf`, and
-`focusFamily` operate on projected `FamilyData`, keeping rendering independent
+Traversal helpers such as `childrenOf`, `descendantsOf`, and `ancestorsOf`
+operate on projected `FamilyData`, keeping rendering independent
 from persistence.
 
 ## Invariants

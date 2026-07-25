@@ -539,10 +539,6 @@ function pushDirty(): Promise<void> {
   return promise
 }
 
-export function syncPendingChanges(): Promise<void> {
-  return pushDirty()
-}
-
 type RemoteWire = { updatedAt: string; deletedAt?: string }
 
 function tombstoneBlocks(

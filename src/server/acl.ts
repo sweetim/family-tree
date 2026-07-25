@@ -1,6 +1,6 @@
 import { and, eq, isNull, or } from "drizzle-orm"
 import type { DB } from "../db"
-import { persons, treeMembers, treeShares, trees, user } from "../db/schema"
+import { persons, treeMembers, treeShares, trees } from "../db/schema"
 
 export type Role = "owner" | "editor" | "viewer"
 
@@ -116,13 +116,4 @@ export function canWrite(role: Role | null): boolean {
 
 export function canRead(role: Role | null): boolean {
   return role !== null
-}
-
-/** Email of `userId`, or null. Used to label shared-with-me trees. */
-export async function userEmail(
-  db: DB,
-  userId: string,
-): Promise<string | null> {
-  const u = await db.query.user.findFirst({ where: eq(user.id, userId) })
-  return u?.email ?? null
 }

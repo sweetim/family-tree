@@ -74,13 +74,6 @@
     linear-gradient(to bottom, #f8fafc 0%, #eef2f7 100%);
 }
 
-/* Frosted-glass surface for floating panels over the canvas. */
-.glass {
-  background-color: color-mix(in srgb, var(--color-cobalt-600) 85%, transparent);
-  backdrop-filter: blur(14px) saturate(140%);
-  -webkit-backdrop-filter: blur(14px) saturate(140%);
-}
-
 /* Slimmer, modern scrollbars for the sidebar. */
 .scroll-area {
   scrollbar-width: thin;

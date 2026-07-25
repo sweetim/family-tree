@@ -565,9 +565,36 @@ export function useFamily(treeId: string) {
 
   const linkChildAcrossTrees = useCallback(
     (parentPersonId: string, otherTreeId: string, childPersonId: string) => {
-      linkParentAcrossTrees(childPersonId, otherTreeId, parentPersonId)
+      if (otherTreeId === treeId) return
+      update((previous) => {
+        if (
+          !treeIsWritable(previous, treeId)
+          || !previous.persons[parentPersonId]
+          || !previous.persons[childPersonId]
+        ) {
+          return previous
+        }
+        const currentFamily = projectTree(previous.persons, previous, treeId)
+        const parentIds = [
+          parentPersonId,
+          ...(currentFamily[parentPersonId]?.spouseIds ?? []),
+        ]
+        const draft = makeDraft(previous)
+        addMember(draft, treeId, childPersonId)
+        for (const candidateParentId of parentIds) {
+          if (!previous.persons[candidateParentId]) continue
+          const relationship = ensureParentChildRelationship(
+            draft,
+            candidateParentId,
+            childPersonId,
+          )
+          if (!relationship) continue
+          associateParentChildRelationship(draft, treeId, relationship.id)
+        }
+        return draft
+      })
     },
-    [linkParentAcrossTrees],
+    [treeId],
   )
 
   const removeFromTree = useCallback(

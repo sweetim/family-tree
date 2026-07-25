@@ -1,8 +1,8 @@
 import type { Edge, Node, SmoothStepPathOptions } from "@xyflow/react"
-import { type FamilyData, focusFamily, type Person } from "../types"
+import { type FamilyData, type Person } from "../types"
 
-export const NODE_WIDTH = 176
-export const NODE_HEIGHT = 220
+const NODE_WIDTH = 176
+const NODE_HEIGHT = 220
 /**
  * Vertical offset (px from a card's top) where the marriage line runs.
  * Person cards pin their side handles here and the union dot is placed at
@@ -33,7 +33,7 @@ const RANK_GAP = 92
 const ROOT_GAP = 120
 
 /** How a card participates in click-to-connect mode. */
-export type LinkState = "source" | "eligible" | "blocked"
+type LinkState = "source" | "eligible" | "blocked"
 export type PersonNodeType = Node<
   {
     person: Person
@@ -493,7 +493,7 @@ export function buildFlow(
 }
 
 /** A top-level ancestral line: a rootless person, or a married/co-parent couple. */
-export type FamilyRoot = {
+type FamilyRoot = {
   /** Rootless people forming this line — one person, or a couple. */
   heads: string[]
   /** Head whose blood line is shown when this root is expanded. */
@@ -504,7 +504,7 @@ export type FamilyRoot = {
  * Finds the top-level ancestral lines of a family: people with no visible
  * parents, grouped into couples by marriage or a shared child. Each group is
  * one collapsible root. The representative (earliest-added head) drives the
- * expanded view via {@link focusFamily}.
+ * expanded view.
  */
 export function findRoots(people: FamilyData): FamilyRoot[] {
   const order = new Map(Object.keys(people).map((id, i) => [id, i]))

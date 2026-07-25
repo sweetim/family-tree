@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test"
 import {
   ancestorsOf,
   childrenOf,
-  focusFamily,
   type NormalizedRelationships,
   type PersonIdentity,
   projectTree,
@@ -266,10 +265,5 @@ describe("relationship traversal", () => {
       "kid",
     ])
     expect(ancestorsOf(family, "kid")).toEqual(new Set(["tim"]))
-    expect(Object.keys(focusFamily(family, "kid")).sort()).toEqual([
-      "kid",
-      "tim",
-      "yumi",
-    ])
   })
 })

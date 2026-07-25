@@ -56,7 +56,7 @@ export function decodePhotoDataUrl(dataUrl: string): {
  * return the resulting public blob URL. The URL is never sent to the browser
  * directly — it is only read back through the auth-checked photo proxy.
  */
-export async function putPhoto(
+async function putPhoto(
   ownerId: string,
   bytes: Buffer,
   contentType = "image/jpeg",

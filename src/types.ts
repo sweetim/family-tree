@@ -169,7 +169,7 @@ export function unionIsCurrent(
   return !latest || !TERMINAL_UNION_EVENTS.has(latest.type)
 }
 
-export function marriageDateForUnion(
+function marriageDateForUnion(
   unionId: string,
   unionEvents: Record<string, UnionEvent>,
 ): string | undefined {
@@ -336,26 +336,6 @@ export function descendantsOf(people: FamilyData, id: string): Set<string> {
     }
   }
   return seen
-}
-
-export function focusFamily(people: FamilyData, focusId: string): FamilyData {
-  if (!people[focusId]) return people
-  const blood = new Set<string>([focusId, ...ancestorsOf(people, focusId)])
-  for (const id of [...blood]) {
-    for (const descendant of descendantsOf(people, id)) blood.add(descendant)
-  }
-  const included = new Set(blood)
-  for (const id of blood) {
-    for (const spouseId of people[id]?.spouseIds ?? []) {
-      if (people[spouseId]) included.add(spouseId)
-    }
-  }
-  const result: FamilyData = {}
-  for (const id of included) {
-    const person = people[id]
-    if (person) result[id] = person
-  }
-  return result
 }
 
 export function ancestorsOf(people: FamilyData, id: string): Set<string> {

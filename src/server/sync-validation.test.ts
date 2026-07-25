@@ -14,8 +14,6 @@ import {
   MAX_SYNC_PHOTO_LENGTH,
   MAX_SYNC_RECORDS_PER_COLLECTION,
   MAX_SYNC_TEXT_LENGTH,
-  type ParentEdge,
-  validateParentAssociation,
 } from "./sync-validation"
 
 const NOW = new Date("2026-07-25T01:02:03.000Z")
@@ -42,11 +40,6 @@ function payloadWith(
   payload[collection] = [record]
   return payload
 }
-
-const EDGES: ParentEdge[] = [
-  { id: "grandparent-parent", parentPersonId: "a", childPersonId: "b" },
-  { id: "parent-child", parentPersonId: "b", childPersonId: "c" },
-]
 
 describe("sync validation", () => {
   test("uses the client association key format", () => {
@@ -502,81 +495,5 @@ describe("sync validation", () => {
     expect(clientCanTombstone("unionEvents")).toBe(false)
     expect(clientCanTombstone("parentChildRelationships")).toBe(false)
     expect(clientCanTombstone("treeUnions")).toBe(true)
-  })
-
-  test("accepts a second distinct parent and rejects a third", () => {
-    const current = [
-      { id: "first", parentPersonId: "a", childPersonId: "child" },
-    ]
-    expect(
-      validateParentAssociation(current, {
-        id: "second",
-        parentPersonId: "b",
-        childPersonId: "child",
-      }),
-    ).toBe("valid")
-    expect(
-      validateParentAssociation(
-        [
-          ...current,
-          { id: "second", parentPersonId: "b", childPersonId: "child" },
-        ],
-        {
-          id: "third",
-          parentPersonId: "c",
-          childPersonId: "child",
-        },
-      ),
-    ).toBe("too-many-parents")
-  })
-
-  test("enforces the two-parent limit across the global fact set", () => {
-    const globalFacts = [
-      { id: "tree-a-parent", parentPersonId: "a", childPersonId: "child" },
-      { id: "tree-b-parent", parentPersonId: "b", childPersonId: "child" },
-    ]
-    expect(
-      validateParentAssociation(globalFacts, {
-        id: "tree-c-parent",
-        parentPersonId: "c",
-        childPersonId: "child",
-      }),
-    ).toBe("too-many-parents")
-  })
-
-  test("does not count a replacement or duplicate parent twice", () => {
-    expect(
-      validateParentAssociation(
-        [{ id: "same", parentPersonId: "a", childPersonId: "child" }],
-        { id: "same", parentPersonId: "a", childPersonId: "child" },
-      ),
-    ).toBe("valid")
-    expect(
-      validateParentAssociation(
-        [
-          { id: "first", parentPersonId: "a", childPersonId: "child" },
-          { id: "duplicate", parentPersonId: "a", childPersonId: "child" },
-          { id: "second", parentPersonId: "b", childPersonId: "child" },
-        ],
-        { id: "duplicate", parentPersonId: "a", childPersonId: "child" },
-      ),
-    ).toBe("valid")
-  })
-
-  test("rejects self-parenting and direct or transitive cycles", () => {
-    expect(
-      validateParentAssociation([], {
-        id: "self",
-        parentPersonId: "a",
-        childPersonId: "a",
-      }),
-    ).toBe("self-parent")
-    expect(
-      validateParentAssociation(EDGES, {
-        id: "cycle",
-        parentPersonId: "c",
-        childPersonId: "a",
-      }),
-    ).toBe("ancestry-cycle")
   })
 })

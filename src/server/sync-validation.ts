@@ -1,17 +1,5 @@
 import type { SyncPushRequest } from "../sync/types"
 
-export type ParentEdge = {
-  id: string
-  parentPersonId: string
-  childPersonId: string
-}
-
-export type ParentAssociationValidation =
-  | "valid"
-  | "self-parent"
-  | "too-many-parents"
-  | "ancestry-cycle"
-
 export type SyncCollectionName = keyof SyncPushRequest
 
 export const MAX_CLIENT_FUTURE_MILLISECONDS = 5 * 60 * 1000
@@ -433,41 +421,4 @@ export function isValidIsoDate(value: unknown): value is string {
     && parsed.getUTCMonth() + 1 === month
     && parsed.getUTCDate() === day
   )
-}
-
-export function validateParentAssociation(
-  existingEdges: ParentEdge[],
-  candidate: ParentEdge,
-): ParentAssociationValidation {
-  if (candidate.parentPersonId === candidate.childPersonId) {
-    return "self-parent"
-  }
-
-  const edges = existingEdges.filter((edge) => edge.id !== candidate.id)
-  const parentIds = new Set(
-    edges
-      .filter((edge) => edge.childPersonId === candidate.childPersonId)
-      .map((edge) => edge.parentPersonId),
-  )
-  parentIds.add(candidate.parentPersonId)
-  if (parentIds.size > 2) return "too-many-parents"
-
-  const childrenByParent = new Map<string, string[]>()
-  for (const edge of [...edges, candidate]) {
-    const children = childrenByParent.get(edge.parentPersonId) ?? []
-    children.push(edge.childPersonId)
-    childrenByParent.set(edge.parentPersonId, children)
-  }
-
-  const visited = new Set<string>()
-  const pending = [candidate.childPersonId]
-  while (pending.length > 0) {
-    const personId = pending.pop()
-    if (!personId || visited.has(personId)) continue
-    if (personId === candidate.parentPersonId) return "ancestry-cycle"
-    visited.add(personId)
-    pending.push(...(childrenByParent.get(personId) ?? []))
-  }
-
-  return "valid"
 }

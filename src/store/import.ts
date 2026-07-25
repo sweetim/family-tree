@@ -55,7 +55,7 @@ function isExactIsoDate(value: string): boolean {
   return day <= (daysInMonth[month - 1] ?? 0)
 }
 
-export function validateImportedFamily(data: FamilyData): FamilyData {
+function validateImportedFamily(data: FamilyData): FamilyData {
   const personIds = new Set(Object.keys(data))
   for (const [recordId, value] of Object.entries(data)) {
     const person = value as Person | null | undefined
