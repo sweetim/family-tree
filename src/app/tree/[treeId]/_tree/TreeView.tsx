@@ -37,7 +37,7 @@ import {
   TreeActionsContext,
 } from "@/lib/tree-actions"
 import { useViewSettings } from "@/lib/view-settings"
-import { type TreeMeta, useFamily } from "@/store"
+import { type TreeMeta, useFamily, useFamilyAll } from "@/store"
 import { ancestorsOf, descendantsOf, focusFamily } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
 
@@ -56,6 +56,9 @@ export function TreeView({
   const family = useFamily(tree.id)
   const confirm = useConfirm()
   const { settings } = useViewSettings()
+  // People used for rendering. When "show all families" is on, members' parents
+  // from other trees are pulled in inline; otherwise this equals family.people.
+  const renderPeople = useFamilyAll(tree.id, settings.showAllFamilies)
   const [sidebar, setSidebar] = useState<SidebarState>(() =>
     openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },
   )
@@ -88,11 +91,11 @@ export function TreeView({
 
   const canEdit = !family.readOnly && (isDesktop || editMode)
 
-  const focusPerson = focusId ? family.people[focusId] : undefined
+  const focusPerson = focusId ? renderPeople[focusId] : undefined
   const visiblePeople = useMemo(
     () =>
-      focusPerson ? focusFamily(family.people, focusPerson.id) : family.people,
-    [family.people, focusPerson],
+      focusPerson ? focusFamily(renderPeople, focusPerson.id) : renderPeople,
+    [renderPeople, focusPerson],
   )
 
   const roots = useMemo(() => findRoots(visiblePeople), [visiblePeople])
@@ -158,7 +161,7 @@ export function TreeView({
         : link.kind === "child"
           ? ancestorsOf(family.people, linkSource.id)
           : undefined
-    for (const p of Object.values(visiblePeople)) {
+    for (const p of Object.values(family.people)) {
       if (p.id === linkSource.id || blockedAncestry?.has(p.id)) continue
       if (link.kind === "spouse" && linkSource.spouseIds.includes(p.id))
         continue
@@ -176,7 +179,7 @@ export function TreeView({
       eligible.add(p.id)
     }
     return eligible
-  }, [link, linkSource, family.people, visiblePeople])
+  }, [link, linkSource, family.people])
 
   const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
   const { nodes, edges } = useMemo(() => {

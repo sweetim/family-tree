@@ -13,6 +13,7 @@ import {
   type Relationship,
   type SpouseEdge,
   type TreeEdges,
+  withForeignParents,
 } from "./types"
 
 export type ShareRole = "viewer" | "editor"
@@ -818,6 +819,16 @@ export function useTreePeople(treeId: string | undefined): Person[] {
   }, [g, treeId])
 }
 
+/** The projected view of a tree for rendering. When `enabled`, cross-tree
+ *  parents of members are pulled in inline (the "show all families" view). */
+export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
+  const g = useSyncExternalStore(subscribe, getGraph, getGraph)
+  return useMemo(() => {
+    const base = projectTree(g.persons, g.trees[treeId] ?? emptyEdges())
+    return enabled ? withForeignParents(base, g.persons, g.trees, treeId) : base
+  }, [g, treeId, enabled])
+}
+
 export function useFamily(treeId: string) {
   const g = useSyncExternalStore(subscribe, getGraph, getGraph)
   const people = useMemo(
@@ -1089,34 +1100,63 @@ export function useFamily(treeId: string) {
     [treeId],
   )
 
-  /** Pull a person from another tree into this tree as a parent of `childId`.
-   *  Their spouse (the other parent of the couple) joins too, mirroring the
-   *  canvas "connect existing person as parent" behaviour. Only this tree is
-   *  touched; the parent keeps their place in their original tree. */
+  /** Link `childId` (in this tree) to a parent who lives in another tree. The
+   *  child — and their whole branch in this tree (descendants plus those
+   *  descendants' spouses) — is added to the PARENT's tree, with the branch's
+   *  own parent/spouse edges replicated and a parent edge to the chosen parent
+   *  (and their spouse). So the child shows up connected there with their
+   *  children, not as a lone card. The parent is NOT added to this tree — here
+   *  it stays just a "go to family" jump (unless "show all families" renders it
+   *  inline). */
   const linkParentAcrossTrees = useCallback(
     (childId: string, otherTreeId: string, otherPersonId: string) => {
       if (otherTreeId === treeId) return
       update((prev) => {
         if (!prev.persons[childId] || !prev.persons[otherPersonId]) return prev
-        const d = makeDraft(prev)
-        const cur = d.tree(treeId)
-        // Refuse a link that would make someone their own ancestor.
-        const fam = projectTree(prev.persons, cur)
+        // Refuse a link that would make someone their own ancestor (in the
+        // parent's tree).
+        const fam = projectTree(
+          prev.persons,
+          prev.trees[otherTreeId] ?? emptyEdges(),
+        )
         if (descendantsOf(fam, childId).has(otherPersonId)) return prev
-        addMember(cur, otherPersonId)
-        addParentEdge(cur, childId, otherPersonId)
-        // Their spouse joins as the second parent, up to the 2-parent cap.
-        const otherEdges = prev.trees[otherTreeId]
-        if (otherEdges) {
-          for (const s of otherEdges.spouses) {
-            if (s.a !== otherPersonId && s.b !== otherPersonId) continue
-            const sid = s.a === otherPersonId ? s.b : s.a
-            if (!prev.persons[sid]) continue
-            if ((cur.parents[childId] ?? []).length >= 2) break
-            addMember(cur, sid)
-            addSpouseEdge(cur, otherPersonId, sid)
-            addParentEdge(cur, childId, sid)
+
+        // The branch to bring along: the linked person + their descendants (in
+        // this tree) + spouses of anyone in the branch.
+        const curFam = projectTree(
+          prev.persons,
+          prev.trees[treeId] ?? emptyEdges(),
+        )
+        const include = new Set<string>([childId])
+        for (const desc of descendantsOf(curFam, childId)) include.add(desc)
+        for (const id of [...include]) {
+          for (const sid of curFam[id]?.spouseIds ?? []) {
+            if (curFam[sid]) include.add(sid)
           }
+        }
+
+        const d = makeDraft(prev)
+        const other = d.tree(otherTreeId)
+        for (const id of include) addMember(other, id)
+        // Replicate the branch's parent + spouse edges within the parent's tree.
+        for (const id of include) {
+          const p = curFam[id]
+          if (!p) continue
+          for (const link of p.parents) {
+            if (include.has(link.id))
+              addParentEdge(other, id, link.id, link.adopted)
+          }
+          for (const sid of p.spouseIds) {
+            if (include.has(sid)) addSpouseEdge(other, id, sid)
+          }
+        }
+        // The cross-tree parent link itself (+ the parent's spouse).
+        addParentEdge(other, childId, otherPersonId)
+        const otherEdges = prev.trees[otherTreeId] ?? emptyEdges()
+        for (const s of otherEdges.spouses) {
+          if (s.a !== otherPersonId && s.b !== otherPersonId) continue
+          const sid = s.a === otherPersonId ? s.b : s.a
+          if (prev.persons[sid]) addParentEdge(other, childId, sid)
         }
         return d.next
       })

@@ -19,6 +19,12 @@ export type ViewSettings = {
    * always-on year label.
    */
   marriageYears: boolean
+  /**
+   * Render members' parents that live in other trees inline on the canvas.
+   * Off (default): a cross-tree parent is not shown here — the child's card
+   * shows a jump button to the parent's family instead.
+   */
+  showAllFamilies: boolean
 }
 
 const STORAGE_KEY = "family-tree:view-settings"
@@ -26,6 +32,7 @@ const DEFAULTS: ViewSettings = {
   minimap: true,
   multiRoot: false,
   marriageYears: true,
+  showAllFamilies: false,
 }
 
 function load(): ViewSettings {

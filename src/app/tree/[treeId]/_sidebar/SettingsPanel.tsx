@@ -115,6 +115,25 @@ export function SettingsPanel({
         />
       </label>
 
+      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+        <span>
+          <span className="block text-sm font-medium text-slate-700">
+            Show all families
+          </span>
+          <span className="block text-xs text-slate-500">
+            Render members&rsquo; parents from other trees inline. Off: a
+            cross-tree parent is hidden here and the child&rsquo;s card shows a
+            jump button to its family instead.
+          </span>
+        </span>
+        <input
+          type="checkbox"
+          checked={settings.showAllFamilies}
+          onChange={(e) => update({ showAllFamilies: e.target.checked })}
+          className="h-4 w-4 rounded border-slate-300 text-cobalt-600 focus:ring-cobalt-500"
+        />
+      </label>
+
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-slate-800">Data</h2>
         <div className="grid grid-cols-2 gap-2">

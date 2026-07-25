@@ -67,6 +67,96 @@ export type FlowEdge =
 const pairKey = (a: string, b: string) => [a, b].sort().join(":")
 
 /**
+ * Assigns every person a generation rank (row index, 0 = topmost).
+ *
+ * Partners must share a row, so people are first grouped into partner
+ * components — one component is one row. Ranks then satisfy
+ * `child > parent` by longest path from the top.
+ *
+ * That alone leaves married-in ancestors stranded: a couple with no parents
+ * of their own gets rank 0 even when their only child sits four rows down,
+ * because nothing pulls them toward their descendants. So a second pass
+ * tightens every unparented component down to `min(child rank) - 1`, which
+ * is the lowest row that still keeps it above its children. Components that
+ * do have visible parents stay where the longest path put them.
+ */
+function rankPeople(
+  people: FamilyData,
+  partnersOf: Map<string, string[]>,
+): Map<string, number> {
+  const ids = Object.keys(people)
+
+  // Partner components: each is one row.
+  const groupOf = new Map<string, number>()
+  let groupCount = 0
+  for (const id of ids) {
+    if (groupOf.has(id)) continue
+    const g = groupCount++
+    const stack = [id]
+    while (stack.length > 0) {
+      const cur = stack.pop()
+      if (cur === undefined || groupOf.has(cur)) continue
+      groupOf.set(cur, g)
+      for (const n of partnersOf.get(cur) ?? [])
+        if (!groupOf.has(n)) stack.push(n)
+    }
+  }
+
+  // parent group → child groups, and which groups have parents at all.
+  const childGroups = new Map<number, Set<number>>()
+  const parented = new Set<number>()
+  for (const p of Object.values(people)) {
+    const cg = groupOf.get(p.id)
+    if (cg === undefined) continue
+    for (const link of p.parents) {
+      const pg = groupOf.get(link.id)
+      if (pg === undefined || pg === cg) continue
+      parented.add(cg)
+      let kids = childGroups.get(pg)
+      if (!kids) {
+        kids = new Set()
+        childGroups.set(pg, kids)
+      }
+      kids.add(cg)
+    }
+  }
+
+  // Longest path from the top. Bounded so malformed data (a person who is
+  // their own ancestor) settles instead of looping forever.
+  const groupRank = new Array<number>(groupCount).fill(0)
+  for (let pass = 0; pass < groupCount; pass++) {
+    let changed = false
+    for (const [pg, kids] of childGroups) {
+      const want = (groupRank[pg] ?? 0) + 1
+      for (const cg of kids) {
+        if (want > (groupRank[cg] ?? 0)) {
+          groupRank[cg] = want
+          changed = true
+        }
+      }
+    }
+    if (!changed) break
+  }
+
+  // Pull unparented components down to just above their children.
+  for (let g = 0; g < groupCount; g++) {
+    if (parented.has(g)) continue
+    const kids = childGroups.get(g)
+    if (!kids || kids.size === 0) continue
+    let lowest = Infinity
+    for (const cg of kids) lowest = Math.min(lowest, groupRank[cg] ?? 0)
+    if (Number.isFinite(lowest)) groupRank[g] = lowest - 1
+  }
+
+  // Tightening can push ranks negative; renormalise so the top row is 0.
+  const min = groupRank.length > 0 ? Math.min(...groupRank) : 0
+  const rank = new Map<string, number>()
+  for (const id of ids)
+    rank.set(id, (groupRank[groupOf.get(id) ?? 0] ?? 0) - min)
+  return rank
+}
+
+/**
  * Genealogy-specific layout. Dagre-style generic layering reorders people
  * within a generation to minimise crossings, which breaks two invariants a
  * family chart needs: partners must sit side by side (the marriage line is
@@ -101,6 +191,12 @@ function computePositions(
     addPartner(b, a)
   }
 
+  // Generation rank per person. Recursion depth alone is wrong: a rootless
+  // couple reached only after their child was already placed (as someone
+  // else's in-law) would sit at depth 0, floating far above the family they
+  // married into. Ranks are solved globally instead — see {@link rankPeople}.
+  const rank = rankPeople(people, partnersOf)
+
   // Eldest first; people without a birth date keep the order they were added.
   const byBirth = (a: Person, b: Person) => {
     if (a.dob && b.dob && a.dob !== b.dob) return a.dob < b.dob ? -1 : 1
@@ -131,7 +227,7 @@ function computePositions(
     place: (x: number) => void
   }
 
-  const layoutGroup = (anchorId: string, depth: number): Block => {
+  const layoutGroup = (anchorId: string): Block => {
     // The couple row: the anchor plus chains of not-yet-placed partners
     // extending right, then left (so a second marriage sits on the other
     // side of the anchor and every union spans an adjacent gap).
@@ -191,7 +287,7 @@ function computePositions(
 
     const childBlocks: Block[] = []
     for (const c of kids) {
-      if (!placed.has(c.id)) childBlocks.push(layoutGroup(c.id, depth + 1))
+      if (!placed.has(c.id)) childBlocks.push(layoutGroup(c.id))
     }
 
     const rowWidth = row.length * NODE_WIDTH + (row.length - 1) * COUPLE_GAP
@@ -199,7 +295,9 @@ function computePositions(
       childBlocks.reduce((w, b) => w + b.width, 0)
       + Math.max(0, childBlocks.length - 1) * SIBLING_GAP
     const width = Math.max(rowWidth, kidsWidth)
-    const yCenter = depth * (NODE_HEIGHT + RANK_GAP) + NODE_HEIGHT / 2
+    // Every member of the row shares a partner component, so one rank.
+    const yCenter =
+      (rank.get(anchorId) ?? 0) * (NODE_HEIGHT + RANK_GAP) + NODE_HEIGHT / 2
 
     return {
       width,
@@ -234,7 +332,7 @@ function computePositions(
 
   const blocks: Block[] = []
   for (const p of [...anchors, ...rootless, ...everyone]) {
-    if (!placed.has(p.id)) blocks.push(layoutGroup(p.id, 0))
+    if (!placed.has(p.id)) blocks.push(layoutGroup(p.id))
   }
 
   let x = 0

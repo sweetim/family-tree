@@ -95,6 +95,63 @@ export function projectTree(
   return family
 }
 
+/**
+ * Augment a tree's projected people with members' parents that only exist in
+ * OTHER trees — used by the "show all families" view to render cross-tree
+ * parents inline. Only direct parents are pulled in (one generation up); the
+ * child's parent edge is wired so it hangs from them.
+ */
+export function withForeignParents(
+  people: FamilyData,
+  identities: Record<string, PersonIdentity>,
+  trees: Record<string, TreeEdges>,
+  treeId: string,
+): FamilyData {
+  const out: FamilyData = {}
+  for (const [id, p] of Object.entries(people)) {
+    out[id] = {
+      ...p,
+      parents: [...p.parents],
+      spouseIds: [...p.spouseIds],
+      marriageDates: { ...p.marriageDates },
+    }
+  }
+  // Pull in foreign parents of current members.
+  for (const child of Object.values(people)) {
+    for (const [tid, edges] of Object.entries(trees)) {
+      if (tid === treeId) continue
+      const links = edges.parents[child.id]
+      if (!links) continue
+      for (const link of links) {
+        if (out[link.id] || !identities[link.id]) continue
+        out[link.id] = {
+          ...identities[link.id],
+          parents: [],
+          spouseIds: [],
+          marriageDates: {},
+        }
+      }
+    }
+  }
+  // Wire the parent edges within the augmented view (capped at two parents).
+  for (const child of Object.values(people)) {
+    const c = out[child.id]
+    if (!c) continue
+    for (const [tid, edges] of Object.entries(trees)) {
+      if (tid === treeId) continue
+      const links = edges.parents[child.id]
+      if (!links) continue
+      for (const link of links) {
+        if (!out[link.id]) continue
+        if (c.parents.length >= 2 || c.parents.some((l) => l.id === link.id))
+          continue
+        c.parents = [...c.parents, { id: link.id, adopted: link.adopted }]
+      }
+    }
+  }
+  return out
+}
+
 export type Relationship =
   | { kind: "root" }
   | {
