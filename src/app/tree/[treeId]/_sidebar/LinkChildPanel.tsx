@@ -3,7 +3,8 @@ import { useMemo, useState } from "react"
 import { Section } from "@/components/Section"
 import { type FamilyStore, type TreeMeta, useTreePeople } from "@/store"
 import { ancestorsOf, type Person } from "@/types"
-import { ghostBtn, inputCls } from "./shared"
+import { BackToChoose } from "./BackToChoose"
+import { ghostBtn, inputCls, relFromLink } from "./shared"
 
 export function LinkChildPanel({
   family,
@@ -44,6 +45,11 @@ export function LinkChildPanel({
     <div className="animate-slide-up space-y-4">
       <div className="flex items-start justify-between gap-2">
         <div>
+          <BackToChoose
+            kind="child"
+            sourceId={person.id}
+            rel={relFromLink("child", person.id)}
+          />
           <h2 className="text-base font-semibold text-slate-800">
             Connect child
           </h2>

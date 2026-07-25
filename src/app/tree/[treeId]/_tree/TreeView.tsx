@@ -158,6 +158,17 @@ export function TreeView({
         setSidebar({ mode: "add", rel })
         setDrawerOpen(true)
       },
+      openChoose: (kind, sourceId, rel) => {
+        setSidebar({ mode: "choose", kind, sourceId, rel })
+        setDrawerOpen(true)
+        setSidebarHidden(false)
+      },
+      backToChoose: (kind, sourceId, rel) => {
+        setLink(undefined)
+        setSidebar({ mode: "choose", kind, sourceId, rel })
+        setDrawerOpen(true)
+        setSidebarHidden(false)
+      },
       startLink: (kind, sourceId) => {
         setLink({ kind, sourceId })
         // For parents, also surface a focused sidebar panel so the cross-tree

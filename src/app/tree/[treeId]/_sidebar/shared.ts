@@ -1,3 +1,4 @@
+import type { LinkKind } from "@/lib/tree-actions"
 import type { Gender, Person, PersonInput, Relationship } from "@/types"
 
 export const inputCls =
@@ -16,6 +17,12 @@ export const chipX =
 export type SidebarState =
   | { mode: "idle" }
   | { mode: "add"; rel: Relationship }
+  | {
+      mode: "choose"
+      kind: LinkKind
+      sourceId: string
+      rel: Relationship
+    }
   | { mode: "edit"; personId: string }
   | { mode: "marriage"; a: string; b: string }
   | { mode: "linkParent"; personId: string }
@@ -52,4 +59,22 @@ export function toInput(f: Fields): PersonInput {
     location: f.location.trim() || undefined,
     photo: f.photo,
   }
+}
+
+/** Reconstruct the chooser target (kind + source person) from an add relationship. Returns null for unconnected "root" adds, which have no chooser. */
+export function chooseFromRel(
+  rel: Relationship,
+): { kind: LinkKind; sourceId: string } | null {
+  if (rel.kind === "parent") return { kind: "parent", sourceId: rel.childId }
+  if (rel.kind === "spouse") return { kind: "spouse", sourceId: rel.partnerId }
+  if (rel.kind === "child") return { kind: "child", sourceId: rel.parentId }
+  return null
+}
+
+/** Reconstruct the add relationship a chooser was opened with, from a link kind and the source person. */
+export function relFromLink(kind: LinkKind, personId: string): Relationship {
+  if (kind === "parent")
+    return { kind: "parent", childId: personId, marryExisting: true }
+  if (kind === "spouse") return { kind: "spouse", partnerId: personId }
+  return { kind: "child", parentId: personId }
 }

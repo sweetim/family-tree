@@ -1,5 +1,5 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react"
-import { ArrowLeftRight, Link2, MapPin, Plus } from "lucide-react"
+import { ArrowLeftRight, MapPin, Plus } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 import { photoProxyUrl } from "../lib/image"
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
@@ -49,8 +49,6 @@ function yearOf(iso: string): string {
 const hiddenHandle = "!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent"
 const addBtn =
   "nodrag nopan pointer-events-auto z-10 flex h-7 w-7 items-center justify-center rounded-full bg-cobalt-600 text-base font-bold leading-none text-white shadow-soft transition-all duration-150 hover:bg-cobalt-500 opacity-100 scale-100 md:opacity-0 md:scale-50 md:pointer-events-none md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-hover:scale-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:scale-100"
-const linkBtn =
-  "nodrag nopan pointer-events-auto z-10 flex h-7 w-7 items-center justify-center rounded-full border border-cobalt-300 bg-white text-xs leading-none text-cobalt-600 shadow-soft transition-all duration-150 hover:bg-cobalt-50 opacity-100 scale-100 md:opacity-0 md:scale-50 md:pointer-events-none md:group-hover:pointer-events-auto md:group-hover:opacity-100 md:group-hover:scale-100 md:group-focus-within:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:scale-100"
 
 const CARD_BORDER: Record<string, string> = {
   source: "border-cobalt-500 ring-2 ring-cobalt-300",
@@ -62,7 +60,7 @@ const CARD_BORDER: Record<string, string> = {
 
 export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const { person, linkState } = data
-  const { openAdd, startLink, readOnly } = useTreeActions()
+  const { openChoose, readOnly } = useTreeActions()
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
   const { treeId } = useParams<{ treeId: string }>()
@@ -186,14 +184,14 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
       {!linkState && !readOnly && (
         <>
           {person.parents.length < 2 && (
-            <div className="absolute -top-3.5 left-1/2 flex -translate-x-1/2 gap-1.5">
+            <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
               <button
                 type="button"
-                title="Add new parent"
+                title="Add or connect parent"
                 className={addBtn}
                 onClick={(e) => {
                   e.stopPropagation()
-                  openAdd({
+                  openChoose("parent", person.id, {
                     kind: "parent",
                     childId: person.id,
                     marryExisting: true,
@@ -202,65 +200,38 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
               >
                 <Plus className="h-4 w-4" />
               </button>
-              <button
-                type="button"
-                title="Connect existing person as parent (their spouse joins too)"
-                className={linkBtn}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  startLink("parent", person.id)
-                }}
-              >
-                <Link2 className="h-3.5 w-3.5" />
-              </button>
             </div>
           )}
-          <div className="absolute -right-3.5 top-1/2 flex -translate-y-1/2 flex-col gap-1.5">
+          <div className="absolute -right-3.5 top-1/2 -translate-y-1/2">
             <button
               type="button"
-              title="Add new spouse"
+              title="Add or connect spouse"
               className={addBtn}
               onClick={(e) => {
                 e.stopPropagation()
-                openAdd({ kind: "spouse", partnerId: person.id })
+                openChoose("spouse", person.id, {
+                  kind: "spouse",
+                  partnerId: person.id,
+                })
               }}
             >
               <Plus className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              title="Connect existing person as spouse"
-              className={linkBtn}
-              onClick={(e) => {
-                e.stopPropagation()
-                startLink("spouse", person.id)
-              }}
-            >
-              <Link2 className="h-3.5 w-3.5" />
             </button>
           </div>
-          <div className="absolute -bottom-3.5 left-1/2 flex -translate-x-1/2 gap-1.5">
+          <div className="absolute -bottom-3.5 left-1/2 -translate-x-1/2">
             <button
               type="button"
-              title="Add new child"
+              title="Add or connect child"
               className={addBtn}
               onClick={(e) => {
                 e.stopPropagation()
-                openAdd({ kind: "child", parentId: person.id })
+                openChoose("child", person.id, {
+                  kind: "child",
+                  parentId: person.id,
+                })
               }}
             >
               <Plus className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              title="Connect existing person as child"
-              className={linkBtn}
-              onClick={(e) => {
-                e.stopPropagation()
-                startLink("child", person.id)
-              }}
-            >
-              <Link2 className="h-3.5 w-3.5" />
             </button>
           </div>
         </>

@@ -1,8 +1,10 @@
 import { type FormEvent, useState } from "react"
 import type { FamilyStore } from "@/store"
 import type { Relationship } from "@/types"
+import { BackToChoose } from "./BackToChoose"
 import { PersonFields } from "./PersonFields"
 import {
+  chooseFromRel,
   type Fields,
   fieldsFrom,
   ghostBtn,
@@ -42,6 +44,7 @@ export function AddForm({
   const existingParent = child?.parents[0]
     ? people[child.parents[0].id]
     : undefined
+  const backTarget = chooseFromRel(rel)
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -67,6 +70,13 @@ export function AddForm({
       className="animate-slide-up space-y-4"
     >
       <div>
+        {backTarget && (
+          <BackToChoose
+            kind={backTarget.kind}
+            sourceId={backTarget.sourceId}
+            rel={rel}
+          />
+        )}
         <h2 className="text-base font-semibold tracking-tight text-slate-800">
           Add member
         </h2>

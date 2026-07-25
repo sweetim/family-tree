@@ -3,6 +3,7 @@ import Link from "next/link"
 import { AccountMenu } from "@/components/AccountMenu"
 import type { FamilyStore, TreeMeta } from "@/store"
 import { AddForm } from "./AddForm"
+import { ChoosePanel } from "./ChoosePanel"
 import { EditForm } from "./EditForm"
 import { LinkChildPanel } from "./LinkChildPanel"
 import { LinkParentPanel } from "./LinkParentPanel"
@@ -55,6 +56,8 @@ export function Sidebar({
     state.mode === "linkSpouse" ? family.people[state.personId] : undefined
   const linkChildPerson =
     state.mode === "linkChild" ? family.people[state.personId] : undefined
+  const choosePerson =
+    state.mode === "choose" ? family.people[state.sourceId] : undefined
 
   return (
     <aside
@@ -119,6 +122,14 @@ export function Sidebar({
             onDone={onClose}
             onClose={onClose}
           />
+        ) : state.mode === "choose" && choosePerson && editable ? (
+          <ChoosePanel
+            kind={state.kind}
+            sourceId={state.sourceId}
+            sourceName={choosePerson.name}
+            rel={state.rel}
+            onClose={onClose}
+          />
         ) : state.mode === "linkParent" && linkParentPerson && editable ? (
           <LinkParentPanel
             family={family}
@@ -169,11 +180,10 @@ export function Sidebar({
           <div className="space-y-4">
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
               <p className="text-sm leading-relaxed text-slate-500">
-                Click a card to edit it, or hover a card and use the{" "}
-                <b className="font-semibold text-slate-700">+</b> buttons to add
-                a new parent, spouse or child — or the{" "}
-                <b className="font-semibold text-slate-700">link</b> buttons to
-                connect two people already in the tree by clicking their cards.
+                Click a card to edit it, or hover a card and tap a{" "}
+                <b className="font-semibold text-slate-700">+</b> button to add
+                a new parent, spouse or child — or connect a person already in
+                the tree.
               </p>
             </div>
             <button
