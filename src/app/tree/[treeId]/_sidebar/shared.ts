@@ -19,6 +19,7 @@ export type SidebarState =
   | { mode: "edit"; personId: string }
   | { mode: "marriage"; a: string; b: string }
   | { mode: "linkParent"; personId: string }
+  | { mode: "linkSpouse"; personId: string }
   | { mode: "settings" }
 
 export type Fields = {

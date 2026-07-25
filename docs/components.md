@@ -49,5 +49,5 @@ Private folders are prefixed `_` so Next.js excludes them from routing.
   `startLink(kind, sourceId)`, `editMarriage(a, b)`, and `readOnly`. `LinkKind`
   (`:4`) is `"spouse" | "parent" | "child"`.
 - `useViewSettings()` — `src/lib/view-settings.ts:62`. Client-only, persisted view
-  preferences (minimap, multi-root, marriage-years toggle). See
+  preferences (minimap, marriage-years toggle). See
   [state-and-sync.md](./state-and-sync.md).

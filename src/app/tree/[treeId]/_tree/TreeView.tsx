@@ -25,11 +25,8 @@ import { PersonNode } from "@/components/PersonNode"
 import { UnionNode } from "@/components/UnionNode"
 import {
   buildFlow,
-  type FamilyRoot,
   type FlowEdge,
   type FlowNode,
-  findRoots,
-  withCollapsedRoots,
 } from "@/lib/layout"
 import {
   type LinkKind,
@@ -98,39 +95,6 @@ export function TreeView({
     [renderPeople, focusPerson],
   )
 
-  const roots = useMemo(() => findRoots(visiblePeople), [visiblePeople])
-  const [activeRootId, setActiveRootId] = useState<string>()
-
-  // In single-root mode keep one ancestral line expanded: default to the first
-  // root, and reset if the active one disappeared (e.g. its line merged or was
-  // deleted).
-  useEffect(() => {
-    if (settings.multiRoot) return
-    if (!roots.some((r) => r.representative === activeRootId)) {
-      setActiveRootId(roots[0]?.representative)
-    }
-  }, [roots, activeRootId, settings.multiRoot])
-
-  const activeRoot = settings.multiRoot
-    ? undefined
-    : (roots.find((r) => r.representative === activeRootId) ?? roots[0])
-
-  // Expanded view = the active root's blood line + spouses of blood relatives.
-  const expandedPeople = useMemo(
-    () =>
-      activeRoot
-        ? focusFamily(visiblePeople, activeRoot.representative)
-        : visiblePeople,
-    [visiblePeople, activeRoot],
-  )
-
-  // Collapsed cards = other top-level lines whose heads aren't already shown.
-  const collapsedRoots = useMemo<FamilyRoot[]>(() => {
-    if (!activeRoot) return []
-    const expandedIds = new Set(Object.keys(expandedPeople))
-    return roots.filter((r) => !r.heads.some((h) => expandedIds.has(h)))
-  }, [roots, activeRoot, expandedPeople])
-
   const linkSource = link ? family.people[link.sourceId] : undefined
 
   // Cancel link mode if the source disappears (e.g. deleted from the sidebar).
@@ -184,22 +148,18 @@ export function TreeView({
   const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
   const { nodes, edges } = useMemo(() => {
     const flow = buildFlow(
-      expandedPeople,
+      visiblePeople,
       selectedId,
       link && linkEligible
         ? { sourceId: link.sourceId, eligible: linkEligible }
         : undefined,
     )
-    return collapsedRoots.length > 0
-      ? withCollapsedRoots(flow, collapsedRoots, visiblePeople)
-      : flow
+    return flow
   }, [
-    expandedPeople,
+    visiblePeople,
     selectedId,
     link,
     linkEligible,
-    collapsedRoots,
-    visiblePeople,
   ])
 
   const actions = useMemo<TreeActions>(
@@ -215,6 +175,10 @@ export function TreeView({
         // this tree.
         if (kind === "parent") {
           setSidebar({ mode: "linkParent", personId: sourceId })
+          setDrawerOpen(true)
+          setSidebarHidden(false)
+        } else if (kind === "spouse") {
+          setSidebar({ mode: "linkSpouse", personId: sourceId })
           setDrawerOpen(true)
           setSidebarHidden(false)
         }
@@ -256,13 +220,6 @@ export function TreeView({
       setLink(undefined)
       return
     }
-    // A collapsed root card expands its ancestral line instead of opening
-    // the editor.
-    if (node.data.collapsedRoot) {
-      const root = roots.find((r) => r.heads.includes(node.id))
-      if (root) setActiveRootId(root.representative)
-      return
-    }
     setSidebar({ mode: "edit", personId: node.id })
     setDrawerOpen(true)
     setSidebarHidden(false)
@@ -271,7 +228,7 @@ export function TreeView({
   const onEdgeClick: EdgeMouseHandler<FlowEdge> = async (_e, edge) => {
     if (link) return
     const data = edge.data
-    if (!data || data.collapsed) return
+    if (!data) return
 
     if (data.kind === "couple" && data.a && data.b) {
       const a = family.people[data.a]
@@ -421,7 +378,7 @@ export function TreeView({
             )}
           </div>
           <ReactFlow
-            key={`${focusPerson?.id ?? "all"}:${settings.multiRoot ? "multi" : (activeRootId ?? "none")}`}
+            key={focusPerson?.id ?? "all"}
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}

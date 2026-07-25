@@ -8,12 +8,6 @@ import { useSyncExternalStore } from "react"
 export type ViewSettings = {
   minimap: boolean
   /**
-   * Show every disconnected family at once. Off (default): single-root mode
-   * — one family is expanded and the other roots appear as collapsed cards
-   * that expand on click.
-   */
-  multiRoot: boolean
-  /**
    * Show each marriage's year next to its union dot on the canvas. The full
    * date is always available by hovering the dot; this only toggles the
    * always-on year label.
@@ -30,7 +24,6 @@ export type ViewSettings = {
 const STORAGE_KEY = "family-tree:view-settings"
 const DEFAULTS: ViewSettings = {
   minimap: true,
-  multiRoot: false,
   marriageYears: true,
   showAllFamilies: false,
 }

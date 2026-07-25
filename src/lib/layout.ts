@@ -38,10 +38,6 @@ export type PersonNodeType = Node<
   {
     person: Person
     linkState?: LinkState
-    /** A collapsed family root in single-root mode — click to expand. */
-    collapsedRoot?: boolean
-    /** People hidden behind a collapsed root card. */
-    collapsedCount?: number
   },
   "person"
 >
@@ -60,8 +56,6 @@ export interface RelEdgeData extends Record<string, unknown> {
   /** child: who hangs from this line and from whom */
   childId?: string
   parentIds?: string[]
-  /** Marks edges inside a collapsed-root card so clicks are ignored. */
-  collapsed?: boolean
 }
 export type FlowEdge =
   | Edge<RelEdgeData, "straight">
@@ -581,114 +575,4 @@ export function findRoots(people: FamilyData): FamilyRoot[] {
     heads,
     representative: heads[0] ?? "",
   }))
-}
-
-/**
- * Renders the collapsed top-level roots as a centered row of couple/single
- * cards above the expanded family. Each collapsed root is laid out afresh via
- * {@link buildFlow} (so a married couple keeps its marriage line) then offset
- * into the row. Only used in single-root mode.
- */
-export function withCollapsedRoots(
-  flow: { nodes: FlowNode[]; edges: FlowEdge[] },
-  collapsed: FamilyRoot[],
-  people: FamilyData,
-): { nodes: FlowNode[]; edges: FlowEdge[] } {
-  if (collapsed.length === 0) return flow
-
-  const personNodes = flow.nodes.filter(
-    (n): n is PersonNodeType => n.type === "person",
-  )
-  const expandedLeft = personNodes.map((n) => n.position.x)
-  const expandedRight = personNodes.map((n) => n.position.x + NODE_WIDTH)
-  const expandedTop = personNodes.map((n) => n.position.y)
-  const minX = expandedLeft.length > 0 ? Math.min(...expandedLeft) : 0
-  const maxX = expandedRight.length > 0 ? Math.max(...expandedRight) : 0
-  const topY = expandedTop.length > 0 ? Math.min(...expandedTop) : 0
-  const centerX = (minX + maxX) / 2
-  const rowY = topY - NODE_HEIGHT - ROOT_GAP
-
-  type Block = {
-    nodes: FlowNode[]
-    edges: FlowEdge[]
-    width: number
-    minX: number
-    minY: number
-    hidden: number
-  }
-  const blocks: Block[] = []
-  for (const root of collapsed) {
-    const subset: FamilyData = {}
-    for (const id of root.heads) {
-      const person = people[id]
-      if (person) subset[id] = person
-    }
-    const sub = buildFlow(subset)
-    const subPersons = sub.nodes.filter(
-      (n): n is PersonNodeType => n.type === "person",
-    )
-    const lo =
-      subPersons.length > 0
-        ? Math.min(...subPersons.map((n) => n.position.x))
-        : 0
-    const hi =
-      subPersons.length > 0
-        ? Math.max(...subPersons.map((n) => n.position.x + NODE_WIDTH))
-        : NODE_WIDTH
-    const ty =
-      subPersons.length > 0
-        ? Math.min(...subPersons.map((n) => n.position.y))
-        : 0
-    const hidden = Math.max(
-      0,
-      Object.keys(focusFamily(people, root.representative)).length
-        - root.heads.length,
-    )
-    blocks.push({
-      nodes: sub.nodes,
-      edges: sub.edges,
-      width: Math.max(NODE_WIDTH, hi - lo),
-      minX: lo,
-      minY: ty,
-      hidden,
-    })
-  }
-
-  const totalWidth =
-    blocks.reduce((sum, b) => sum + b.width, 0)
-    + Math.max(0, blocks.length - 1) * ROOT_GAP
-  let cursor = centerX - totalWidth / 2
-
-  const extraNodes: FlowNode[] = []
-  const extraEdges: FlowEdge[] = []
-  for (const block of blocks) {
-    const dx = cursor - block.minX
-    const dy = rowY - block.minY
-    for (const node of block.nodes) {
-      const position = { x: node.position.x + dx, y: node.position.y + dy }
-      if (node.type === "person") {
-        extraNodes.push({
-          ...node,
-          position,
-          data: {
-            ...node.data,
-            collapsedRoot: true,
-            collapsedCount: block.hidden,
-          },
-        })
-      } else {
-        extraNodes.push({ ...node, position })
-      }
-    }
-    for (const edge of block.edges) {
-      if (!edge.data) continue
-      extraEdges.push({ ...edge, data: { ...edge.data, collapsed: true } })
-    }
-    cursor += block.width + ROOT_GAP
-  }
-
-  return {
-    nodes: [...flow.nodes, ...extraNodes],
-    edges: [...flow.edges, ...extraEdges],
-  }
 }

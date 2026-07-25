@@ -5,6 +5,7 @@ import type { FamilyStore, TreeMeta } from "@/store"
 import { AddForm } from "./AddForm"
 import { EditForm } from "./EditForm"
 import { LinkParentPanel } from "./LinkParentPanel"
+import { LinkSpousePanel } from "./LinkSpousePanel"
 import { MarriagePanel } from "./MarriagePanel"
 import { ReadonlyDetails } from "./ReadonlyDetails"
 import { SettingsPanel } from "./SettingsPanel"
@@ -51,6 +52,8 @@ export function Sidebar({
     state.mode === "edit" ? family.people[state.personId] : undefined
   const linkParentPerson =
     state.mode === "linkParent" ? family.people[state.personId] : undefined
+  const linkSpousePerson =
+    state.mode === "linkSpouse" ? family.people[state.personId] : undefined
 
   return (
     <aside
@@ -122,6 +125,14 @@ export function Sidebar({
             allTrees={allTrees}
             person={linkParentPerson}
             onSelect={onSelect}
+            onClose={onClose}
+          />
+        ) : state.mode === "linkSpouse" && linkSpousePerson && editable ? (
+          <LinkSpousePanel
+            family={family}
+            treeId={treeId}
+            allTrees={allTrees}
+            person={linkSpousePerson}
             onClose={onClose}
           />
         ) : editingPerson && editable ? (

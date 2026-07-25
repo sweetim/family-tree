@@ -60,7 +60,7 @@ const CARD_BORDER: Record<string, string> = {
 }
 
 export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
-  const { person, linkState, collapsedRoot, collapsedCount } = data
+  const { person, linkState } = data
   const { openAdd, startLink, readOnly } = useTreeActions()
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
@@ -151,13 +151,6 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 </span>
               </div>
             )}
-            {collapsedRoot && !!collapsedCount && (
-              <div className="mt-1 flex justify-center">
-                <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                  +{collapsedCount} more
-                </span>
-              </div>
-            )}
             {person.location && (
               <p
                 className="mt-0.5 inline-flex items-center gap-0.5 truncate text-xs text-slate-400"
@@ -189,7 +182,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
         </div>
       </div>
 
-      {!linkState && !readOnly && !collapsedRoot && (
+      {!linkState && !readOnly && (
         <>
           {person.parents.length < 2 && (
             <div className="absolute -top-3.5 left-1/2 flex -translate-x-1/2 gap-1.5">
