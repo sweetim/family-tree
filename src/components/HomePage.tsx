@@ -4,6 +4,7 @@ import {
   Network,
   Pencil,
   Plus,
+  Search,
   Share2,
   Sparkles,
   Trash2,
@@ -18,6 +19,7 @@ import {
   type TreeIndexStore,
   type TreeMeta,
   useHydrated,
+  usePersonSearch,
 } from "../store"
 import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
@@ -191,6 +193,63 @@ function SharedTreeCard({
   )
 }
 
+function PersonSearch({
+  navigate,
+  treeNameById,
+}: {
+  navigate: (to: string) => void
+  treeNameById: Map<string, string>
+}) {
+  const results = usePersonSearch()
+  const [query, setQuery] = useState("")
+  const trimmed = query.trim().toLowerCase()
+  const matches = useMemo(() => {
+    if (!trimmed) return []
+    return results
+      .filter((result) => result.name.toLowerCase().includes(trimmed))
+      .slice(0, 8)
+  }, [results, trimmed])
+
+  if (results.length === 0) return null
+
+  return (
+    <div className="relative mb-10">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search people by name…"
+          className={`${inputCls} pl-9`}
+        />
+      </div>
+      {matches.length > 0 ? (
+        <ul className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lift">
+          {matches.map((result) => (
+            <li key={result.personId}>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("")
+                  navigate(`/tree/${result.treeId}/p/${result.personId}`)
+                }}
+                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-cobalt-50"
+              >
+                <span className="truncate font-medium text-slate-800">
+                  {result.name}
+                </span>
+                <span className="shrink-0 text-xs text-slate-400">
+                  {treeNameById.get(result.treeId) ?? ""}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
+
 export function HomePage({ index }: { index: TreeIndexStore }) {
   const { data: session, isPending } = useSession()
   const hydrated = useHydrated()
@@ -206,6 +265,10 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
   )
   const shared = useMemo(
     () => trees.filter((t) => t.role === "viewer" || t.role === "editor"),
+    [trees],
+  )
+  const treeNameById = useMemo(
+    () => new Map(trees.map((tree) => [tree.id, tree.name] as const)),
     [trees],
   )
 
@@ -263,6 +326,8 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
             <Plus className="h-4 w-4" /> Create tree
           </button>
         </form>
+
+        <PersonSearch navigate={navigate} treeNameById={treeNameById} />
 
         {trees.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-10 text-center shadow-soft">

@@ -1925,6 +1925,42 @@ export function useTreePeople(treeId: string | undefined): Person[] {
   )
 }
 
+export type PersonSearchResult = {
+  personId: string
+  name: string
+  /** Earliest tree the person belongs to. */
+  treeId: string
+}
+
+/** Every person in the store, each paired with the earliest tree they're in. */
+export function usePersonSearch(): PersonSearchResult[] {
+  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  return useMemo(() => {
+    const treeExists = new Set(graph.index.map((tree) => tree.id))
+    const earliest = new Map<
+      string,
+      { personId: string; treeId: string; createdAt: string }
+    >()
+    for (const member of Object.values(graph.treeMembers)) {
+      if (!treeExists.has(member.treeId)) continue
+      if (!graph.persons[member.personId]) continue
+      const current = earliest.get(member.personId)
+      if (!current || member.createdAt.localeCompare(current.createdAt) < 0) {
+        earliest.set(member.personId, {
+          personId: member.personId,
+          treeId: member.treeId,
+          createdAt: member.createdAt,
+        })
+      }
+    }
+    return [...earliest.values()].map((result) => ({
+      personId: result.personId,
+      name: graph.persons[result.personId]?.name ?? "",
+      treeId: result.treeId,
+    }))
+  }, [graph])
+}
+
 export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
   return useMemo(() => {
