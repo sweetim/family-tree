@@ -12,12 +12,14 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
-    "db:validate": "bun run scripts/validate-normalized-database.ts"
+    "db:validate": "bun run scripts/validate-normalized-database.ts",
+    "db:migrate-photos": "bun run scripts/migrate-photos-to-blob.ts"
   },
   "dependencies": {
     "@biomejs/biome": "^2.5.4",
     "@neondatabase/serverless": "^1.1.0",
     "@tailwindcss/postcss": "^4.3.2",
+    "@vercel/blob": "^2.6.1",
     "@xyflow/react": "^12.11.2",
     "better-auth": "^1.6.23",
     "drizzle-orm": "^0.45.2",

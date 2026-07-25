@@ -28,12 +28,26 @@ const GENDER_OPTIONS: {
 export function PersonFields({
   fields,
   onChange,
+  existingPhotoUrl,
 }: {
   fields: Fields
   onChange: (f: Fields) => void
+  /**
+   * Proxy URL for the person's currently-stored photo. Used to render the
+   * preview for an existing person without exposing the raw blob URL to the
+   * browser. A freshly cropped image lives in `fields.photo` as a data URL and
+   * is rendered directly.
+   */
+  existingPhotoUrl?: string
 }) {
   const [photoError, setPhotoError] = useState<string>()
   const [cropSrc, setCropSrc] = useState<string>()
+
+  // Fresh crops are inline data URLs (safe to render); the stored value is a
+  // blob URL and must only be shown through the auth-checked proxy.
+  const previewSrc = fields.photo?.startsWith("data:")
+    ? fields.photo
+    : existingPhotoUrl
 
   async function startCrop(file: File | Blob | undefined) {
     if (!file) return
@@ -164,10 +178,10 @@ export function PersonFields({
       <div>
         <span className={labelCls}>Photo</span>
         <div className="flex items-center gap-3">
-          {fields.photo ? (
-            // biome-ignore lint/performance/noImgElement: data-URL preview of an uploaded photo
+          {previewSrc ? (
+            // biome-ignore lint/performance/noImgElement: data-URL preview of a just-cropped photo, or the auth-checked proxy for a stored one
             <img
-              src={fields.photo}
+              src={previewSrc}
               alt="preview"
               className="h-12 w-12 rounded-full object-cover ring-2 ring-cobalt-100"
             />

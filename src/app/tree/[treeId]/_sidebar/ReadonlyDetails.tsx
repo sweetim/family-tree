@@ -1,5 +1,6 @@
 import { Baby, Heart, MapPin, Users } from "lucide-react"
 import { Section } from "@/components/Section"
+import { photoProxyUrl } from "@/lib/image"
 import type { FamilyStore } from "@/store"
 import { childrenOf, type Person } from "@/types"
 import { RelationList } from "./RelationList"
@@ -49,9 +50,9 @@ export function ReadonlyDetails({
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft">
         <div className="flex items-center gap-3">
           {person.photo ? (
-            // biome-ignore lint/performance/noImgElement: data-URL of the person's photo
+            // biome-ignore lint/performance/noImgElement: avatar streamed via the auth-checked proxy
             <img
-              src={person.photo}
+              src={photoProxyUrl(person.id, person.updatedAt)}
               alt={person.name}
               className="h-14 w-14 rounded-full object-cover ring-2 ring-slate-100"
             />

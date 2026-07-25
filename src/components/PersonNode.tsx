@@ -1,6 +1,7 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react"
 import { ArrowLeftRight, Link2, MapPin, Plus } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
+import { photoProxyUrl } from "../lib/image"
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
 import { useTreeActions } from "../lib/tree-actions"
 import { useMemberTrees } from "../store"
@@ -119,9 +120,9 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
               className={`rounded-full bg-linear-to-br p-[3px] ${avatarRing} ${deceased ? "grayscale" : ""}`}
             >
               {person.photo ? (
-                // biome-ignore lint/performance/noImgElement: photo is a compressed data URL, Next/Image offers no benefit
+                // biome-ignore lint/performance/noImgElement: small avatar streamed via the auth-checked proxy; Next/Image offers no benefit
                 <img
-                  src={person.photo}
+                  src={photoProxyUrl(person.id, person.updatedAt)}
                   alt={person.name}
                   className="h-[104px] w-[104px] rounded-full object-cover"
                 />

@@ -37,6 +37,7 @@ import type {
 } from "../../types"
 import { canWrite, personRole, type Role, treeRole } from "../acl"
 import { getAuth } from "../auth"
+import { deletePhoto, isPhotoDataUrl, normalizePhoto } from "../blob"
 import {
   activeDependencyIds,
   associationKey,
@@ -1219,6 +1220,7 @@ export async function postSync(request: Request): Promise<Response> {
     const existing = await db.query.persons.findFirst({
       where: eq(persons.id, wire.id),
     })
+    const photo = await normalizePhoto(existing?.ownerId ?? me.id, wire.photo)
     if (!existing) {
       const rows = await db
         .insert(persons)
@@ -1230,7 +1232,7 @@ export async function postSync(request: Request): Promise<Response> {
           dod: wire.dod ?? null,
           gender: wire.gender ?? null,
           location: wire.location ?? null,
-          photo: wire.photo ?? null,
+          photo,
           updatedAt: serverUpdatedAt,
         })
         .onConflictDoNothing()
@@ -1250,7 +1252,7 @@ export async function postSync(request: Request): Promise<Response> {
         dod: wire.dod ?? null,
         gender: wire.gender ?? null,
         location: wire.location ?? null,
-        photo: wire.photo ?? null,
+        photo,
         updatedAt: serverUpdatedAt,
       })
       .where(
@@ -1261,6 +1263,17 @@ export async function postSync(request: Request): Promise<Response> {
         ),
       )
       .returning({ id: persons.id })
+    // Only retire the previous blob when this update actually won the
+    // timestamp race — otherwise we could delete a newer writer's blob that
+    // the row still references.
+    if (
+      rows.length > 0
+      && existing.photo
+      && photo !== existing.photo
+      && !isPhotoDataUrl(existing.photo)
+    ) {
+      await deletePhoto(existing.photo)
+    }
     classify(applied, skipped, "persons", wire.id, rows.length > 0)
   }
 

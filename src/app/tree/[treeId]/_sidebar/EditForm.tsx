@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation"
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
 import { Section } from "@/components/Section"
+import { photoProxyUrl } from "@/lib/image"
 import { findRoots } from "@/lib/layout"
 import {
   type FamilyStore,
@@ -196,6 +197,11 @@ export function EditForm({
         <PersonFields
           fields={fields}
           onChange={setFields}
+          existingPhotoUrl={
+            person.photo
+              ? photoProxyUrl(person.id, person.updatedAt)
+              : undefined
+          }
         />
 
         <div className="flex justify-end gap-2">

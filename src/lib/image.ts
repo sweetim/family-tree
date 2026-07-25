@@ -16,9 +16,9 @@ export function fileToImageSrc(file: File | Blob): Promise<string> {
 
 /**
  * Crop a square region (in natural image coordinates) out of an image and
- * downscale it to a small JPEG data URL so it fits comfortably in
- * localStorage. Output is square; the existing rounded-full displays mask
- * it into a circle.
+ * downscale it to a small JPEG data URL. The data URL is short-lived: it is
+ * uploaded to Vercel Blob on sync, and only the resulting blob URL is stored.
+ * Output is square; the existing rounded-full displays mask it into a circle.
  */
 export function cropToAvatar(
   img: HTMLImageElement,
@@ -43,4 +43,15 @@ export function cropToAvatar(
     MAX_SIZE,
   )
   return canvas.toDataURL("image/jpeg", 0.82)
+}
+
+/**
+ * Source URL for rendering a person's avatar through the auth-checked server
+ * proxy (`/api/person-photo/[personId]`). The stored blob URL is never used
+ * directly in the browser. `updatedAt` is appended as a cache-buster so a
+ * changed photo is fetched even though the path stays stable.
+ */
+export function photoProxyUrl(personId: string, updatedAt?: string): string {
+  const query = updatedAt ? `?v=${encodeURIComponent(updatedAt)}` : ""
+  return `/api/person-photo/${personId}${query}`
 }
