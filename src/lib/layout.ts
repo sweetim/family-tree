@@ -1,4 +1,4 @@
-import type { Edge, Node } from "@xyflow/react"
+import type { Edge, Node, SmoothStepPathOptions } from "@xyflow/react"
 import { type FamilyData, focusFamily, type Person } from "../types"
 
 export const NODE_WIDTH = 176
@@ -11,6 +11,17 @@ export const NODE_HEIGHT = 220
  */
 export const COUPLE_LINE_Y = 64
 const UNION_SIZE = 12
+
+/**
+ * Where a parent→child "bus" bends, as a fraction from the union dot to the
+ * child row's top. Card height varies with content (lifeline, location,
+ * cross-tree badges all add lines), but the union dot sits only
+ * COUPLE_LINE_Y below its row's *assumed* top — a plain 0.5 midpoint can
+ * land inside a taller-than-assumed card. The child row's top edge is
+ * always exact regardless of content, so biasing the bend toward it keeps
+ * the bus clear of real card bodies.
+ */
+const CHILD_BUS_POSITION = 0.85
 
 /** Gap between two partners' cards — the marriage line spans it. */
 const COUPLE_GAP = 48
@@ -49,7 +60,9 @@ export interface RelEdgeData extends Record<string, unknown> {
   /** Marks edges inside a collapsed-root card so clicks are ignored. */
   collapsed?: boolean
 }
-export type FlowEdge = Edge<RelEdgeData>
+export type FlowEdge =
+  | Edge<RelEdgeData, "straight">
+  | (Edge<RelEdgeData, "smoothstep"> & { pathOptions?: SmoothStepPathOptions })
 
 const pairKey = (a: string, b: string) => [a, b].sort().join(":")
 
@@ -362,7 +375,8 @@ export function buildFlow(
       sourceHandle: "b",
       target: child.id,
       targetHandle: "t",
-      type: "step",
+      type: "smoothstep",
+      pathOptions: { borderRadius: 0, stepPosition: CHILD_BUS_POSITION },
       style: adopted
         ? { ...coupleStroke, strokeDasharray: "4 4" }
         : coupleStroke,
