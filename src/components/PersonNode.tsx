@@ -55,7 +55,7 @@ const CARD_BORDER: Record<string, string> = {
   source: "border-cobalt-500 ring-2 ring-cobalt-300",
   eligible: "border-emerald-400 ring-2 ring-emerald-300",
   blocked: "border-slate-200 opacity-30",
-  selected: "border-cobalt-500 ring-2 ring-cobalt-300",
+  selected: "border-cobalt-500 ring-2 ring-cobalt-300 shadow-lift",
   default: "border-slate-200",
 }
 
@@ -82,7 +82,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   return (
     <div className="group relative">
       <div
-        className={`w-44 rounded-2xl border bg-white shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift ${
+        className={`w-44 rounded-2xl border bg-white transition-all duration-200 hover:-translate-y-0.5 ${
           CARD_BORDER[linkState ?? (selected ? "selected" : "default")]
         }`}
       >
