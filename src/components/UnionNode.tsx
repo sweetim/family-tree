@@ -1,4 +1,5 @@
 import { Handle, Position } from "@xyflow/react"
+import { useTreeActions } from "@/lib/tree-actions"
 import { useViewSettings } from "@/lib/view-settings"
 
 const hidden = "!h-1 !w-1 !min-h-0 !min-w-0 !border-0 !bg-transparent"
@@ -18,19 +19,31 @@ function formatDate(iso: string): string {
  *
  * - Hovering the dot shows the full marriage date (via the `title` tooltip).
  * - When the "Marriage years" view setting is on, the marriage's year is shown
- *   as a compact label just above the dot. The label sits in the inter-card
- *   gap, clear of the vertical child bus that drops below the dot.
+ *   inside the dot itself — the 12px dot is overlaid with a larger circle
+ *   badge carrying the year. The dot and its invisible handles stay put, so
+ *   the marriage line still lands on the right spot.
+ * - Clicking the dot opens the sidebar editor for the couple's marriage date
+ *   via `TreeActions.editMarriage` (a no-op while click-to-connect is active).
  */
-export function UnionNode({ data }: { data: { date?: string } }) {
+export function UnionNode({
+  data,
+}: {
+  data: { date?: string; a?: string; b?: string }
+}) {
   const { settings } = useViewSettings()
+  const { editMarriage } = useTreeActions()
   const iso = data.date
   const year = iso ? new Date(iso).getFullYear() : undefined
   const showYear = settings.marriageYears && iso && year && !Number.isNaN(year)
 
   return (
-    <div
-      className="relative flex flex-col items-center"
+    <button
+      type="button"
+      className="relative flex cursor-pointer appearance-none items-center justify-center border-0 bg-transparent p-0"
       title={iso ? formatDate(iso) : undefined}
+      onClick={() => {
+        if (data.a && data.b) editMarriage(data.a, data.b)
+      }}
     >
       <div className="h-3 w-3 rounded-full border-2 border-slate-300 bg-white shadow-soft">
         <Handle
@@ -53,10 +66,10 @@ export function UnionNode({ data }: { data: { date?: string } }) {
         />
       </div>
       {showYear && (
-        <span className="absolute -top-4 whitespace-nowrap rounded-md bg-white/90 px-1 py-0.5 text-[10px] font-medium text-slate-500 shadow-soft ring-1 ring-slate-200">
+        <div className="absolute left-1/2 top-1/2 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-slate-300 bg-white text-[9px] font-semibold text-slate-500 shadow-soft">
           {year}
-        </span>
+        </div>
       )}
-    </div>
+    </button>
   )
 }

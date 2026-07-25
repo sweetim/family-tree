@@ -219,9 +219,16 @@ export function TreeView({
           setSidebarHidden(false)
         }
       },
+      editMarriage: (a, b) => {
+        // Ignore while click-to-connect is active (a dot isn't a valid target).
+        if (link) return
+        setSidebar({ mode: "marriage", a, b })
+        setDrawerOpen(true)
+        setSidebarHidden(false)
+      },
       readOnly: !canEdit,
     }),
-    [canEdit],
+    [canEdit, link],
   )
 
   // Linking a married person as a parent brings their spouse into the other
@@ -236,6 +243,8 @@ export function TreeView({
 
   const onNodeClick: NodeMouseHandler<FlowNode> = (_e, node) => {
     if (sidebar.mode === "settings") return
+    // Union dots are handled by their own onClick (see UnionNode) which routes
+    // through TreeActions.editMarriage, so they never reach the person logic.
     if (node.type !== "person") return
     if (link) {
       if (node.id === link.sourceId) return setLink(undefined)

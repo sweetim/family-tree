@@ -17,6 +17,7 @@ export type SidebarState =
   | { mode: "idle" }
   | { mode: "add"; rel: Relationship }
   | { mode: "edit"; personId: string }
+  | { mode: "marriage"; a: string; b: string }
   | { mode: "linkParent"; personId: string }
   | { mode: "settings" }
 

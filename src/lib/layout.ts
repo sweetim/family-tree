@@ -45,7 +45,10 @@ export type PersonNodeType = Node<
   },
   "person"
 >
-export type UnionNodeType = Node<{ date?: string }, "union">
+export type UnionNodeType = Node<
+  { date?: string; a?: string; b?: string },
+  "union"
+>
 export type FlowNode = PersonNodeType | UnionNodeType
 
 /** Attached to every edge so clicks can resolve which relationship to remove. */
@@ -427,7 +430,7 @@ export function buildFlow(
       type: "union",
       position: { x: dot.x - UNION_SIZE / 2, y: dot.y - UNION_SIZE / 2 },
       selectable: false,
-      data: date ? { date } : {},
+      data: { a, b, date },
     })
   }
 

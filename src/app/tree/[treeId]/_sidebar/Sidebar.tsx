@@ -5,6 +5,7 @@ import type { FamilyStore, TreeMeta } from "@/store"
 import { AddForm } from "./AddForm"
 import { EditForm } from "./EditForm"
 import { LinkParentPanel } from "./LinkParentPanel"
+import { MarriagePanel } from "./MarriagePanel"
 import { ReadonlyDetails } from "./ReadonlyDetails"
 import { SettingsPanel } from "./SettingsPanel"
 import { primaryBtn, type SidebarState } from "./shared"
@@ -46,7 +47,6 @@ export function Sidebar({
 }: Props) {
   const count = Object.keys(family.people).length
   const readOnly = family.readOnly
-
   const editingPerson =
     state.mode === "edit" ? family.people[state.personId] : undefined
   const linkParentPerson =
@@ -96,6 +96,14 @@ export function Sidebar({
         {state.mode === "settings" ? (
           <SettingsPanel
             family={family}
+            editable={editable}
+            onClose={onClose}
+          />
+        ) : state.mode === "marriage" ? (
+          <MarriagePanel
+            family={family}
+            a={state.a}
+            b={state.b}
             editable={editable}
             onClose={onClose}
           />

@@ -9,7 +9,7 @@ touching the UI.
 | Component | Location | Responsibility |
 |---|---|---|
 | `PersonNode` | `src/components/PersonNode.tsx:62` | React Flow node for a person card. Avatar (photo or gender-colored initials), name, lifeline badge (age or birth–death), location, and "also appears in" tree badges (cross-tree nav via `useMemberTrees`). Hidden handles `t/l/r/b` (left/right pinned at `COUPLE_LINE_Y`). When editable, hover reveals +/link buttons for parent/spouse/child via `useTreeActions()`; respects `linkState` for click-to-connect highlighting. |
-| `UnionNode` | `src/components/UnionNode.tsx:18` | The junction dot where a couple's line meets their children. Invisible handles `l/r/b`. 12px dot; hovering it shows the full marriage date, and when the "Marriage years" view setting is on it shows the marriage year as a compact label above the dot (`useViewSettings`). |
+| `UnionNode` | `src/components/UnionNode.tsx:17` | The junction dot where a couple's line meets their children. Invisible handles `l/r/b`. 12px dot; hovering it shows the full marriage date, and when the "Marriage years" view setting is on the marriage year is shown inside the dot (a larger circle badge overlays it). Clicking the dot opens the sidebar editor for the couple's marriage date (`useViewSettings`, `useTreeActions`). |
 | `HomePage` | `src/components/HomePage.tsx:178` | Landing/dashboard. Create-tree form, "Create sample tree" (uses `seedData()`), grid of own `TreeCard`s (open/rename/share/delete with confirm) and `SharedTreeCard`s (read-only/editor badge + owner email). Loading/sign-in/empty states. |
 | `ShareDialog` | `src/components/ShareDialog.tsx:17` | Owner modal for tree sharing. Loads `/api/trees/:id/shares`, add email+role (viewer/editor), revoke; shows a "pending sign-in" badge when `userId === null`. Esc/backdrop close. |
 | `AccountMenu` | `src/components/AccountMenu.tsx:9` | Sign-in-with-Google button when signed out; avatar dropdown (name/email, sign-out) when in. Outside-click dismiss. |
@@ -32,9 +32,10 @@ Private folders are prefixed `_` so Next.js excludes them from routing.
 
 | Component | Location | Responsibility |
 |---|---|---|
-| `Sidebar` | `_sidebar/Sidebar.tsx:30` | Switches between `AddForm`/`EditForm`/`ReadonlyDetails`/idle/viewer-readonly states; wires Export/Import JSON. |
+| `Sidebar` | `_sidebar/Sidebar.tsx:30` | Switches between `AddForm`/`EditForm`/`MarriagePanel`/`ReadonlyDetails`/idle/viewer-readonly states; wires Export/Import JSON. |
 | `AddForm` | `_sidebar/AddForm.tsx:15` | Form for adding a member given a `Relationship`. |
 | `EditForm` | `_sidebar/EditForm.tsx:37` | Edit a person: spouses/parents/children, marriage date per spouse, cross-tree marriage, same-person merge. |
+| `MarriagePanel` | `_sidebar/MarriagePanel.tsx:11` | Focused editor for one couple's marriage date, opened by clicking a union dot (`TreeActions.editMarriage`). Date field only. |
 | `PersonFields` | `_sidebar/PersonFields.tsx:28` | Reusable fields: name/gender/dates/location/photo, with clipboard-paste crop. |
 | `ReadonlyDetails` | `_sidebar/ReadonlyDetails.tsx:12` | Read-only person view (viewers / not editable). |
 | `RelationList` | `_sidebar/RelationList.tsx:3` | Renders a relationship list section. |
@@ -45,8 +46,8 @@ Private folders are prefixed `_` so Next.js excludes them from routing.
 
 - `TreeActionsContext` / `useTreeActions()` — `src/lib/tree-actions.ts`. Bridges the
   canvas and the sidebar. `TreeActions` (`:6`) exposes `openAdd(rel)`,
-  `startLink(kind, sourceId)`, and `readOnly`. `LinkKind` (`:4`) is
-  `"spouse" | "parent" | "child"`.
+  `startLink(kind, sourceId)`, `editMarriage(a, b)`, and `readOnly`. `LinkKind`
+  (`:4`) is `"spouse" | "parent" | "child"`.
 - `useViewSettings()` — `src/lib/view-settings.ts:62`. Client-only, persisted view
   preferences (minimap, multi-root, marriage-years toggle). See
   [state-and-sync.md](./state-and-sync.md).

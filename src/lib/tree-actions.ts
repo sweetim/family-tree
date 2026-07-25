@@ -8,6 +8,8 @@ export interface TreeActions {
   openAdd: (rel: Relationship) => void
   /** Start click-to-connect: the next eligible card clicked becomes source's spouse/parent/child. */
   startLink: (kind: LinkKind, sourceId: string) => void
+  /** Open the sidebar editor for a couple's marriage date (from a union-dot click). */
+  editMarriage: (a: string, b: string) => void
   /** True when the current user is a viewer on this tree — hides mutating affordances. */
   readOnly: boolean
 }

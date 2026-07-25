@@ -58,7 +58,7 @@ Defined at `src/lib/layout.ts:25`–`43`:
 - `LinkState = "source" | "eligible" | "blocked"` (`:25`) — how a card participates
   in click-to-connect mode.
 - `PersonNodeType` (`:26`) — a React Flow node carrying `{ person, linkState? }`.
-- `UnionNodeType` (`:30`) — the junction dot node (no data).
+- `UnionNodeType` (`:30`) — the junction dot node, carrying the couple's ids and marriage date (`{ a?, b?, date? }`).
 - `FlowNode` (`:31`) — union of the two.
 - `RelEdgeData` (`:34`) — edge payload: `kind: "couple" | "child"`, with `a`/`b`
   for couple partners, or `childId`/`parentIds` for child edges. Attached to every
