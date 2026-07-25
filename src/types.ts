@@ -1,155 +1,327 @@
 export type Gender = "male" | "female" | "other"
 
-export interface ParentLink {
+export type ParentLink = {
   id: string
   adopted?: boolean
+  type?: ParentChildRelationshipType
 }
 
-/**
- * A marriage / co-parenting edge between two people, stored in canonical
- * order (a < b) so the pair is symmetric and dedupable. `date` is an ISO
- * calendar date string (e.g. "2001-06-20"), matching the dob/dod convention.
- */
-export type SpouseEdge = { a: string; b: string; date?: string }
-
-/**
- * A person's identity — stored once globally so a name/photo/DOB edit shows
- * up in every tree the person belongs to. Relationship edges live per-tree
- * (see {@link TreeEdges}) and are merged in at projection time.
- */
-export interface PersonIdentity {
+export type PersonIdentity = {
   id: string
   name: string
   /** ISO date string, e.g. "1985-04-12" */
   dob?: string
-  /** Date of death — set when the person is deceased */
+  /** Date of death - set when the person is deceased. */
   dod?: string
   gender?: Gender
   location?: string
-  /** Compressed data-URL of the uploaded photo */
+  /** Compressed data-URL of the uploaded photo. */
   photo?: string
-  /** ISO timestamp of the last edit. Set by the sync seam; untouched by mutators. */
+  /** ISO timestamp of the last edit. Set by the sync seam. */
   updatedAt?: string
+  /** Owner user id when the record came from the server. */
+  ownerId?: string
 }
 
-/**
- * The full person as a single tree sees it: identity plus that tree's
- * relationship edges. This is what layout and the sidebar consume. It is a
- * projection of {@link PersonIdentity} + {@link TreeEdges}.
- */
-export interface Person extends PersonIdentity {
-  /** 0..2 parents in this tree, each link can be marked as adoptive */
+/** The UI projection consumed by layout and sidebar components. */
+export type Person = PersonIdentity & {
   parents: ParentLink[]
-  /** Supports multiple marriages, in this tree */
   spouseIds: string[]
-  /** spouseId → ISO marriage date, for each spouse in this tree */
   marriageDates: Record<string, string>
 }
 
 export type FamilyData = Record<string, Person>
 
-/**
- * A tree's relationship edges — who appears in it and how they relate.
- * `members` is the list of person IDs rendered in the tree; `spouses` and
- * `parents` are the marriage / parent-child edges for that tree only. Because
- * the same global person can be a member of several trees, linking two people
- * across families is just adding each to the other's tree.
- */
-export interface TreeEdges {
-  members: string[]
-  spouses: SpouseEdge[]
-  parents: Record<string, ParentLink[]>
+export type UnionEventType =
+  | "relationship_started"
+  | "engaged"
+  | "married"
+  | "civil_union"
+  | "domestic_partnership"
+  | "separated"
+  | "reconciled"
+  | "divorced"
+  | "annulled"
+  | "relationship_ended"
+
+export type ParentChildRelationshipType =
+  | "biological"
+  | "adoptive"
+  | "foster"
+  | "guardian"
+  | "step"
+
+export type TreeMember = {
+  treeId: string
+  personId: string
+  createdAt: string
+  updatedAt: string
 }
 
-export function emptyEdges(): TreeEdges {
-  return { members: [], spouses: [], parents: {} }
+export type Union = {
+  id: string
+  firstPersonId: string
+  secondPersonId: string
+  createdAt: string
+  updatedAt: string
 }
 
-/** Derive the per-tree {@link FamilyData} view from global identities + edges. */
+export type UnionEvent = {
+  id: string
+  unionId: string
+  type: UnionEventType
+  eventDate?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type TreeUnion = {
+  treeId: string
+  unionId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ParentChildRelationship = {
+  id: string
+  parentPersonId: string
+  childPersonId: string
+  type: ParentChildRelationshipType
+  createdAt: string
+  updatedAt: string
+}
+
+export type TreeParentChildRelationship = {
+  treeId: string
+  parentChildRelationshipId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type NormalizedRelationships = {
+  treeMembers: Record<string, TreeMember>
+  unions: Record<string, Union>
+  unionEvents: Record<string, UnionEvent>
+  treeUnions: Record<string, TreeUnion>
+  parentChildRelationships: Record<string, ParentChildRelationship>
+  treeParentChildRelationships: Record<string, TreeParentChildRelationship>
+}
+
+const TERMINAL_UNION_EVENTS = new Set<UnionEventType>([
+  "divorced",
+  "annulled",
+  "relationship_ended",
+])
+
+type CreatedRecord = {
+  createdAt: string
+  id?: string
+  treeId?: string
+  personId?: string
+  unionId?: string
+  parentChildRelationshipId?: string
+}
+
+function stableRecordKey(record: CreatedRecord): string {
+  return (
+    record.id
+    ?? [
+      record.treeId,
+      record.personId,
+      record.unionId,
+      record.parentChildRelationshipId,
+    ].join(":")
+  )
+}
+
+function byCreatedAt(first: CreatedRecord, second: CreatedRecord): number {
+  return (
+    first.createdAt.localeCompare(second.createdAt)
+    || stableRecordKey(first).localeCompare(stableRecordKey(second))
+  )
+}
+
+export function canonicalPersonPair(
+  firstPersonId: string,
+  secondPersonId: string,
+): [string, string] {
+  return firstPersonId < secondPersonId
+    ? [firstPersonId, secondPersonId]
+    : [secondPersonId, firstPersonId]
+}
+
+export function unionIsCurrent(
+  unionId: string,
+  unionEvents: Record<string, UnionEvent>,
+): boolean {
+  const latest = Object.values(unionEvents)
+    .filter((event) => event.unionId === unionId)
+    .sort((first, second) => {
+      const firstDate = first.eventDate ?? first.createdAt
+      const secondDate = second.eventDate ?? second.createdAt
+      return (
+        firstDate.localeCompare(secondDate)
+        || first.createdAt.localeCompare(second.createdAt)
+        || first.id.localeCompare(second.id)
+      )
+    })
+    .at(-1)
+  return !latest || !TERMINAL_UNION_EVENTS.has(latest.type)
+}
+
+export function marriageDateForUnion(
+  unionId: string,
+  unionEvents: Record<string, UnionEvent>,
+): string | undefined {
+  return Object.values(unionEvents)
+    .filter((event) => event.unionId === unionId && event.type === "married")
+    .sort(byCreatedAt)
+    .at(-1)?.eventDate
+}
+
+/** Derive one tree's existing UI view from normalized relationship records. */
 export function projectTree(
   identities: Record<string, PersonIdentity>,
-  edges: TreeEdges,
+  relationships: NormalizedRelationships,
+  treeId: string,
 ): FamilyData {
   const family: FamilyData = {}
-  for (const id of edges.members) {
-    const ident = identities[id]
-    if (!ident) continue
-    const spouseIds: string[] = []
-    const marriageDates: Record<string, string> = {}
-    for (const { a, b, date } of edges.spouses) {
-      if (a === id) {
-        spouseIds.push(b)
-        if (date) marriageDates[b] = date
-      } else if (b === id) {
-        spouseIds.push(a)
-        if (date) marriageDates[a] = date
-      }
-    }
-    family[id] = {
-      ...ident,
-      parents: edges.parents[id] ?? [],
-      spouseIds,
-      marriageDates,
+  const members = Object.values(relationships.treeMembers)
+    .filter((member) => member.treeId === treeId)
+    .sort(byCreatedAt)
+
+  for (const member of members) {
+    const identity = identities[member.personId]
+    if (!identity) continue
+    family[member.personId] = {
+      ...identity,
+      parents: [],
+      spouseIds: [],
+      marriageDates: {},
     }
   }
+
+  const currentUnionByPair = new Map<string, Union>()
+  const associatedUnions = Object.values(relationships.treeUnions)
+    .filter((association) => association.treeId === treeId)
+    .sort(byCreatedAt)
+  for (const association of associatedUnions) {
+    const union = relationships.unions[association.unionId]
+    if (
+      !union
+      || !family[union.firstPersonId]
+      || !family[union.secondPersonId]
+      || !unionIsCurrent(union.id, relationships.unionEvents)
+    ) {
+      continue
+    }
+    currentUnionByPair.set(
+      `${union.firstPersonId}:${union.secondPersonId}`,
+      union,
+    )
+  }
+
+  for (const union of currentUnionByPair.values()) {
+    const firstPerson = family[union.firstPersonId]
+    const secondPerson = family[union.secondPersonId]
+    if (!firstPerson || !secondPerson) continue
+    firstPerson.spouseIds.push(secondPerson.id)
+    secondPerson.spouseIds.push(firstPerson.id)
+    const marriageDate = marriageDateForUnion(
+      union.id,
+      relationships.unionEvents,
+    )
+    if (marriageDate) {
+      firstPerson.marriageDates[secondPerson.id] = marriageDate
+      secondPerson.marriageDates[firstPerson.id] = marriageDate
+    }
+  }
+
+  const seenParentLinks = new Set<string>()
+  const associatedParentRelationships = Object.values(
+    relationships.treeParentChildRelationships,
+  )
+    .filter((association) => association.treeId === treeId)
+    .sort(byCreatedAt)
+  for (const association of associatedParentRelationships) {
+    const relationship =
+      relationships.parentChildRelationships[
+        association.parentChildRelationshipId
+      ]
+    const child = relationship ? family[relationship.childPersonId] : undefined
+    if (!relationship || !child || !family[relationship.parentPersonId])
+      continue
+    const key = `${relationship.childPersonId}:${relationship.parentPersonId}`
+    if (seenParentLinks.has(key) || child.parents.length >= 2) continue
+    seenParentLinks.add(key)
+    child.parents.push({
+      id: relationship.parentPersonId,
+      adopted: relationship.type === "adoptive" || undefined,
+      type: relationship.type,
+    })
+  }
+
   return family
 }
 
-/**
- * Augment a tree's projected people with members' parents that only exist in
- * OTHER trees — used by the "show all families" view to render cross-tree
- * parents inline. Only direct parents are pulled in (one generation up); the
- * child's parent edge is wired so it hangs from them.
- */
+/** Add direct parents that are associated only with another accessible tree. */
 export function withForeignParents(
   people: FamilyData,
   identities: Record<string, PersonIdentity>,
-  trees: Record<string, TreeEdges>,
+  relationships: NormalizedRelationships,
   treeId: string,
 ): FamilyData {
-  const out: FamilyData = {}
-  for (const [id, p] of Object.entries(people)) {
-    out[id] = {
-      ...p,
-      parents: [...p.parents],
-      spouseIds: [...p.spouseIds],
-      marriageDates: { ...p.marriageDates },
+  const output: FamilyData = {}
+  for (const [id, person] of Object.entries(people)) {
+    output[id] = {
+      ...person,
+      parents: [...person.parents],
+      spouseIds: [...person.spouseIds],
+      marriageDates: { ...person.marriageDates },
     }
   }
-  // Pull in foreign parents of current members.
-  for (const child of Object.values(people)) {
-    for (const [tid, edges] of Object.entries(trees)) {
-      if (tid === treeId) continue
-      const links = edges.parents[child.id]
-      if (!links) continue
-      for (const link of links) {
-        if (out[link.id] || !identities[link.id]) continue
-        out[link.id] = {
-          ...identities[link.id],
-          parents: [],
-          spouseIds: [],
-          marriageDates: {},
-        }
-      }
+
+  const currentAssociationIds = new Set(
+    Object.values(relationships.treeParentChildRelationships)
+      .filter((association) => association.treeId === treeId)
+      .map((association) => association.parentChildRelationshipId),
+  )
+  const foreignAssociations = Object.values(
+    relationships.treeParentChildRelationships,
+  )
+    .filter((association) => association.treeId !== treeId)
+    .sort(byCreatedAt)
+  const seenForeignAssociationIds = new Set<string>()
+
+  for (const association of foreignAssociations) {
+    const relationshipId = association.parentChildRelationshipId
+    if (seenForeignAssociationIds.has(relationshipId)) continue
+    seenForeignAssociationIds.add(relationshipId)
+    if (currentAssociationIds.has(relationshipId)) continue
+    const relationship = relationships.parentChildRelationships[relationshipId]
+    if (!relationship || !people[relationship.childPersonId]) continue
+    const parentIdentity = identities[relationship.parentPersonId]
+    if (!parentIdentity) continue
+    output[relationship.parentPersonId] ??= {
+      ...parentIdentity,
+      parents: [],
+      spouseIds: [],
+      marriageDates: {},
+    }
+    const child = output[relationship.childPersonId]
+    if (
+      child
+      && child.parents.length < 2
+      && !child.parents.some((link) => link.id === relationship.parentPersonId)
+    ) {
+      child.parents.push({
+        id: relationship.parentPersonId,
+        adopted: relationship.type === "adoptive" || undefined,
+        type: relationship.type,
+      })
     }
   }
-  // Wire the parent edges within the augmented view (capped at two parents).
-  for (const child of Object.values(people)) {
-    const c = out[child.id]
-    if (!c) continue
-    for (const [tid, edges] of Object.entries(trees)) {
-      if (tid === treeId) continue
-      const links = edges.parents[child.id]
-      if (!links) continue
-      for (const link of links) {
-        if (!out[link.id]) continue
-        if (c.parents.length >= 2 || c.parents.some((l) => l.id === link.id))
-          continue
-        c.parents = [...c.parents, { id: link.id, adopted: link.adopted }]
-      }
-    }
-  }
-  return out
+  return output
 }
 
 export type Relationship =
@@ -163,7 +335,7 @@ export type Relationship =
   | { kind: "spouse"; partnerId: string }
   | { kind: "parent"; childId: string; marryExisting?: boolean }
 
-export interface PersonInput {
+export type PersonInput = {
   name: string
   dob?: string
   dod?: string
@@ -173,8 +345,8 @@ export interface PersonInput {
 }
 
 export function childrenOf(people: FamilyData, id: string): Person[] {
-  return Object.values(people).filter((p) =>
-    p.parents.some((link) => link.id === id),
+  return Object.values(people).filter((person) =>
+    person.parents.some((link) => link.id === id),
   )
 }
 
@@ -194,22 +366,16 @@ export function descendantsOf(people: FamilyData, id: string): Set<string> {
   return seen
 }
 
-/**
- * The subset of the family seen from one person's perspective: their blood
- * relatives (ancestors, plus every descendant of those ancestors — siblings,
- * cousins, children…) and the direct spouses of all of them. Married-in
- * spouses are shown, but their own families are not.
- */
 export function focusFamily(people: FamilyData, focusId: string): FamilyData {
   if (!people[focusId]) return people
   const blood = new Set<string>([focusId, ...ancestorsOf(people, focusId)])
   for (const id of [...blood]) {
-    for (const d of descendantsOf(people, id)) blood.add(d)
+    for (const descendant of descendantsOf(people, id)) blood.add(descendant)
   }
   const included = new Set(blood)
   for (const id of blood) {
-    for (const sid of people[id]?.spouseIds ?? []) {
-      if (people[sid]) included.add(sid)
+    for (const spouseId of people[id]?.spouseIds ?? []) {
+      if (people[spouseId]) included.add(spouseId)
     }
   }
   const result: FamilyData = {}

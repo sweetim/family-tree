@@ -1,11 +1,23 @@
-import { and, eq, isNull, sql } from "drizzle-orm"
+import { and, eq, isNull, or } from "drizzle-orm"
 import type { DB } from "../db"
-import { persons, treeShares, trees, user } from "../db/schema"
+import { persons, treeMembers, treeShares, trees, user } from "../db/schema"
 
 export type Role = "owner" | "editor" | "viewer"
 
 const RANK: Record<Role, number> = { viewer: 1, editor: 2, owner: 3 }
 const FROM_RANK: Record<number, Role> = { 1: "viewer", 2: "editor", 3: "owner" }
+
+export function resolveTreeRole(
+  userId: string,
+  tree: { ownerId: string; deletedAt: Date | null } | null,
+  shareRoles: Role[],
+): Role | null {
+  if (!tree || tree.deletedAt) return null
+  if (tree.ownerId === userId) return "owner"
+  let bestRank = 0
+  for (const role of shareRoles) bestRank = Math.max(bestRank, RANK[role] ?? 0)
+  return bestRank > 0 ? (FROM_RANK[bestRank] ?? null) : null
+}
 
 /** Highest role `userId` has on `treeId`, or null if none / tree deleted. */
 export async function treeRole(
@@ -17,11 +29,15 @@ export async function treeRole(
     where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
   })
   if (!tree) return null
-  if (tree.ownerId === userId) return "owner"
-  const share = await db.query.treeShares.findFirst({
-    where: and(eq(treeShares.treeId, treeId), eq(treeShares.userId, userId)),
-  })
-  return (share?.role as Role | null) ?? null
+  const shares = await db
+    .select({ role: treeShares.role })
+    .from(treeShares)
+    .where(and(eq(treeShares.treeId, treeId), eq(treeShares.userId, userId)))
+  return resolveTreeRole(
+    userId,
+    tree,
+    shares.map((share) => share.role as Role),
+  )
 }
 
 /**
@@ -63,26 +79,32 @@ export async function personRole(
   if (!person) return null
 
   // Trees containing this person that the user owns or is shared with.
-  const accessible = await db.execute(
-    sql`
-      SELECT t.owner_id AS owner_id, ts.role AS share_role
-      FROM trees t
-      LEFT JOIN tree_shares ts
-        ON ts.tree_id = t.id AND ts.user_id = ${userId}
-      WHERE t.deleted_at IS NULL
-        AND t.edges -> 'members' ? ${personId}
-        AND (t.owner_id = ${userId} OR ts.user_id = ${userId})
-    `,
-  )
+  const rows = await db
+    .select({ ownerId: trees.ownerId, shareRole: treeShares.role })
+    .from(treeMembers)
+    .innerJoin(
+      trees,
+      and(eq(trees.id, treeMembers.treeId), isNull(trees.deletedAt)),
+    )
+    .leftJoin(
+      treeShares,
+      and(eq(treeShares.treeId, trees.id), eq(treeShares.userId, userId)),
+    )
+    .where(
+      and(
+        eq(treeMembers.personId, personId),
+        isNull(treeMembers.deletedAt),
+        or(eq(trees.ownerId, userId), eq(treeShares.userId, userId)),
+      ),
+    )
 
-  const rows = accessible.rows as Array<{
-    owner_id: string
-    share_role: Role | null
-  }>
   return resolvePersonRole(
     userId,
     { ownerId: person.ownerId, deletedAt: person.deletedAt },
-    rows.map((r) => ({ ownerId: r.owner_id, shareRole: r.share_role })),
+    rows.map((row) => ({
+      ownerId: row.ownerId,
+      shareRole: row.shareRole as Role | null,
+    })),
   )
 }
 

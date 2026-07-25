@@ -1,59 +1,165 @@
 import type { LocalRole, ShareRole } from "../store"
-import type { TreeEdges } from "../types"
+import type {
+  Gender,
+  ParentChildRelationshipType,
+  UnionEventType,
+} from "../types"
 
-/**
- * Wire shape for a person over the sync API. Tombstones carry `deletedAt`;
- * clients then drop the local record. `ownerId` is set on shared-tree members
- * so an editor's edit is attributed correctly server-side.
- */
-export interface PersonWire {
+export type TombstoneWire = {
+  id: string
+  updatedAt: string
+  deletedAt: string
+}
+
+export type PersonRecordWire = {
   id: string
   name: string
   dob?: string
   dod?: string
-  gender?: string
+  gender?: Gender
   location?: string
   photo?: string
   updatedAt: string
-  deletedAt?: string
   ownerId?: string
 }
 
-/** Wire shape for a tree over the sync API. */
-export interface TreeWire {
+export type PersonWire = PersonRecordWire | TombstoneWire
+
+export type TreeRecordWire = {
   id: string
   name: string
-  edges: TreeEdges
   createdAt: string
   updatedAt: string
-  deletedAt?: string
   ownerId: string
-  /** Email of the tree's owner. Populated by the server for shared trees. */
   ownerEmail?: string | null
-  /** Role the *current user* has on this tree — populated by the server. */
   role?: LocalRole
 }
 
-export interface SharedTreeWire {
-  tree: TreeWire
+/** Tree metadata only. Relationship data is transported as normalized rows. */
+export type TreeWire = TreeRecordWire | TombstoneWire
+
+export type TreeMemberRecordWire = {
+  treeId: string
+  personId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type TreeMemberTombstoneWire = {
+  treeId: string
+  personId: string
+  updatedAt: string
+  deletedAt: string
+}
+
+export type TreeMemberWire = TreeMemberRecordWire | TreeMemberTombstoneWire
+
+export type UnionRecordWire = {
+  id: string
+  firstPersonId: string
+  secondPersonId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type UnionWire = UnionRecordWire | TombstoneWire
+
+export type UnionEventRecordWire = {
+  id: string
+  unionId: string
+  type: UnionEventType
+  eventDate?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type UnionEventWire = UnionEventRecordWire | TombstoneWire
+
+export type TreeUnionRecordWire = {
+  treeId: string
+  unionId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type TreeUnionTombstoneWire = {
+  treeId: string
+  unionId: string
+  updatedAt: string
+  deletedAt: string
+}
+
+export type TreeUnionWire = TreeUnionRecordWire | TreeUnionTombstoneWire
+
+export type ParentChildRelationshipRecordWire = {
+  id: string
+  parentPersonId: string
+  childPersonId: string
+  type: ParentChildRelationshipType
+  createdAt: string
+  updatedAt: string
+}
+
+export type ParentChildRelationshipWire =
+  | ParentChildRelationshipRecordWire
+  | TombstoneWire
+
+export type TreeParentChildRelationshipRecordWire = {
+  treeId: string
+  parentChildRelationshipId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type TreeParentChildRelationshipTombstoneWire = {
+  treeId: string
+  parentChildRelationshipId: string
+  updatedAt: string
+  deletedAt: string
+}
+
+export type TreeParentChildRelationshipWire =
+  | TreeParentChildRelationshipRecordWire
+  | TreeParentChildRelationshipTombstoneWire
+
+export type SyncRecordSet = {
   persons: PersonWire[]
+  trees: TreeWire[]
+  treeMembers: TreeMemberWire[]
+  unions: UnionWire[]
+  unionEvents: UnionEventWire[]
+  treeUnions: TreeUnionWire[]
+  parentChildRelationships: ParentChildRelationshipWire[]
+  treeParentChildRelationships: TreeParentChildRelationshipWire[]
+}
+
+export type SharedTreeWire = Omit<SyncRecordSet, "trees"> & {
+  tree: TreeRecordWire
   role: ShareRole
   ownerEmail: string | null
 }
 
-export interface SyncPullResponse {
-  own: { persons: PersonWire[]; trees: TreeWire[] }
+export type SyncPullResponse = {
+  own: SyncRecordSet
   shared: SharedTreeWire[]
   serverTime: string
 }
 
-export interface SyncPushRequest {
-  persons: PersonWire[]
-  trees: TreeWire[]
+export type SyncPushRequest = SyncRecordSet
+
+export type SyncAppliedIds = {
+  persons: string[]
+  trees: string[]
+  treeMembers: string[]
+  unions: string[]
+  unionEvents: string[]
+  treeUnions: string[]
+  parentChildRelationships: string[]
+  treeParentChildRelationships: string[]
 }
 
-export interface SyncPushResponse {
-  applied: { persons: string[]; trees: string[] }
-  skipped: { persons: string[]; trees: string[] }
+export type SyncPushResponse = {
+  applied: SyncAppliedIds
+  skipped: SyncAppliedIds
   serverTime: string
 }

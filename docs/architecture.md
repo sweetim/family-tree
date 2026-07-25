@@ -1,127 +1,112 @@
 # Architecture
 
-High-level view of how the Family Tree app is built and how data flows through it.
-For the data shapes, see [domain-model.md](./domain-model.md); for state/sync
-internals, see [state-and-sync.md](./state-and-sync.md).
+The app separates canonical family facts from the trees that display them.
 
-## Mental model in one paragraph
+## Data model
 
-The app **separates identity from relationships**. A person's identity (name,
-photo, dates) is stored **once globally**. Relationship edges (who is in which
-tree, who is married to whom, who is whose parent) are stored **per tree**. A
-single global person can be a member of many trees, which makes "linking a
-person across two families" simply "add the same person id to two trees' member
-lists". When a tree is rendered, global identities and that tree's edges are
-merged into a per-tree view (`projectTree`) that the layout and sidebar consume.
+Person identities, unions and their event history, and parent/child facts are
+shared records. Tree membership and tree-to-fact associations select which of
+those records appear in each tree. The same person or relationship can
+therefore appear in multiple trees without duplication.
 
-## Layered structure
+Edits to identity, marriage date, and adoption type update canonical facts and
+propagate globally. Spouse unlink, parent removal, and remove-from-tree detach
+only one tree association. Union history can model divorce and other events,
+but the Core UI currently exposes marriage and its date only.
 
-```
-React UI (app routes, components)
-        |  uses hooks
-Client store (src/store.ts)  —— global identities + per-tree edges (in memory)
-        |  read via useSyncExternalStore; mutations enqueue dirty records
-        |  push on mutate / pull on load
-API routes (src/app/api/**)  —— thin wrappers
+## Layers
+
+```text
+React UI (App Router pages and components)
+        | hooks and projected FamilyData
+Client store (normalized in-memory maps)
+        | full pull on account load; serialized pushes on mutation
+API routes (thin wrappers)
         |
-Server handlers (src/server/handlers/**)  —— business logic + ACL
+Server handlers (validation, ACL, reconciliation)
         |
-Drizzle ORM (src/db/**)  —— Neon Postgres
+Drizzle ORM -> Neon Postgres normalized tables
 ```
 
-- The **client store** is the single source of truth for what the UI renders. It
-  holds global `persons` and per-tree `trees` (edges) in memory.
-- The **server** is the durable source of truth. The client pushes local edits
-  and pulls server state on load. The two are reconciled with
-  **last-write-wins** on an `updatedAt` timestamp and tombstones for deletes.
+The client store is the immediate source for rendering. The server is the
+durable authority. Every entity and association reconciles independently by
+timestamp; tombstone clocks prevent delayed resurrection. Skipped pushes and
+account changes trigger an authoritative full rebuild.
 
-## Routing (App Router)
+There is no local persistence for pending edits and no polling, websocket, or
+background refresh.
 
-All routes are client components (`"use client"`) because data is fetched at
-runtime from the store, not via SSR.
+## Routing
 
-| Route | File | Role |
-|---|---|---|
-| `/` (layout) | `src/app/layout.tsx` | Root HTML, Inter font, wraps children in `<Providers>`. |
-| `/` | `src/app/page.tsx` | Home page. Reads `useTreeIndex()` and renders `<HomePage>`. |
-| `/tree/[treeId]` | `src/app/tree/[treeId]/page.tsx:8` | Renders `<TreeView>` for the tree, or a "not available / sign in" state. |
-| `/tree/[treeId]/p/[personId]` | `src/app/tree/[treeId]/p/[personId]/page.tsx:7` | Same `<TreeView>` but opens a specific person in the sidebar on arrival. Used for cross-tree person jumps. |
-| catch-all | `src/app/not-found.tsx` | Redirects to `/`. |
+Pages are client components because data is loaded into the runtime store
+rather than rendered through SSR.
 
-Private UI folders are prefixed with `_` so Next.js excludes them from routing:
-`_tree/` (the canvas) and `_sidebar/` (the editor panels).
+| Route | Purpose |
+|---|---|
+| `/` | Tree index and account entry. |
+| `/tree/[treeId]` | Tree canvas and sidebar. |
+| `/tree/[treeId]/p/[personId]` | Same tree with a person opened in the sidebar; used for cross-tree jumps. |
+| catch-all | Redirects to `/`. |
 
-### Providers and bootstrap
-
-`src/app/providers.tsx`:
-
-- `Providers` (`:66`) renders `null` until mounted on the client, then wraps the
-  app in `ToastProvider` → `ConfirmProvider`. This client-only gate avoids
-  hydration mismatches everywhere.
-- `ServerDataBootstrap` (`:17`) watches the session. On sign-in it does a
-  one-shot full pull (`GET /api/sync?since=<epoch>`) and feeds the result to
-  `applyRemote` for own data and each shared tree, then calls `setHydrated(true)`.
-  On sign-out it calls `resetStore()` so the previous user's data is wiped.
+Private `_tree/` and `_sidebar/` folders organize UI without creating routes.
+`Providers` waits for client mount, supplies toast/confirm contexts, and runs
+the account bootstrap. On account change it resets state, fetches an epoch
+`/api/sync` pull, applies the complete own data and active shared snapshots, and
+marks the store hydrated.
 
 ## API surface
 
-Three API areas, each a thin wrapper over a server handler. Details in
-[api-reference.md](./api-reference.md).
-
-| Endpoint | File | Methods |
+| Endpoint | Methods | Purpose |
 |---|---|---|
-| `/api/auth/*` | `src/app/api/auth/[...all]/route.ts` | GET, POST |
-| `/api/sync` | `src/app/api/sync/route.ts` | GET (pull), POST (push) |
-| `/api/trees/[treeId]/shares` | `src/app/api/trees/[treeId]/shares/route.ts` | GET, POST, DELETE |
+| `/api/auth/*` | GET, POST | Better Auth flows. |
+| `/api/sync` | GET, POST | Normalized pull and batched push. |
+| `/api/trees/[treeId]/shares` | GET, POST, DELETE | Owner-only share management. |
 
-## Sync model (summary)
+The sync protocol transports exactly `persons`, `trees`, `treeMembers`,
+`unions`, `unionEvents`, `treeUnions`, `parentChildRelationships`, and
+`treeParentChildRelationships`. Shared trees are returned as authoritative
+active snapshots. See [state-and-sync.md](./state-and-sync.md).
 
-There is **no polling or websockets**. The protocol is:
+## Rendering pipeline
 
-1. **Pull on load** — `ServerDataBootstrap` fetches everything once per session.
-2. **Push on mutate** — every local edit is optimistically applied, then the
-   changed records are fire-and-forget POSTed to `/api/sync`.
-3. **Reconcile** — both sides compare `updatedAt` strings (last-write-wins) and
-   use `deletedAt` tombstones to propagate deletes.
-
-See [state-and-sync.md](./state-and-sync.md) for the full pipeline.
-
-## Rendering pipeline (summary)
-
-```
-GlobalState (persons + trees[treeId].edges)
-   -> projectTree(identities, edges)        src/types.ts:60   -> FamilyData
-   -> (optional) focusFamily(people, id)    src/types.ts:133  -> focused subset
-   -> buildFlow(people, ...)                src/lib/layout.ts:240 -> React Flow nodes+edges
-   -> <ReactFlow> with PersonNode / UnionNode
+```text
+GlobalState normalized maps
+    -> projectTree(persons, relationships, treeId)
+    -> optional focusFamily(people, personId)
+    -> buildFlow(people, settings)
+    -> React Flow with PersonNode and UnionNode
 ```
 
-The layout is a **custom recursive genealogy algorithm**, not dagre, because
-generic layered layout breaks two family-chart invariants (partners must sit
-side-by-side; siblings must stay in birth order). See [layout.md](./layout.md).
+`projectTree` is the persistence/UI seam. It derives the existing `FamilyData`
+shape (`parents`, `spouseIds`, `marriageDates`) from normalized records, so the
+layout and sidebar remain independent of storage.
 
-## Key design decisions to keep in mind
+The layout uses a custom genealogy algorithm rather than a generic layered
+layout so partners remain adjacent and siblings retain birth order. See
+[layout.md](./layout.md).
 
-- **Identity is global, edges are per-tree.** Editing a person's name/photo
-  updates every tree they appear in automatically.
-- **Cross-tree linking = shared membership.** There is no separate "link"
-  entity; a person is simply a member of multiple trees.
-- **Optimistic, in-memory client store.** There is no local persistence; dirty
-  (un-pushed) edits are kept only in memory.
-- **Per-record ACL.** Permission is checked per record (person or tree), not
-  per request, using the highest role across all trees a person belongs to.
-- **Photos never touch the server.** Images are cropped/downscaled to a 256px
-  JPEG data URL entirely in the browser, then stored as a text column.
+## Key decisions
+
+- Shared facts have stable, immutable relationship endpoints; replacement
+  facts are created when a person merge changes an endpoint.
+- Tree association removal is not global fact deletion.
+- Parent constraints are global: no self-parent, at most two active parents,
+  and no active ancestry cycle.
+- ACL is evaluated per normalized record using tree role and person ownership.
+- Client timestamps are concurrency tokens; successful writes receive server
+  `CURRENT_TIMESTAMP` values.
+- Photos are cropped/downscaled and compressed in the browser, then their data
+  URL is synced through the API and stored in the `persons.photo` text column.
 
 ## Folder map
 
 | Path | Contents |
 |---|---|
-| `src/app/` | Pages, layout, providers, API routes, and the private `_tree` / `_sidebar` UI. |
-| `src/components/` | Reusable UI: `PersonNode`, `UnionNode`, `HomePage`, `ShareDialog`, `AccountMenu`, `AvatarCropper`, `Toast`, `Confirm`, `Section`. |
-| `src/db/` | `schema.ts` (Drizzle tables) and `index.ts` (Neon client). |
-| `src/lib/` | Pure/client helpers: `layout.ts`, `image.ts`, `auth-client.ts`, `tree-actions.ts`, `view-settings.ts`. |
-| `src/server/` | Server-only: `auth.ts`, `acl.ts`, and `handlers/` (`sync.ts`, `shares.ts`). |
-| `src/sync/` | Wire types for the sync protocol (`types.ts`). |
-| `src/types.ts` | Core domain model. |
-| `src/store.ts` | Client store: state, hooks, mutations, sync push/pull. |
+| `src/app/` | Pages, providers, API routes, tree canvas, and sidebar. |
+| `src/components/` | Reusable UI components. |
+| `src/db/` | Drizzle schema and Neon client. |
+| `src/lib/` | Layout, image, auth-client, tree-action, and view-setting helpers. |
+| `src/server/` | Auth, ACL, sync validation, and handlers. |
+| `src/sync/` | Normalized wire types. |
+| `src/types.ts` | Domain records, projection, and traversal. |
+| `src/store.ts` | Normalized client state, mutations, and sync. |

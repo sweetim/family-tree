@@ -1,85 +1,88 @@
 # Domain Model
 
-How people, trees, and relationships are represented. All types live in
-`src/types.ts`. Read this before changing how family data is shaped.
+Family data is split into canonical shared facts and tree-local associations.
+The domain types and projection functions live in `src/types.ts`.
 
-## Core idea: identity is global, edges are per-tree
+## Canonical shared facts
 
-- A person's **identity** (`PersonIdentity`) is stored once and shared across
-  every tree the person belongs to. Editing a name, photo, or date updates it
-  everywhere automatically.
-- A tree's **edges** (`TreeEdges`) describe only that tree: who is a member,
-  who is married to whom, and who is whose parent.
-- At render time, the two are merged by `projectTree` into a per-tree view
-  (`FamilyData`) that the layout and sidebar consume.
+- `PersonIdentity` stores one person's name, birth/death dates, gender,
+  location, photo, owner, and sync timestamp. A photo is compressed in the
+  browser, then synced and stored as text.
+- `Union` stores an immutable canonical pair of people. A pair is ordered by
+  person id and may have many `UnionEvent` history records.
+- `UnionEvent` stores a typed event and optional ISO calendar date. Terminal
+  events are `divorced`, `annulled`, and `relationship_ended`.
+- `ParentChildRelationship` stores immutable parent and child endpoints plus a
+  relationship type.
 
-This split means **linking a person across two trees is just adding the same
-person id to two trees' member lists** — there is no separate "link" entity.
+These facts can be associated with multiple trees. Identity edits, marriage
+date edits, and biological/adoptive changes update the shared record and
+therefore propagate to every associated tree.
 
-## Types and their locations
+Union history can represent starts, engagement, marriage, civil union,
+domestic partnership, separation, reconciliation, divorce, annulment, and an
+ended relationship. The Core UI currently exposes marriage and marriage-date
+editing only. Removing a spouse link does not record a divorce event.
 
-| Type | Location | Notes |
-|---|---|---|
-| `Gender` | `src/types.ts:1` | `"male" \| "female" \| "other"`. |
-| `ParentLink` | `src/types.ts:3` | `{ id; adopted? }` — a parent reference that may be marked adoptive. |
-| `SpouseEdge` | `src/types.ts:9` | `{ a; b; date? }` — a marriage edge in canonical order (a < b). `date` is an ISO calendar string (e.g. "2001-06-20"). |
-| `PersonIdentity` | `src/types.ts:13` | Global identity: `id, name, dob?, dod?, gender?, location?, photo?, updatedAt?`. `photo` is a compressed data URL. `updatedAt` is set only by the sync seam, never by mutators. |
-| `Person` | `src/types.ts:33` | `PersonIdentity` plus this tree's edges: `parents: ParentLink[]` (0–2), `spouseIds: string[]`, and `marriageDates: Record<string, string>` (spouseId → ISO date). This is what layout/sidebar use. |
-| `FamilyData` | `src/types.ts:40` | `Record<string, Person>` — the projected view for a single tree. |
-| `TreeEdges` | `src/types.ts:49` | `members: string[]`, `spouses: SpouseEdge[]`, `parents: Record<string, ParentLink[]>`. |
-| `Relationship` | `src/types.ts:85` | Discriminated union for adding a member: `root`, `child`, `spouse`, `parent`. See below. |
-| `PersonInput` | `src/types.ts:96` | Writable subset of a person (no `id`/`updatedAt`). |
+## Tree-local associations
 
-### The `Relationship` union (`src/types.ts:85`)
+- `TreeMember` associates a person with one tree.
+- `TreeUnion` associates a shared union with one tree.
+- `TreeParentChildRelationship` associates a shared parent/child fact with one
+  tree.
 
-Used by `addPerson` to place a new member relative to existing people:
+Unlinking a spouse or parent removes only the selected tree association.
+Removing a person from a tree also removes that tree's relationship
+associations involving the person. Shared facts and associations in other
+trees remain intact.
 
-- `{ kind: "root" }` — standalone first member.
-- `{ kind: "child"; parentId; otherParentId?; adopted? }` — child of one or two
-  existing parents.
-- `{ kind: "spouse"; partnerId }` — spouse of an existing person.
-- `{ kind: "parent"; childId; marryExisting? }` — add a (new) parent of an
-  existing child, optionally marrying the other existing parent.
+Cross-tree linking reuses person and relationship ids; it does not duplicate
+identity or create a separate link entity.
 
-## Functions
+## Main types
 
-### Projection seam
+| Type | Meaning |
+|---|---|
+| `Gender` | `male`, `female`, or `other`. |
+| `UnionEventType` | All supported union history event types. |
+| `ParentChildRelationshipType` | `biological`, `adoptive`, `foster`, `guardian`, or `step`. |
+| `NormalizedRelationships` | Maps for `treeMembers`, `unions`, `unionEvents`, `treeUnions`, `parentChildRelationships`, and `treeParentChildRelationships`. |
+| `ParentLink` | Projected parent reference with `id`, optional `adopted`, and optional full relationship `type`. |
+| `Person` | `PersonIdentity` plus projected `parents`, `spouseIds`, and `marriageDates`. |
+| `FamilyData` | `Record<string, Person>`, the UI view for one tree. |
+| `Relationship` | Placement for a new person: root, child, spouse, or parent. |
+| `PersonInput` | Writable identity fields without id or sync metadata. |
 
-- `emptyEdges()` — `src/types.ts:55`. Returns `{ members: [], spouses: [], parents: {} }`.
-- `projectTree(identities, edges)` — `src/types.ts:60`. **The projection seam.**
-  Builds a `FamilyData` by merging global identities with a tree's edges:
-  derives each person's `spouseIds` from the symmetric `spouses` edges, their
-  `marriageDates` from each edge's optional `date`, and `parents` from
-  `edges.parents[id]`. Members whose identity is missing are dropped. This is
-  what layout and the sidebar consume.
+## Projection
 
-### Traversal (pure, operate on `FamilyData`)
+`projectTree(identities, relationships, treeId)` derives the existing UI shape
+from normalized maps:
 
-- `childrenOf(people, id)` — `src/types.ts:105`. Direct children of `id`.
-- `descendantsOf(people, id)` — `src/types.ts:111`. Iterative DFS returning a
-  `Set<string>` of all descendants.
-- `ancestorsOf(people, id)` — `src/types.ts:153`. Iterative DFS returning a
-  `Set<string>` of all ancestors.
-- `focusFamily(people, focusId)` — `src/types.ts:133`. Builds the "focus view":
-  the focus person + all ancestors + every descendant of those ancestors
-  (siblings, cousins, children), plus the direct spouses of anyone included.
-  Married-in spouses appear, but their own families do not.
+1. Active memberships select the people in the tree.
+2. Associated current unions derive symmetric `spouseIds`.
+3. The latest married event supplies `marriageDates`; a latest terminal event
+   makes the union non-current.
+4. Associated parent/child facts derive each child's `parents`.
 
-## Invariants worth remembering
+Missing identities or endpoints are ignored. Ordering is stable by creation
+time and id. `withForeignParents` can additionally include direct parents known
+through another accessible tree for the optional expanded view.
 
-- A person has **0–2 parents** per tree (capped in edge helpers, see
-  `src/store.ts` around `addParentEdge`).
-- `spouses` is a list of `SpouseEdge` objects (`{ a, b, date? }`, canonical
-  `a < b`); spouse links are symmetric and the per-person `spouseIds` /
-  `marriageDates` are derived at projection time. Legacy data stored bare
-  `[a, b]` tuples, which `normalizeEdges` (in `applyRemote`) coerces on load.
-- Membership in multiple trees is normal and expected — it is how cross-family
-  linking works.
+Traversal helpers such as `childrenOf`, `descendantsOf`, `ancestorsOf`, and
+`focusFamily` operate on projected `FamilyData`, keeping rendering independent
+from persistence.
 
-## Sync wire types
+## Invariants
 
-The on-the-wire shapes at the DB/client boundary live in `src/sync/types.ts`
-(`PersonWire`, `TreeWire`, `SharedTreeWire`, `SyncPullResponse`,
-`SyncPushRequest`, `SyncPushResponse`). They mirror the domain types but add
-sync metadata (`updatedAt`, `deletedAt`, `ownerId`, `role`, `ownerEmail`).
-See [state-and-sync.md](./state-and-sync.md) and [database.md](./database.md).
+- A person may be an active member of many trees.
+- A union has two distinct, canonically ordered immutable endpoints.
+- Both endpoints of a tree union must be active members of that tree.
+- A parent/child fact cannot be a self-link, and its endpoints are immutable.
+- A child has at most two active parents globally, not two per tree.
+- The active global parent graph must be acyclic.
+- Both endpoints of a tree parent association must be active members of that
+  tree.
+
+Wire types in `src/sync/types.ts` mirror these records and add tombstone and
+access metadata. See [state-and-sync.md](./state-and-sync.md) and
+[database.md](./database.md).

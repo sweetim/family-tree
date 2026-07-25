@@ -1,7 +1,38 @@
 import { describe, expect, test } from "bun:test"
-import { canRead, canWrite, type Role, resolvePersonRole } from "./acl"
+import {
+  canRead,
+  canWrite,
+  type Role,
+  resolvePersonRole,
+  resolveTreeRole,
+} from "./acl"
 
 const PERSON = { ownerId: "owner-1", deletedAt: null }
+
+describe("ACL — resolveTreeRole", () => {
+  test("rejects missing and deleted trees", () => {
+    expect(resolveTreeRole("u", null, ["editor"])).toBeNull()
+    expect(
+      resolveTreeRole("u", { ownerId: "owner", deletedAt: new Date() }, [
+        "editor",
+      ]),
+    ).toBeNull()
+  })
+
+  test("owner outranks shares and duplicate shares use the highest role", () => {
+    expect(
+      resolveTreeRole("owner", { ownerId: "owner", deletedAt: null }, [
+        "viewer",
+      ]),
+    ).toBe("owner")
+    expect(
+      resolveTreeRole("u", { ownerId: "owner", deletedAt: null }, [
+        "viewer",
+        "editor",
+      ]),
+    ).toBe("editor")
+  })
+})
 
 describe("ACL — resolvePersonRole", () => {
   test("returns null when the person row does not exist", () => {

@@ -1,84 +1,73 @@
-# Authentication & Access Control
+# Authentication and Access Control
 
-Sign-in is via **Better Auth** with Google. Authorization uses a three-role model
-applied **per record**. Read this before touching sign-in, roles, or permission
-checks.
+Sign-in uses Better Auth with Google. Authorization combines per-tree roles
+with ownership of shared person records.
 
-## Authentication (`src/server/auth.ts`)
+## Authentication
 
-- `buildAuth()` — `src/server/auth.ts:19`. Configures Better Auth:
-  - `baseURL` / `secret` from `BETTER_AUTH_URL` / `BETTER_AUTH_SECRET`.
-  - Drizzle adapter on the four core tables (`user`, `session`, `account`,
-    `verification`) — see [database.md](./database.md).
-  - Google social provider (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`).
-- `getAuth()` — `src/server/auth.ts:53`. Lazy singleton (the app can boot without
-  `DATABASE_URL`; anonymous mode works until an auth request needs the DB).
-- `handleAuth(request)` — `src/server/auth.ts:59`. Fetch handler mounted at
-  `/api/auth/*`.
+`src/server/auth.ts` configures the Drizzle adapter for `user`, `session`,
+`account`, and `verification`, plus the Google provider. The server auth object
+and database client are lazy, so anonymous rendering does not require a
+database connection.
 
-### Pending-share binding on first sign-in
+The browser client in `src/lib/auth-client.ts` exports `signIn`, `signOut`, and
+`useSession` against same-origin `/api/auth/*`.
 
-`databaseHooks.user.create.after` (`src/server/auth.ts:36`) runs after a new user
-is created: it updates any `treeShares` rows matching the new user's email with a
-null `userId` to set `userId = created.id`. This means shares created by an owner
-**before** the invitee has ever signed in are bound automatically on first login,
-so shared trees appear immediately.
+### Pending shares
 
-### Browser client (`src/lib/auth-client.ts`)
+Owners can share with an email before that person has an account. Such a
+`tree_shares` row has `user_id = null`. Better Auth's post-create hook binds all
+matching pending rows to a newly created user, making the trees available on
+their first sign-in.
 
-Better Auth browser client against same-origin `/api/auth/*`. Exports `signIn`,
-`signOut`, and `useSession`. The session hook re-fetches on mount, on window
-focus, and on cross-tab sign-in/out.
+## Roles
 
-## Role model
+`Role` is `owner | editor | viewer`, ordered from strongest to weakest. A
+deleted tree has no role.
 
-- Server roles: `Role = "owner" | "editor" | "viewer"` — `src/server/acl.ts:5`.
-- Client roles: `LocalRole = "owner" | "viewer" | "editor"` — `src/store.ts:17`
-  (same three values; "owner" for trees the current user owns).
-- Rank order: `viewer (1) < editor (2) < owner (3)` — `src/server/acl.ts:7`.
+| Role | Behavior |
+|---|---|
+| `owner` | Read and edit tree content; create, rename, and delete the tree; manage shares. Tree ownership also grants owner-level access to active member identities. |
+| `editor` | Read and edit active member identities, shared relationship facts, and tree-local associations. Cannot rename/delete the tree or manage shares. |
+| `viewer` | Read the tree and its active normalized snapshot. The Core UI is read-only and hides mutating affordances. |
 
-Guards (`src/server/acl.ts`):
+Only the owner of a `persons` row may globally delete that person, even when
+another user owns or edits a tree containing them. The user who creates a new
+person becomes its row owner.
 
-- `canWrite(role)` — `:89`. `true` for `owner` or `editor`.
-- `canRead(role)` — `:93`. `true` when `role !== null`.
+## Role resolution
 
-## Access-control functions (`src/server/acl.ts`)
+`treeRole` returns owner for the tree owner, otherwise the strongest bound share
+role, or null for missing/deleted/inaccessible trees.
 
-- `treeRole(db, userId, treeId)` — `src/server/acl.ts:11`. Highest role `userId`
-  has on `treeId`, or `null` if the tree is deleted/missing. Returns `"owner"` if
-  `tree.ownerId === userId`, otherwise the matching `treeShares.role`, else null.
-- `personRole(db, userId, personId)` — `src/server/acl.ts:55`. Highest role
-  `userId` has on a person. Uses a raw SQL join (`:66`) to find every accessible
-  (owned or shared) tree whose `edges -> 'members'` contains the person, then
-  takes the **highest role** across: ownership of the person row, ownership of any
-  containing tree, or a share role.
-- `resolvePersonRole(userId, person, accessibleTrees)` — `src/server/acl.ts:33`.
-  The **pure** version of `personRole`, extracted for unit testing without a DB.
-  Handles tombstones and the multi-tree max-role logic.
-- `userEmail(db, userId)` — `src/server/acl.ts:98`. Email of `userId`, used to
-  label shared-with-me trees.
+`personRole` joins active `tree_members` to active trees and shares. It returns
+the strongest of:
 
-### Why per-person roles take the max across trees
+- ownership of the person row;
+- ownership of any active tree containing the person;
+- editor/viewer access to any active tree containing the person.
 
-Because a person can belong to many trees, a user's effective permission on that
-person is the strongest role they hold on **any** tree containing the person (or
-ownership of the person row). This is what lets an editor of one tree edit a
-person who also appears in a tree they only view. See tests in
-`src/server/acl.test.ts`.
+This maximum-role rule lets an editor update a shared identity even if the same
+person appears in another tree they can only view. The client still treats a
+viewer tree as read-only; write access gained elsewhere is enforced at the
+server record boundary.
 
-## How roles are enforced
+## Enforcement
 
-Roles are checked inside the server handlers, not in the route wrappers:
+Authorization is enforced inside handlers:
 
-- **Sync push** (`postSync`): per-record. Each person/tree in the batch is checked
-  individually with `canWrite(role)`; the requester becomes the owner of brand-new
-  records. Editors can change a tree's `edges` but **only owners can rename** a
-  tree. Details in [api-reference.md](./api-reference.md).
-- **Shares** (`listShares`/`addShare`/`removeShare`): **owner-only**, enforced by
-  `requireOwner` (`src/server/handlers/shares.ts:15`).
+- Person identity updates use `personRole`; person deletion requires person-row
+  ownership and triggers the global cascade.
+- Tree metadata updates/deletes and all share operations require tree
+  ownership.
+- Membership and tree association changes require owner/editor access to that
+  tree.
+- Creating a union or parent/child fact requires both endpoints to be active
+  members of a writable tree.
+- Existing union/event and parent facts require a writable associated tree;
+  callers owning both person endpoints are also allowed to write the fact.
+- Global union, event, and parent-fact tombstones are not accepted from clients.
+  Core unlink/remove operations tombstone only tree associations.
 
-## Read-only behavior on the client
-
-`useFamily(treeId)` exposes `readOnly = meta.role === "viewer"`
-(see [state-and-sync.md](./state-and-sync.md)). The UI uses this to disable
-editing and show read-only views.
+See [api-reference.md](./api-reference.md) for record constraints and server
+timestamp behavior.

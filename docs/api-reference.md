@@ -1,105 +1,104 @@
 # API Reference
 
-All endpoints are Next.js App Router route handlers that delegate to server
-handlers in `src/server/handlers/`. Auth is via Better Auth session cookies
-(same-origin). Read this before adding or changing routes.
-
-## Pages (not API)
-
-See [architecture.md](./architecture.md) for the page routes (`/`, `/tree/[treeId]`,
-`/tree/[treeId]/p/[personId]`, catch-all). Private UI lives in `_tree/` and
-`_sidebar/` folders (excluded from routing).
+Next.js App Router handlers delegate to `src/server/handlers/`. Authentication
+uses same-origin Better Auth session cookies.
 
 ## `/api/auth/*`
 
-| | |
-|---|---|
-| File | `src/app/api/auth/[...all]/route.ts` |
-| Methods | `GET`, `POST` |
-| Handler | `handleAuth` — `src/server/auth.ts:59` |
-
-Better Auth catch-all: sign-in, callback, session, and sign-out flows. See
+`GET` and `POST` are handled by Better Auth through
+`src/app/api/auth/[...all]/route.ts`. See
 [auth-and-acl.md](./auth-and-acl.md).
 
 ## `/api/sync`
 
-| | |
+Both methods require a session. Wire types are defined in
+`src/sync/types.ts`.
+
+### Normalized record set
+
+Every own-data pull and push has exactly these arrays:
+
+- `persons`
+- `trees`
+- `treeMembers`
+- `unions`
+- `unionEvents`
+- `treeUnions`
+- `parentChildRelationships`
+- `treeParentChildRelationships`
+
+Active records carry their entity fields plus timestamps. Deleted records are
+tombstones keyed by entity id or the association's two ids.
+
+### `GET /api/sync`
+
+Query: optional `since=<ISO timestamp>`; omission means epoch. Invalid values
+or values more than five minutes in the future return `400`.
+
+Response: `SyncPullResponse` with `own`, `shared`, and `serverTime`.
+
+- `own` contains updated owned tree/person records and normalized records for
+  active owned trees. Active dependencies needed for projection are repeated;
+  changed tombstones remain deltas.
+- Each `shared` item contains the tree, role, owner email, and a complete active
+  snapshot of all seven non-tree collections for that tree. It intentionally
+  excludes former dependencies and tombstones.
+- `serverTime` is the server cutoff used for the response. Own queries exclude
+  records newer than that cutoff so a later cursor cannot skip them.
+
+### `POST /api/sync`
+
+Request: `SyncPushRequest`, the exact eight-array record set above.
+
+Response:
+
+```ts
+{
+  applied: SyncAppliedIds
+  skipped: SyncAppliedIds
+  serverTime: string
+}
+```
+
+Payload validation requires exact object keys, valid ids/types/dates,
+reasonable timestamps, canonical union ordering, and unique keys within each
+collection. Invalid payloads return `400`. Valid but stale, unauthorized, or
+constraint-violating records are reported in `skipped`.
+
+All successful inserts, updates, revivals, and tombstones set `updated_at` (and
+server-created deletion time) from PostgreSQL `CURRENT_TIMESTAMP`. Client
+`updatedAt` is a conditional last-write-wins token and must be newer than the
+stored timestamp; it is never persisted as the authoritative update clock.
+Client timestamps more than five minutes in the future are rejected.
+
+#### Record behavior
+
+| Collection | Rules |
 |---|---|
-| File | `src/app/api/sync/route.ts` |
-| Handlers | `src/server/handlers/sync.ts` |
-| Auth | Requires a session (`requireSession`, `:21`). |
+| `persons` | New rows are owned by the caller. Accessible editors/owners may update identity. Only the person-row owner may delete, which atomically tombstones the person and all memberships, unions/events, parent facts, and tree associations involving it. |
+| `trees` | New rows are owned by the caller. Only the tree owner may rename or delete an existing tree. |
+| `treeMembers` | Requires a writable tree and active person. New/revived membership also requires write access to the person. A member cannot be removed while an active relationship in that tree still references them. |
+| `unions` | Creation requires active endpoints together in a writable tree. Endpoints are distinct, canonical, and immutable. Existing facts can be touched through a writable associated tree or ownership of both people. Clients cannot tombstone union facts. |
+| `unionEvents` | Requires a writable union, valid event type, and optional exact ISO date. `unionId` is immutable. Clients cannot tombstone events. |
+| `treeUnions` | Requires a writable tree, active union, and both endpoints as active tree members. Deletion detaches only that tree. |
+| `parentChildRelationships` | Creation requires both active endpoints together in a writable tree. Endpoints are immutable; type may change. Self-links, a third active global parent, and global ancestry cycles are rejected. Clients cannot tombstone these facts. |
+| `treeParentChildRelationships` | Requires a writable tree, active fact, and both endpoints as active tree members. Deletion detaches only that tree. |
 
-### `GET /api/sync` — delta pull
-
-Handler: `getSync` — `src/server/handlers/sync.ts:69`.
-
-- Query: `since=<ISO timestamp>` (full pull when omitted/epoch).
-- Returns `SyncPullResponse` (`src/sync/types.ts`):
-  - `own.persons` / `own.trees` — the caller's records updated after `since`
-    (tombstones included so deletes propagate).
-  - `shared: SharedTreeWire[]` — every active shared tree, each with its members'
-    person rows and the owner's email.
-  - `serverTime` — current server timestamp for the next `since` cursor.
-- Roles are stamped on the wires: `"owner"` for own records, the share `role`
-  for shared trees. Helpers: `personToWire` (`:35`), `treeToWire` (`:50`).
-
-### `POST /api/sync` — batched push
-
-Handler: `postSync` — `src/server/handlers/sync.ts:130`.
-
-Request: `SyncPushRequest` (`persons: PersonWire[]`, `trees: TreeWire[]`).
-Response: `SyncPushResponse` — `{ applied: {persons, trees}, skipped: {persons, trees}, serverTime }`.
-
-**Per-record ACL + last-write-wins:**
-
-- **Persons**:
-  - No existing row and not a delete → insert with `ownerId = <caller>` (the
-    requester becomes the owner).
-  - Otherwise require `canWrite(role)`; reject stale records
-    (`wire.updatedAt <= existing.updatedAt`).
-  - Tombstoning is only allowed by the person-row owner.
-- **Trees**:
-  - Only the requester creates new owned trees.
-  - `canWrite(role)` required to modify.
-  - LWW on `updatedAt`; delete only by `owner`.
-  - **Editors may change `edges`, but only owners may rename** (`name`).
-
-Skipped records (ACL-rejected or stale) are reported back; the client does not
-reconcile them (best-effort push).
+New global facts that fail to gain any requested tree association are removed
+and reported as skipped, avoiding inaccessible orphan facts.
 
 ## `/api/trees/[treeId]/shares`
 
-| | |
-|---|---|
-| File | `src/app/api/trees/[treeId]/shares/route.ts` |
-| Methods | `GET` (`:9`), `POST` (`:14`), `DELETE` (`:19`) |
-| Handlers | `src/server/handlers/shares.ts` |
-| Auth | **Owner-only** — `requireOwner`, `src/server/handlers/shares.ts:15` (returns 401/403 otherwise). |
+All methods are tree-owner-only. Unauthenticated requests return `401`; other
+roles return `403`.
 
-Next.js 15 async params: handlers receive `params: Promise<{ treeId }>`.
+| Method | Input | Result |
+|---|---|---|
+| `GET` | none | `{ shares }`, where each row has `email`, nullable `userId`, role, creation time, and `pending`. |
+| `POST` | `{ email, role: "viewer" | "editor" }` | Adds the share or updates its role. Existing users bind immediately; unknown users remain pending. |
+| `DELETE` | `?email=<email>` | Revokes that email's share. |
 
-### `GET` — list shares
+## Pages
 
-`listShares` — `src/server/handlers/shares.ts:25`. Returns `ShareRow[]`
-(`{ email, userId, role, createdAt, pending }`) where `pending = userId === null`.
-
-### `POST` — add/update a share
-
-`addShare` — `src/server/handlers/shares.ts:50`. Body: `{ email, role }`.
-
-- Validates email and role (`viewer` / `editor`).
-- If a user with that email already exists, binds `userId` immediately.
-- `onConflictDoUpdate` on `(treeId, email)` upserts the role and `userId`.
-
-### `DELETE` — revoke a share
-
-`removeShare` — `src/server/handlers/shares.ts:97`. Query: `?email=<email>`.
-Deletes the share row.
-
-## Wire types
-
-All request/response shapes are defined in `src/sync/types.ts` (`PersonWire`,
-`TreeWire`, `SharedTreeWire`, `SyncPullResponse`, `SyncPushRequest`,
-`SyncPushResponse`). They mirror the domain types plus sync metadata
-(`updatedAt`, `deletedAt`, `ownerId`, `role`, `ownerEmail`) — see
-[domain-model.md](./domain-model.md).
+Page routes are `/`, `/tree/[treeId]`, and
+`/tree/[treeId]/p/[personId]`. See [architecture.md](./architecture.md).

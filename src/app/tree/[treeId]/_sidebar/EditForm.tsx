@@ -25,9 +25,8 @@ import {
   ancestorsOf,
   childrenOf,
   descendantsOf,
-  type ParentLink,
+  type FamilyData,
   type Person,
-  type SpouseEdge,
 } from "@/types"
 import { ParentsSection } from "./ParentsSection"
 import { PersonFields } from "./PersonFields"
@@ -89,6 +88,7 @@ export function EditForm({
     [otherTreeMembers, person.id, person.spouseIds],
   )
   const [mergeTreeId, setMergeTreeId] = useState("")
+  const mergeTrees = otherTrees.filter((tree) => tree.role !== "viewer")
   const mergeMembers = useMembersOf(mergeTreeId || undefined)
   const mergeCandidates = useMemo(
     () => mergeMembers.filter((m) => m.id !== person.id),
@@ -147,34 +147,24 @@ export function EditForm({
         if (people[sid]) include.add(sid)
       }
     }
-    const members = Object.values(people)
-      .filter((p) => include.has(p.id))
-      .map((p) => p.id)
-    const seenPair = new Set<string>()
-    const spouses: SpouseEdge[] = []
-    const parents: Record<string, ParentLink[]> = {}
-    for (const id of members) {
-      const person = people[id]
-      if (!person) continue
-      const links = person.parents.filter((link) => include.has(link.id))
-      if (links.length)
-        parents[id] = links.map((link) => ({
-          id: link.id,
-          adopted: link.adopted,
-        }))
-      for (const sid of person.spouseIds) {
-        if (!include.has(sid) || id === sid) continue
-        const [x, y] = id < sid ? [id, sid] : [sid, id]
-        const key = `${x}:${y}`
-        if (seenPair.has(key)) continue
-        seenPair.add(key)
-        spouses.push({ a: x, b: y, date: person.marriageDates[sid] })
+    const seededPeople: FamilyData = {}
+    for (const id of include) {
+      const includedPerson = people[id]
+      if (!includedPerson) continue
+      seededPeople[id] = {
+        ...includedPerson,
+        parents: includedPerson.parents.filter((link) => include.has(link.id)),
+        spouseIds: includedPerson.spouseIds.filter((spouseId) =>
+          include.has(spouseId),
+        ),
+        marriageDates: Object.fromEntries(
+          Object.entries(includedPerson.marriageDates).filter(([spouseId]) =>
+            include.has(spouseId),
+          ),
+        ),
       }
     }
-    const seed: TreeSeed = {
-      persons: {},
-      edges: { members, spouses, parents },
-    }
+    const seed: TreeSeed = { people: seededPeople }
     const newTreeId = createTree(trimmed, seed)
     setCreating(false)
     navigate(`/tree/${newTreeId}`)
@@ -433,7 +423,7 @@ export function EditForm({
           )}
         </Section>
 
-        {otherTrees.length > 0 && (
+        {mergeTrees.length > 0 && (
           <Section
             title="Same person in another family"
             icon={GitMerge}
@@ -448,7 +438,7 @@ export function EditForm({
               className={inputCls}
             >
               <option value="">Choose a tree…</option>
-              {otherTrees.map((t) => (
+              {mergeTrees.map((t) => (
                 <option
                   key={t.id}
                   value={t.id}

@@ -2,76 +2,238 @@ import { describe, expect, test } from "bun:test"
 import {
   ancestorsOf,
   childrenOf,
-  emptyEdges,
   focusFamily,
-  type ParentLink,
+  type NormalizedRelationships,
   type PersonIdentity,
   projectTree,
+  unionIsCurrent,
+  withForeignParents,
 } from "./types"
 
-describe("projectTree", () => {
-  test("merges identity with per-tree spouse and parent edges", () => {
-    const tim: PersonIdentity = { id: "tim", name: "Tim" }
-    const yumi: PersonIdentity = { id: "yumi", name: "Yumi" }
-    const kid: PersonIdentity = { id: "kid", name: "Kid A" }
-    const identities = { tim, yumi, kid }
-    const edges = {
-      members: ["tim", "yumi", "kid"],
-      spouses: [{ a: "tim", b: "yumi", date: "2020-05-01" }],
-      parents: { kid: [{ id: "tim" }, { id: "yumi" }] },
-    }
+const timestamp = "2024-01-01T00:00:00.000Z"
 
-    const family = projectTree(identities, edges)
+function relationships(): NormalizedRelationships {
+  return {
+    treeMembers: {
+      '["a","tim"]': {
+        treeId: "a",
+        personId: "tim",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      '["a","yumi"]': {
+        treeId: "a",
+        personId: "yumi",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      '["a","kid"]': {
+        treeId: "a",
+        personId: "kid",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    },
+    unions: {
+      union: {
+        id: "union",
+        firstPersonId: "tim",
+        secondPersonId: "yumi",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    },
+    unionEvents: {
+      married: {
+        id: "married",
+        unionId: "union",
+        type: "married",
+        eventDate: "2020-05-01",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    },
+    treeUnions: {
+      '["a","union"]': {
+        treeId: "a",
+        unionId: "union",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    },
+    parentChildRelationships: {
+      parent: {
+        id: "parent",
+        parentPersonId: "tim",
+        childPersonId: "kid",
+        type: "adoptive",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    },
+    treeParentChildRelationships: {
+      '["a","parent"]': {
+        treeId: "a",
+        parentChildRelationshipId: "parent",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    },
+  }
+}
+
+const identities: Record<string, PersonIdentity> = {
+  tim: { id: "tim", name: "Tim" },
+  yumi: { id: "yumi", name: "Yumi" },
+  kid: { id: "kid", name: "Kid" },
+  parent: { id: "parent", name: "Foreign Parent" },
+}
+
+describe("normalized projection", () => {
+  test("projects membership, a canonical union event, and parent type", () => {
+    const family = projectTree(identities, relationships(), "a")
 
     expect(family.tim?.spouseIds).toEqual(["yumi"])
     expect(family.yumi?.spouseIds).toEqual(["tim"])
     expect(family.tim?.marriageDates).toEqual({ yumi: "2020-05-01" })
-    expect(family.yumi?.marriageDates).toEqual({ tim: "2020-05-01" })
-    expect(family.kid?.parents.map((l) => l.id)).toEqual(["tim", "yumi"])
-    expect(family.tim?.parents).toEqual([])
+    expect(family.kid?.parents).toEqual([
+      { id: "tim", adopted: true, type: "adoptive" },
+    ])
   })
 
-  test("ignores members whose identity is missing", () => {
-    const family = projectTree(
-      { a: { id: "a", name: "A" } },
-      {
-        members: ["a", "ghost"],
-        spouses: [],
-        parents: {},
-      },
+  test("requires tree associations but shares one global event", () => {
+    const graph = relationships()
+    graph.treeMembers['["b","tim"]'] = {
+      treeId: "b",
+      personId: "tim",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    graph.treeMembers['["b","yumi"]'] = {
+      treeId: "b",
+      personId: "yumi",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+
+    expect(projectTree(identities, graph, "b").tim?.spouseIds).toEqual([])
+    graph.treeUnions['["b","union"]'] = {
+      treeId: "b",
+      unionId: "union",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    const married = graph.unionEvents.married
+    if (!married) throw new Error("Missing marriage event fixture")
+    graph.unionEvents.married = {
+      ...married,
+      eventDate: "2022-02-02",
+    }
+
+    expect(projectTree(identities, graph, "a").tim?.marriageDates.yumi).toBe(
+      "2022-02-02",
     )
-    expect(Object.keys(family)).toEqual(["a"])
+    expect(projectTree(identities, graph, "b").tim?.marriageDates.yumi).toBe(
+      "2022-02-02",
+    )
   })
 
-  test("a person with no edges still projects", () => {
-    const family = projectTree({ a: { id: "a", name: "A" } }, emptyEdges())
-    expect(family).toEqual({})
+  test("hides a terminated union while allowing a later synthetic union", () => {
+    const graph = relationships()
+    graph.unionEvents.divorced = {
+      id: "divorced",
+      unionId: "union",
+      type: "divorced",
+      eventDate: "2023-01-01",
+      createdAt: "2023-01-01T00:00:00.000Z",
+      updatedAt: "2023-01-01T00:00:00.000Z",
+    }
+    expect(projectTree(identities, graph, "a").tim?.spouseIds).toEqual([])
+
+    graph.unions.remarriage = {
+      id: "remarriage",
+      firstPersonId: "tim",
+      secondPersonId: "yumi",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      updatedAt: "2024-01-01T00:00:00.000Z",
+    }
+    graph.unionEvents.remarried = {
+      id: "remarried",
+      unionId: "remarriage",
+      type: "married",
+      eventDate: "2024-02-01",
+      createdAt: "2024-02-01T00:00:00.000Z",
+      updatedAt: "2024-02-01T00:00:00.000Z",
+    }
+    graph.treeUnions['["a","remarriage"]'] = {
+      treeId: "a",
+      unionId: "remarriage",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      updatedAt: "2024-01-01T00:00:00.000Z",
+    }
+    expect(projectTree(identities, graph, "a").tim?.spouseIds).toEqual(["yumi"])
+  })
+
+  test("show-all-families adds a direct parent associated to another tree", () => {
+    const graph = relationships()
+    graph.parentChildRelationships.foreign = {
+      id: "foreign",
+      parentPersonId: "parent",
+      childPersonId: "kid",
+      type: "biological",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    graph.treeParentChildRelationships['["b","foreign"]'] = {
+      treeId: "b",
+      parentChildRelationshipId: "foreign",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+
+    const family = withForeignParents(
+      projectTree(identities, graph, "a"),
+      identities,
+      graph,
+      "a",
+    )
+    expect(family.parent?.name).toBe("Foreign Parent")
+    expect(family.kid?.parents.map((link) => link.id)).toEqual([
+      "tim",
+      "parent",
+    ])
+  })
+
+  test("uses deterministic ids when timestamps and event dates tie", () => {
+    const graph = relationships()
+    graph.unionEvents.annulled = {
+      id: "z-event",
+      unionId: "union",
+      type: "annulled",
+      eventDate: "2020-05-01",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    expect(unionIsCurrent("union", graph.unionEvents)).toBe(false)
+    expect(Object.keys(projectTree(identities, graph, "a"))).toEqual([
+      "kid",
+      "tim",
+      "yumi",
+    ])
   })
 })
 
-describe("relationship traversal (on projected data)", () => {
-  const identities: Record<string, PersonIdentity> = {
-    gp: { id: "gp", name: "Grandpa" },
-    dad: { id: "dad", name: "Dad" },
-    kid: { id: "kid", name: "Kid" },
-  }
-  const parents: Record<string, ParentLink[]> = {
-    dad: [{ id: "gp" }],
-    kid: [{ id: "dad" }],
-  }
-  const family = projectTree(identities, {
-    members: ["gp", "dad", "kid"],
-    spouses: [],
-    parents,
-  })
-
-  test("childrenOf / ancestorsOf / focusFamily", () => {
-    expect(childrenOf(family, "gp").map((p) => p.id)).toEqual(["dad"])
-    expect(ancestorsOf(family, "kid")).toEqual(new Set(["dad", "gp"]))
-    expect(Object.keys(focusFamily(family, "kid")).sort()).toEqual([
-      "dad",
-      "gp",
+describe("relationship traversal", () => {
+  test("continues to consume the projected FamilyData contract", () => {
+    const family = projectTree(identities, relationships(), "a")
+    expect(childrenOf(family, "tim").map((person) => person.id)).toEqual([
       "kid",
+    ])
+    expect(ancestorsOf(family, "kid")).toEqual(new Set(["tim"]))
+    expect(Object.keys(focusFamily(family, "kid")).sort()).toEqual([
+      "kid",
+      "tim",
+      "yumi",
     ])
   })
 })

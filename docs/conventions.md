@@ -1,83 +1,77 @@
 # Conventions
 
-Coding rules, commands, environment, and config. The source of truth for
-workflow and coding rules is the root [`AGENTS.md`](../AGENTS.md); this file
-summarizes the parts most relevant to making changes.
+The root [`AGENTS.md`](../AGENTS.md) is the source of truth. This file summarizes
+the workflow, commands, environment, and configuration.
 
-## Workflow rules (from `AGENTS.md`)
+## Workflow
 
-- **Plan before coding.** Present a plan and wait for approval before writing
-  code; confirm the approach before implementing revisions.
-- **Simplicity first.** Minimum code that solves the problem; no speculative
-  features, abstractions, or error handling for impossible cases.
-- **Surgical changes.** Touch only what the task requires; match existing style;
-  don't refactor unrelated code. Remove only the orphans your own changes create.
-- **Goal-driven.** Define verifiable success criteria (e.g. a test that must
-  pass) and loop until met.
+- Present a plan and wait for approval before implementation; confirm revisions
+  before editing.
+- Prefer the minimum code that solves the requested problem.
+- Touch only required lines and preserve surrounding style.
+- Define verifiable success criteria and run the relevant checks.
+- Update documentation when behavior changes and provide manual checks for UI
+  work.
 
-## Coding rules
+## Code
 
-- Use `type` instead of `interface` for TypeScript types. (Note: existing
-  domain types in `src/types.ts` and `src/db/schema.ts` use `interface`; follow
-  the surrounding file's style when editing those.)
-- Prefer [`ts-pattern@5`](https://github.com/gvergnaud/ts-pattern) for pattern
-  matching and exhaustive type handling.
-- No abbreviations — use full names.
-- Use the **Bun** runtime instead of Node.js.
-- **Do not add comments** unless asked.
+- Use `type` rather than `interface` for new TypeScript types.
+- Prefer `ts-pattern@5` for exhaustive pattern matching where appropriate.
+- Use full names rather than abbreviations.
+- Use Bun rather than Node.js.
+- Add comments only when complex code is not self-explanatory.
 
-## Commands (`package.json`)
+## Commands
 
 | Command | Purpose |
 |---|---|
 | `bun install` | Install dependencies. |
-| `bun run dev` | Dev server with Turbopack (`http://localhost:3000`). |
-| `bun run build` | Production build (outputs to `.next`). |
-| `bun run start` | Serve the production build. |
-| `bun run typecheck` | `bunx tsc --noEmit`. |
-| `bun test` | Run the test suite (`src/*.test.ts`). |
-| `bun run db:generate` | Generate SQL migrations from schema changes. |
-| `bun run db:push` | Push schema directly to Neon. |
-| `bun run db:migrate` | Run generated migrations. |
+| `bun run dev` | Start the Turbopack development server. |
+| `bun run build` | Build production output. |
+| `bun run start` | Serve production output. |
+| `bun run typecheck` | Run TypeScript without emitting files. |
+| `bun test` | Run the Bun test suite. |
+| `bun run db:generate` | Generate a reviewed SQL migration after a schema change. |
+| `bun run db:migrate` | Apply committed migrations in order. |
+| `bun run db:validate` | Validate normalized schema/data and print active/tombstoned counts. |
+| `bun run db:push` | Direct schema synchronization; do not use for setup or the normalization migration. |
 
-Run `bun run typecheck` after non-trivial changes. There is no separate lint
-script; Biome config is in `biome.json` (see below).
+For database setup or rollout, take a backup and use a maintenance window, then
+run `bun run db:migrate` followed by `bun run db:validate`. Never substitute
+`db:push`; it skips the committed one-time baseline, normalization preflight,
+data copy, and round-trip checks. See [database.md](./database.md).
 
-## Environment variables (`.env.local.example`)
+Run `bun run typecheck` and relevant tests after non-trivial source changes.
+Biome has no separate package script; its configured file set currently covers
+TypeScript and TSX, not Markdown.
+
+## Environment
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | Neon Postgres connection string (`postgres://...?sslmode=require`). Auto-injected by the Vercel Neon integration. |
-| `BETTER_AUTH_SECRET` | Auth secret (`openssl rand -base64 32`). |
-| `BETTER_AUTH_URL` | Deployed app base URL, no trailing slash (dev `http://localhost:3000`). |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth web client. Redirect URIs must include `/api/auth/callback/google` for localhost + preview/prod. |
+| `DATABASE_URL` | Neon Postgres connection string. Required by migrations, validation, auth, and sync queries. |
+| `BETTER_AUTH_SECRET` | Better Auth secret. |
+| `BETTER_AUTH_URL` | Deployed base URL without a trailing slash; use `http://localhost:3000` locally. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth credentials. Redirect URIs end in `/api/auth/callback/google`. |
 
-Local setup: copy `.env.local.example` to `.env.local`, fill it in, then
-`bun run db:push` to apply the schema to Neon.
+Local setup: create `.env.local` from the provided example, fill in the values,
+then run `bun run db:migrate` and `bun run db:validate` against the intended
+database.
 
-## Config files
+## Configuration
 
 | File | Summary |
 |---|---|
-| `next.config.ts` | Minimal: `{ reactStrictMode: true }` only. |
-| `biome.json` | Linter `recommended` preset with several overrides off; formatter uses 2-space indent, double quotes, semicolons `asNeeded`, multiline attributes, operator break **before**. Includes `**/*.ts(x)`, ignores `.next`. |
-| `tsconfig.json` | `target/lib ESNext + DOM`, `moduleResolution: bundler`, `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride`, `verbatimModuleSyntax`, `isolatedModules`, `incremental`. Path alias `@/* → ./src/*`. `types: ["bun","react"]`. |
-| `postcss.config.mjs` | Single plugin `@tailwindcss/postcss` (Tailwind v4). |
-| `global.d.ts` | `declare module "*.css"` so `tsc --noEmit` resolves CSS side-effect imports. |
-| `drizzle.config.ts` | schema `./src/db/schema.ts`, out `./drizzle`, `postgresql`, `DATABASE_URL`. |
-| `bunfig.toml` | Not present; Bun uses defaults. Tests run via `bun test`. |
+| `next.config.ts` | React strict mode. |
+| `biome.json` | Recommended linter and formatter rules for TypeScript/TSX. |
+| `tsconfig.json` | Strict bundler-mode TypeScript with Bun/React types and `@/*` path alias. |
+| `postcss.config.mjs` | Tailwind CSS v4 PostCSS plugin. |
+| `global.d.ts` | CSS module declaration for side-effect imports. |
+| `drizzle.config.ts` | PostgreSQL schema path, migration output, and `DATABASE_URL`. |
 
-## Deployment
+Vercel auto-detects Next.js; no `vercel.json` is required. Environment values
+must be configured for each deployment environment.
 
-Next.js is auto-detected by Vercel — no `vercel.json` needed. Connect the repo on
-vercel.com and set the environment variables above. The Vercel Neon integration
-can inject `DATABASE_URL` automatically.
-
-## Design tokens (`src/app/globals.css`)
-
-Tailwind v4 `@theme` defines `--font-sans` (Inter via `next/font`), a custom
-**cobalt** accent palette (`cobalt-50…900`), layered shadows
-(`--shadow-soft/-lift/-glass`), keyframe animations (`fade-in`, `slide-up`,
-`scale-in`, `toast-in`), and utility classes (`.app-bg`, `.glass`, `.scroll-area`)
-plus React Flow overrides (clickable edges that turn red on hover, restyled
-controls/minimap).
+Tailwind tokens and React Flow overrides live in `src/app/globals.css`,
+including the Inter font, cobalt palette, shadows, animations, application
+background, glass surface, scrolling, controls, and minimap styles.
