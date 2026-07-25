@@ -14,6 +14,7 @@ export const metadata: Metadata = {
   metadataBase: siteUrl ? new URL(siteUrl) : undefined,
   title,
   description,
+  icons: { icon: "/favicon.ico" },
   openGraph: {
     title,
     description,
