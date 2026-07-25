@@ -3,6 +3,12 @@ import { getDB } from "../../db/index"
 import { persons } from "../../db/schema"
 import { canRead, personRole } from "../acl"
 import { getAuth } from "../auth"
+import {
+  decodePhotoDataUrl,
+  isAllowedStoredPhotoUrl,
+  isPhotoDataUrl,
+  MAX_PHOTO_BYTES,
+} from "../blob"
 
 /**
  * Streams a person's photo to an authorized viewer. Authorization mirrors the
@@ -26,12 +32,43 @@ export async function getPersonPhoto(
   if (!person || person.deletedAt || !person.photo) {
     return new Response(null, { status: 404 })
   }
-  if (!canRead(await personRole(db, session.user.id, personId))) {
+  if (
+    person.ownerId !== session.user.id
+    && !canRead(await personRole(db, session.user.id, personId))
+  ) {
     return new Response(null, { status: 404 })
   }
+  if (isPhotoDataUrl(person.photo)) {
+    try {
+      const photo = decodePhotoDataUrl(person.photo)
+      return new Response(photo.bytes, {
+        headers: {
+          "content-type": photo.contentType,
+          "cache-control": "private, max-age=3600, immutable",
+        },
+      })
+    } catch {
+      return new Response(null, { status: 502 })
+    }
+  }
+  if (!isAllowedStoredPhotoUrl(person.photo)) {
+    return new Response(null, { status: 502 })
+  }
 
-  const upstream = await fetch(person.photo)
+  let upstream: Response
+  try {
+    upstream = await fetch(person.photo, {
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch {
+    return new Response(null, { status: 502 })
+  }
   if (!upstream.ok || !upstream.body) {
+    return new Response(null, { status: 502 })
+  }
+  const contentLength = Number(upstream.headers.get("content-length"))
+  if (Number.isFinite(contentLength) && contentLength > MAX_PHOTO_BYTES) {
+    await upstream.body.cancel()
     return new Response(null, { status: 502 })
   }
   return new Response(upstream.body, {

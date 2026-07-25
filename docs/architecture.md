@@ -23,7 +23,11 @@ Client store (normalized in-memory maps)
         | full pull on account load; serialized pushes on mutation
 API routes (thin wrappers)
         |
-Server handlers (validation, ACL, reconciliation)
+Server handler (route adapter)
+        |
+Sync pull/push use cases (validation, ACL, reconciliation)
+        |
+Set-based query and wire-mapping modules
         |
 Drizzle ORM -> Neon Postgres normalized tables
 ```
@@ -94,10 +98,14 @@ layout so partners remain adjacent and siblings retain birth order. See
 - Parent constraints are global: no self-parent, at most two active parents,
   and no active ancestry cycle.
 - ACL is evaluated per normalized record using tree role and person ownership.
+- Pull queries are batched by normalized collection, so database round trips do
+  not increase with the number of accessible trees. Pushes preload immutable
+  ownership, while shared roles are rechecked so revocation takes effect.
 - Client timestamps are concurrency tokens; successful writes receive server
   `CURRENT_TIMESTAMP` values.
-- Photos are cropped/downscaled and compressed in the browser, then their data
-  URL is synced through the API and stored in the `persons.photo` text column.
+- Photos are cropped/downscaled and compressed in the browser, uploaded through
+  bounded sync commands, and stored as Vercel Blob URLs. Pull DTOs expose only
+  photo presence; authenticated reads use `/api/person-photo/[personId]`.
 
 ## Folder map
 
@@ -107,7 +115,7 @@ layout so partners remain adjacent and siblings retain birth order. See
 | `src/components/` | Reusable UI components. |
 | `src/db/` | Drizzle schema and Neon client. |
 | `src/lib/` | Layout, image, auth-client, tree-action, and view-setting helpers. |
-| `src/server/` | Auth, ACL, sync validation, and handlers. |
+| `src/server/` | Auth, ACL, request limits, handlers, and sync use cases. |
 | `src/sync/` | Normalized wire types. |
 | `src/types.ts` | Domain records, projection, and traversal. |
 | `src/store.ts` | Normalized client state, mutations, and sync. |

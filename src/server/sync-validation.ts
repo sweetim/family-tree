@@ -16,6 +16,10 @@ export type SyncCollectionName = keyof SyncPushRequest
 
 export const MAX_CLIENT_FUTURE_MILLISECONDS = 5 * 60 * 1000
 export const MAX_SYNC_ID_LENGTH = 512
+export const MAX_SYNC_TEXT_LENGTH = 10_000
+export const MAX_SYNC_PHOTO_LENGTH = 1024 * 1024
+export const MAX_SYNC_RECORDS_PER_COLLECTION = 2_000
+export const MAX_SYNC_TOTAL_RECORDS = 5_000
 
 const SYNC_COLLECTIONS = [
   "persons",
@@ -65,8 +69,15 @@ function hasExactKeys(
   )
 }
 
-function isValidText(value: unknown): value is string {
-  return typeof value === "string" && !value.includes("\0")
+function isValidText(
+  value: unknown,
+  maximumLength = MAX_SYNC_TEXT_LENGTH,
+): value is string {
+  return (
+    typeof value === "string"
+    && value.length <= maximumLength
+    && !value.includes("\0")
+  )
 }
 
 export function isValidSyncId(value: unknown): value is string {
@@ -122,8 +133,12 @@ function isValidAssociationTombstone(
   )
 }
 
-function isOptionalString(value: unknown): boolean {
-  return value === undefined || isValidText(value)
+function isOptionalString(value: unknown, maximumLength?: number): boolean {
+  return value === undefined || isValidText(value, maximumLength)
+}
+
+function isOptionalPhoto(value: unknown): boolean {
+  return value === null || isOptionalString(value, MAX_SYNC_PHOTO_LENGTH)
 }
 
 function isValidPersonWire(value: unknown, now: Date): boolean {
@@ -143,7 +158,7 @@ function isValidPersonWire(value: unknown, now: Date): boolean {
     && (value.dod === undefined || isValidIsoDate(value.dod))
     && (value.gender === undefined || GENDERS.has(value.gender as string))
     && isOptionalString(value.location)
-    && isOptionalString(value.photo)
+    && isOptionalPhoto(value.photo)
     && (value.ownerId === undefined || isValidSyncId(value.ownerId))
     && isReasonableClientTimestamp(value.updatedAt, now)
   )
@@ -157,14 +172,16 @@ function isValidTreeWire(value: unknown, now: Date): boolean {
   return (
     hasExactKeys(
       value,
-      ["id", "name", "createdAt", "updatedAt", "ownerId"],
-      ["ownerEmail", "role"],
+      ["id", "name", "createdAt", "updatedAt"],
+      ["ownerId", "ownerEmail", "role"],
     )
     && isValidSyncId(value.id)
     && isValidText(value.name)
     && isReasonableClientTimestamp(value.createdAt, now)
     && isReasonableClientTimestamp(value.updatedAt, now)
-    && (value.ownerId === "" || isValidSyncId(value.ownerId))
+    && (value.ownerId === undefined
+      || value.ownerId === ""
+      || isValidSyncId(value.ownerId))
     && (value.ownerEmail === undefined
       || value.ownerEmail === null
       || typeof value.ownerEmail === "string")
@@ -325,6 +342,19 @@ export function isValidSyncPushRequest(
   const parentRelationships = value.parentChildRelationships as unknown[]
   const treeParentRelationships =
     value.treeParentChildRelationships as unknown[]
+
+  const collections = SYNC_COLLECTIONS.map(
+    (collection) => value[collection] as unknown[],
+  )
+  if (
+    collections.some(
+      (collection) => collection.length > MAX_SYNC_RECORDS_PER_COLLECTION,
+    )
+    || collections.reduce((total, collection) => total + collection.length, 0)
+      > MAX_SYNC_TOTAL_RECORDS
+  ) {
+    return false
+  }
 
   return (
     persons.every((record) => isValidPersonWire(record, now))

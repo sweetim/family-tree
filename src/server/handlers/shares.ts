@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { treeShares, user } from "../../db/schema"
 import { treeRole } from "../acl"
-import { requireSession } from "./sync"
+import { requireSession } from "../session"
 
 interface ShareRow {
   email: string
@@ -43,7 +43,10 @@ export async function listShares(
     createdAt: r.createdAt.toISOString(),
     pending: r.userId === null,
   }))
-  return Response.json({ shares: out })
+  return Response.json(
+    { shares: out },
+    { headers: { "cache-control": "private, no-store" } },
+  )
 }
 
 /** POST /api/trees/:treeId/shares — add or update a share (owner-only). */
@@ -90,7 +93,10 @@ export async function addShare(
       set: { role, userId: existingUser?.id ?? null },
     })
 
-  return Response.json({ ok: true })
+  return Response.json(
+    { ok: true },
+    { headers: { "cache-control": "private, no-store" } },
+  )
 }
 
 /** DELETE /api/trees/:treeId/shares?email=<email> — revoke a share (owner-only). */
@@ -117,5 +123,8 @@ export async function removeShare(
     .delete(treeShares)
     .where(and(eq(treeShares.treeId, treeId), eq(treeShares.email, email)))
 
-  return Response.json({ ok: true })
+  return Response.json(
+    { ok: true },
+    { headers: { "cache-control": "private, no-store" } },
+  )
 }

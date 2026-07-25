@@ -45,6 +45,19 @@ returns. Failed records remain dirty in memory. Successful applied and skipped
 revisions are cleared; any skipped record schedules an authoritative epoch pull
 after newer pending edits have been pushed.
 
+Large dirty queues are sent in dependency-ordered batches of at most 1,000
+records and 4 MiB. This keeps legitimate imports below the server limits while
+preserving foreign-key ordering across requests.
+
+Push commands and pull responses use distinct DTOs. Commands omit server-owned
+owner/share fields. A photo command omits `photo` to retain the stored image,
+uses `null` to remove it, or sends a bounded JPEG data URL to replace it. Pulls
+return only `hasPhoto`; Blob URLs are never part of the client DTO.
+
+The server authenticates before reading a push and limits it to 5 MiB, 2,000
+records per collection, and 5,000 records total. User-controlled text and photo
+data are length-bounded before database or Blob work begins.
+
 Tree deletion is server-authoritative instead: the client awaits
 `DELETE /api/trees/[treeId]`, then removes the confirmed tree and its local
 associations. A failed request leaves the tree visible.
@@ -101,6 +114,11 @@ to project each owned tree. Every shared tree is instead an authoritative
 active snapshot on every pull: active tree metadata, people, memberships,
 unions, events, and parent associations only. Former shared dependencies and
 tombstones are omitted; full reconciliation removes anything absent.
+
+The server loads accessible tree metadata once, then queries each normalized
+collection across all relevant tree IDs. Shared snapshots are regrouped in
+memory. Query count is therefore bounded by collection count rather than tree
+count.
 
 ## Store operations
 

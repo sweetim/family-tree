@@ -68,6 +68,8 @@ The committed migration sequence is intentionally one-time:
    locks legacy relationship/person writes, validates the source, copies and
    deduplicates canonical facts, verifies a round trip, adds constraints and
    indexes, and drops the legacy relationship column.
+3. `0002_rapid_revanche.sql` adds ownership and share access-path indexes used
+   by set-based sync pulls and pending-share binding.
 
 The preflight is strict and aborts the transaction instead of guessing. It
 rejects malformed or unsupported records, dangling/nonmember endpoints,

@@ -29,6 +29,7 @@ export async function treeRole(
     where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
   })
   if (!tree) return null
+  if (tree.ownerId === userId) return "owner"
   const shares = await db
     .select({ role: treeShares.role })
     .from(treeShares)
@@ -77,6 +78,7 @@ export async function personRole(
     where: eq(persons.id, personId),
   })
   if (!person) return null
+  if (!person.deletedAt && person.ownerId === userId) return "owner"
 
   // Trees containing this person that the user owns or is shared with.
   const rows = await db

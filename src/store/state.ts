@@ -1,21 +1,25 @@
 import { useSyncExternalStore } from "react"
 import type {
   ParentChildRelationshipWire,
+  PersonPushWire,
   PersonWire,
+  LocalRole as SyncLocalRole,
   SyncPullResponse,
   SyncPushRequest,
   SyncPushResponse,
+  ShareRole as SyncShareRole,
   TreeMemberWire,
   TreeParentChildRelationshipWire,
+  TreePushWire,
   TreeUnionWire,
   TreeWire,
   UnionEventWire,
   UnionWire,
 } from "../sync/types"
-import { type NormalizedRelationships, type PersonIdentity } from "../types"
+import type { NormalizedRelationships, PersonIdentity } from "../types"
 
-export type ShareRole = "viewer" | "editor"
-export type LocalRole = "owner" | ShareRole
+export type ShareRole = SyncShareRole
+export type LocalRole = SyncLocalRole
 
 export type TreeMeta = {
   id: string
@@ -51,6 +55,13 @@ export type DirtyState = Record<DirtyCollection, DirtyMap>
 type TombstoneClocks = Record<DirtyCollection, Map<string, string>>
 
 const EPOCH = "1970-01-01T00:00:00.000Z"
+const STORED_PHOTO_MARKER = "stored-photo"
+const MAX_SYNC_BATCH_RECORDS = 1_000
+const MAX_SYNC_BATCH_BYTES = 4 * 1024 * 1024
+
+export function isStoredPhotoMarker(value: string | undefined): boolean {
+  return value === STORED_PHOTO_MARKER
+}
 
 export function newId(): string {
   return crypto.randomUUID()
@@ -284,6 +295,23 @@ export function snapshotDirty(): DirtyState {
   ) as DirtyState
 }
 
+export function takeDirtyBatch(
+  source: DirtyState,
+  maximumRecords: number,
+): DirtyState {
+  const batch = emptyDirtyState()
+  let remaining = maximumRecords
+  for (const collection of RECORD_COLLECTIONS) {
+    if (remaining === 0) break
+    for (const [id, record] of source[collection]) {
+      batch[collection].set(id, record)
+      remaining--
+      if (remaining === 0) break
+    }
+  }
+  return batch
+}
+
 type DirtyIds = Partial<Record<DirtyCollection, Iterable<string>>>
 
 /** Clear acknowledgements only when the shipped revision is still current. */
@@ -308,7 +336,7 @@ export function buildPushWires(
   dirty: DirtyState,
   now: string,
 ): SyncPushRequest {
-  const persons: PersonWire[] = []
+  const persons: PersonPushWire[] = []
   for (const id of dirty.persons.keys()) {
     const person = snapshot.persons[id]
     if (actionFor(dirty.persons, id) === "delete" || !person) {
@@ -321,14 +349,15 @@ export function buildPushWires(
         dod: person.dod,
         gender: person.gender,
         location: person.location,
-        photo: person.photo,
+        ...(isStoredPhotoMarker(person.photo)
+          ? {}
+          : { photo: person.photo ?? null }),
         updatedAt: person.updatedAt ?? now,
-        ownerId: person.ownerId,
       })
     }
   }
 
-  const trees: TreeWire[] = []
+  const trees: TreePushWire[] = []
   for (const id of dirty.trees.keys()) {
     const tree = snapshot.index.find((candidate) => candidate.id === id)
     if (actionFor(dirty.trees, id) === "delete" || !tree) {
@@ -339,9 +368,6 @@ export function buildPushWires(
         name: tree.name,
         createdAt: tree.createdAt,
         updatedAt: tree.updatedAt ?? now,
-        ownerId: tree.ownerId ?? "",
-        ownerEmail: tree.ownerEmail,
-        role: tree.role,
       })
     }
   }
@@ -451,12 +477,25 @@ export async function fetchFullPull(): Promise<SyncPullResponse> {
 async function runPushLoop(generation: number): Promise<void> {
   let authoritativePullNeeded = false
   while (generation === storeGeneration) {
-    const dirty = snapshotDirty()
-    const request = buildPushWires(state, dirty, new Date().toISOString())
+    const pending = snapshotDirty()
+    let maximumRecords = MAX_SYNC_BATCH_RECORDS
+    let dirty = takeDirtyBatch(pending, maximumRecords)
+    let request = buildPushWires(state, dirty, new Date().toISOString())
     if (
       RECORD_COLLECTIONS.every((collection) => request[collection].length === 0)
     ) {
       return
+    }
+    let serializedRequest = JSON.stringify(request)
+    while (
+      new TextEncoder().encode(serializedRequest).byteLength
+        > MAX_SYNC_BATCH_BYTES
+      && maximumRecords > 1
+    ) {
+      maximumRecords = Math.max(1, Math.floor(maximumRecords / 2))
+      dirty = takeDirtyBatch(pending, maximumRecords)
+      request = buildPushWires(state, dirty, new Date().toISOString())
+      serializedRequest = JSON.stringify(request)
     }
 
     try {
@@ -464,7 +503,7 @@ async function runPushLoop(generation: number): Promise<void> {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(request),
+        body: serializedRequest,
       })
       if (!response.ok) throw new Error(`push failed: ${response.status}`)
       const result = (await response.json()) as SyncPushResponse
@@ -598,7 +637,7 @@ export function applyRemote(remote: RemoteRecords): void {
               dod: wire.dod,
               gender: wire.gender,
               location: wire.location,
-              photo: wire.photo,
+              photo: wire.hasPhoto ? STORED_PHOTO_MARKER : wire.photo,
               updatedAt: wire.updatedAt,
               ownerId: wire.ownerId,
             }

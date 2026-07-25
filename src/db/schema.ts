@@ -110,6 +110,7 @@ export const persons = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => [
+    index("persons_owner_id_updated_at_idx").on(table.ownerId, table.updatedAt),
     check(
       "persons_gender_check",
       sql`${table.gender} IS NULL OR ${table.gender} IN ('male', 'female', 'other')`,
@@ -117,20 +118,24 @@ export const persons = pgTable(
   ],
 )
 
-export const trees = pgTable("trees", {
-  id: text("id").primaryKey(),
-  ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-})
+export const trees = pgTable(
+  "trees",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [index("trees_owner_id_idx").on(table.ownerId)],
+)
 
 export const shareRole = pgEnum("share_role", ["viewer", "editor"])
 
@@ -147,9 +152,15 @@ export const treeShares = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => ({
-    pk: primaryKey({ columns: [t.treeId, t.email] }),
-  }),
+  (table) => [
+    primaryKey({ columns: [table.treeId, table.email] }),
+    index("tree_shares_user_id_tree_id_idx")
+      .on(table.userId, table.treeId)
+      .where(sql`${table.userId} IS NOT NULL`),
+    index("tree_shares_pending_email_idx")
+      .on(table.email)
+      .where(sql`${table.userId} IS NULL`),
+  ],
 )
 
 export const unionEventType = pgEnum("union_event_type", [

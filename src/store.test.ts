@@ -1077,6 +1077,56 @@ describe("dirty tracking and push wires", () => {
     ])
   })
 
+  test("takes bounded dirty batches in dependency order", async () => {
+    const store = await freshStore()
+    const dirty = store.snapshotDirty()
+    dirty.persons.set("first", { action: "upsert", revision: 1 })
+    dirty.persons.set("second", { action: "upsert", revision: 2 })
+    dirty.trees.set("tree", { action: "upsert", revision: 3 })
+
+    const batch = store.takeDirtyBatch(dirty, 2)
+    expect([...batch.persons.keys()]).toEqual(["first", "second"])
+    expect(batch.trees.size).toBe(0)
+  })
+
+  test("keeps stored photos without returning blob URLs in push commands", async () => {
+    const store = await freshStore()
+    store.applyFullPull(
+      fullPull({
+        persons: [
+          {
+            id: "person",
+            name: "Person",
+            hasPhoto: true,
+            updatedAt: timestamp,
+          },
+        ],
+      }),
+    )
+    const snapshot = store.getSnapshot()
+    const person = snapshot.persons.person
+    if (!person) throw new Error("expected pulled person")
+    const dirty = store.snapshotDirty()
+    dirty.persons.set("person", { action: "upsert", revision: 1 })
+
+    expect(
+      store.buildPushWires(snapshot, dirty, timestamp).persons[0],
+    ).not.toHaveProperty("photo")
+    expect(
+      store.buildPushWires(
+        {
+          ...snapshot,
+          persons: {
+            ...snapshot.persons,
+            person: { ...person, photo: undefined },
+          },
+        },
+        dirty,
+        timestamp,
+      ).persons[0],
+    ).toHaveProperty("photo", null)
+  })
+
   test("keeps a tree visible until server deletion succeeds", async () => {
     const store = await freshStore()
     store.applyFullPull(

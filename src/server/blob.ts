@@ -1,6 +1,7 @@
 import { del, put } from "@vercel/blob"
 
 const DATA_URL_PREFIX = "data:"
+export const MAX_PHOTO_BYTES = 512 * 1024
 
 /** Lazily read the server-only Blob token. Throws if not configured. */
 function token(): string {
@@ -20,11 +21,34 @@ export function isPhotoDataUrl(
   return typeof value === "string" && value.startsWith(DATA_URL_PREFIX)
 }
 
-function decodeDataUrl(dataUrl: string): Buffer {
-  const comma = dataUrl.indexOf(",")
-  if (comma < 0) throw new Error("Malformed data URL")
-  const base64 = dataUrl.slice(comma + 1)
-  return Buffer.from(base64, "base64")
+export function isAllowedStoredPhotoUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (
+      url.protocol === "https:"
+      && url.hostname.endsWith(".public.blob.vercel-storage.com")
+    )
+  } catch {
+    return false
+  }
+}
+
+export function decodePhotoDataUrl(dataUrl: string): {
+  bytes: Buffer
+  contentType: "image/jpeg" | "image/png" | "image/webp"
+} {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(dataUrl)
+  if (!match) throw new Error("Photo must be a base64 image data URL")
+  const contentType = match[1] as "image/jpeg" | "image/png" | "image/webp"
+  const base64 = match[2] ?? ""
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+    throw new Error("Malformed photo data URL")
+  }
+  const bytes = Buffer.from(base64, "base64")
+  if (bytes.length === 0 || bytes.length > MAX_PHOTO_BYTES) {
+    throw new Error("Photo exceeds the maximum size")
+  }
+  return { bytes, contentType }
 }
 
 /**
@@ -35,12 +59,13 @@ function decodeDataUrl(dataUrl: string): Buffer {
 export async function putPhoto(
   ownerId: string,
   bytes: Buffer,
+  contentType = "image/jpeg",
 ): Promise<string> {
   const pathname = `photos/${ownerId}/${crypto.randomUUID()}.jpg`
   const blob = await put(pathname, bytes, {
     access: "public",
     addRandomSuffix: false,
-    contentType: "image/jpeg",
+    contentType,
     token: token(),
   })
   return blob.url
@@ -69,5 +94,16 @@ export async function normalizePhoto(
 ): Promise<string | null> {
   if (!value) return null
   if (!isPhotoDataUrl(value)) return value
-  return putPhoto(ownerId, decodeDataUrl(value))
+  const photo = decodePhotoDataUrl(value)
+  return putPhoto(ownerId, photo.bytes, photo.contentType)
+}
+
+export function normalizePhotoUpdate(
+  ownerId: string,
+  existingPhoto: string | null,
+  value: string | null | undefined,
+): Promise<string | null> {
+  return value === undefined
+    ? Promise.resolve(existingPhoto)
+    : normalizePhoto(ownerId, value)
 }

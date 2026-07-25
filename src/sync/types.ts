@@ -1,9 +1,11 @@
-import type { LocalRole, ShareRole } from "../store"
 import type {
   Gender,
   ParentChildRelationshipType,
   UnionEventType,
 } from "../types"
+
+export type ShareRole = "viewer" | "editor"
+export type LocalRole = "owner" | ShareRole
 
 export type TombstoneWire = {
   id: string
@@ -19,6 +21,7 @@ export type PersonRecordWire = {
   gender?: Gender
   location?: string
   photo?: string
+  hasPhoto?: boolean
   updatedAt: string
   ownerId?: string
 }
@@ -145,7 +148,30 @@ export type SyncPullResponse = {
   serverTime: string
 }
 
-export type SyncPushRequest = SyncRecordSet
+export type PersonPushRecordWire = Omit<
+  PersonRecordWire,
+  "ownerId" | "photo" | "hasPhoto"
+> & {
+  /** Omitted keeps the stored photo; null removes it; a data URL replaces it. */
+  photo?: string | null
+}
+export type PersonPushWire = PersonPushRecordWire | TombstoneWire
+export type TreePushRecordWire = Omit<
+  TreeRecordWire,
+  "ownerId" | "ownerEmail" | "role"
+>
+export type TreePushWire = TreePushRecordWire | TombstoneWire
+
+export type SyncPushRequest = {
+  persons: PersonPushWire[]
+  trees: TreePushWire[]
+  treeMembers: TreeMemberWire[]
+  unions: UnionWire[]
+  unionEvents: UnionEventWire[]
+  treeUnions: TreeUnionWire[]
+  parentChildRelationships: ParentChildRelationshipWire[]
+  treeParentChildRelationships: TreeParentChildRelationshipWire[]
+}
 
 export type SyncAppliedIds = {
   persons: string[]

@@ -6,8 +6,8 @@ import {
   trees,
   treeUnions,
 } from "../../db/schema"
+import { requireSession } from "../session"
 import { isValidSyncId } from "../sync-validation"
-import { requireSession } from "./sync"
 
 /** DELETE /api/trees/:treeId - owner-only, atomic tree deletion. */
 export async function deleteTree(
@@ -22,15 +22,17 @@ export async function deleteTree(
 
   const db = getDB()
   const result = await db.execute(sql<{ id: string }>`
-    WITH target_tree AS MATERIALIZED (
-      SELECT ${trees.id} AS id
-      FROM ${trees}
+    WITH server_clock AS MATERIALIZED (
+      SELECT CURRENT_TIMESTAMP AS value
+    ),
+    target_tree AS MATERIALIZED (
+      UPDATE ${trees}
+      SET "deleted_at" = (SELECT value FROM server_clock),
+          "updated_at" = (SELECT value FROM server_clock)
       WHERE ${trees.id} = ${treeId}
         AND ${trees.ownerId} = ${me.id}
         AND ${trees.deletedAt} IS NULL
-    ),
-    server_clock AS MATERIALIZED (
-      SELECT CURRENT_TIMESTAMP AS value
+      RETURNING ${trees.id} AS id
     ),
     tombstoned_memberships AS (
       UPDATE ${treeMembers}
@@ -57,19 +59,15 @@ export async function deleteTree(
       )
         AND ${treeParentChildRelationships.deletedAt} IS NULL
       RETURNING ${treeParentChildRelationships.treeId}
-    ),
-    tombstoned_tree AS (
-      UPDATE ${trees}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
-      WHERE ${trees.id} IN (SELECT id FROM target_tree)
-      RETURNING ${trees.id} AS id
     )
-    SELECT id FROM tombstoned_tree
+    SELECT id FROM target_tree
   `)
 
   if (result.rows.length === 0) {
     return Response.json({ error: "tree not found" }, { status: 404 })
   }
-  return Response.json({ ok: true })
+  return Response.json(
+    { ok: true },
+    { headers: { "cache-control": "private, no-store" } },
+  )
 }

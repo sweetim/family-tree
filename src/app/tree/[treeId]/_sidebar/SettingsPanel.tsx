@@ -2,7 +2,7 @@ import { Download, Upload } from "lucide-react"
 import { useRef } from "react"
 import { useToast } from "@/components/Toast"
 import { useViewSettings } from "@/lib/view-settings"
-import { type FamilyStore, normalizeImport } from "@/store"
+import { type FamilyStore, isStoredPhotoMarker, normalizeImport } from "@/store"
 
 export function SettingsPanel({
   family,
@@ -18,7 +18,15 @@ export function SettingsPanel({
   const toast = useToast()
 
   function exportJson() {
-    const blob = new Blob([JSON.stringify(family.people, null, 2)], {
+    const people = Object.fromEntries(
+      Object.entries(family.people).map(([id, person]) => [
+        id,
+        isStoredPhotoMarker(person.photo)
+          ? { ...person, photo: undefined }
+          : person,
+      ]),
+    )
+    const blob = new Blob([JSON.stringify(people, null, 2)], {
       type: "application/json",
     })
     const url = URL.createObjectURL(blob)

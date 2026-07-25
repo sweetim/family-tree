@@ -41,4 +41,4 @@ bun test
 Next.js is detected automatically by Vercel — no `vercel.json` is needed.
 Connect the repo on vercel.com and set the environment variables from
 `.env.local.example` (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`,
-`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`).
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BLOB_READ_WRITE_TOKEN`).

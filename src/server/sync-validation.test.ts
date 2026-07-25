@@ -11,6 +11,9 @@ import {
   isValidTimestamp,
   MAX_CLIENT_FUTURE_MILLISECONDS,
   MAX_SYNC_ID_LENGTH,
+  MAX_SYNC_PHOTO_LENGTH,
+  MAX_SYNC_RECORDS_PER_COLLECTION,
+  MAX_SYNC_TEXT_LENGTH,
   type ParentEdge,
   validateParentAssociation,
 } from "./sync-validation"
@@ -187,6 +190,17 @@ describe("sync validation", () => {
     ]
     expect(isValidSyncPushRequest(newTree, NOW)).toBe(true)
 
+    const commandTree = emptyPayload()
+    commandTree.trees = [
+      {
+        id: "tree",
+        name: "Tree",
+        createdAt: TIMESTAMP,
+        updatedAt: TIMESTAMP,
+      },
+    ]
+    expect(isValidSyncPushRequest(commandTree, NOW)).toBe(true)
+
     const malformedTombstone = emptyPayload()
     malformedTombstone.persons = [
       {
@@ -254,6 +268,41 @@ describe("sync validation", () => {
       },
     ]
     expect(isValidSyncPushRequest(nonCanonicalUnion, NOW)).toBe(false)
+  })
+
+  test("bounds collection counts and user-controlled text", () => {
+    const tooManyRecords = emptyPayload()
+    tooManyRecords.persons = Array.from(
+      { length: MAX_SYNC_RECORDS_PER_COLLECTION + 1 },
+      (_, index) => ({
+        id: `person-${index}`,
+        name: "Person",
+        updatedAt: TIMESTAMP,
+      }),
+    )
+    expect(isValidSyncPushRequest(tooManyRecords, NOW)).toBe(false)
+
+    expect(
+      isValidSyncPushRequest(
+        payloadWith("persons", {
+          id: "person",
+          name: "a".repeat(MAX_SYNC_TEXT_LENGTH + 1),
+          updatedAt: TIMESTAMP,
+        }),
+        NOW,
+      ),
+    ).toBe(false)
+    expect(
+      isValidSyncPushRequest(
+        payloadWith("persons", {
+          id: "person",
+          name: "Person",
+          photo: "a".repeat(MAX_SYNC_PHOTO_LENGTH + 1),
+          updatedAt: TIMESTAMP,
+        }),
+        NOW,
+      ),
+    ).toBe(false)
   })
 
   test("applies ID validation to every wire shape", () => {
