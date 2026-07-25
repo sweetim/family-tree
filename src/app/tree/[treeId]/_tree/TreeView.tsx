@@ -11,9 +11,7 @@ import {
 } from "@xyflow/react"
 import {
   Check,
-  Crosshair,
   Link2,
-  Maximize2,
   Menu,
   PanelLeftOpen,
   Pencil,
@@ -35,7 +33,7 @@ import {
 } from "@/lib/tree-actions"
 import { useViewSettings } from "@/lib/view-settings"
 import { type TreeMeta, useFamily, useFamilyAll } from "@/store"
-import { ancestorsOf, descendantsOf, focusFamily } from "@/types"
+import { ancestorsOf, descendantsOf } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
 
 const nodeTypes = { person: PersonNode, union: UnionNode }
@@ -59,7 +57,6 @@ export function TreeView({
   const [sidebar, setSidebar] = useState<SidebarState>(() =>
     openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },
   )
-  const [focusId, setFocusId] = useState<string>()
   const [link, setLink] = useState<{ kind: LinkKind; sourceId: string }>()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [sidebarHidden, setSidebarHidden] = useState(false)
@@ -87,13 +84,6 @@ export function TreeView({
   }, [])
 
   const canEdit = !family.readOnly && (isDesktop || editMode)
-
-  const focusPerson = focusId ? renderPeople[focusId] : undefined
-  const visiblePeople = useMemo(
-    () =>
-      focusPerson ? focusFamily(renderPeople, focusPerson.id) : renderPeople,
-    [renderPeople, focusPerson],
-  )
 
   const linkSource = link ? family.people[link.sourceId] : undefined
 
@@ -148,7 +138,7 @@ export function TreeView({
   const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
   const { nodes, edges } = useMemo(() => {
     const flow = buildFlow(
-      visiblePeople,
+      renderPeople,
       selectedId,
       link && linkEligible
         ? { sourceId: link.sourceId, eligible: linkEligible }
@@ -156,7 +146,7 @@ export function TreeView({
     )
     return flow
   }, [
-    visiblePeople,
+    renderPeople,
     selectedId,
     link,
     linkEligible,
@@ -317,10 +307,6 @@ export function TreeView({
             setDrawerOpen(true)
             setSidebarHidden(false)
           }}
-          onFocus={(id) => {
-            setFocusId(id)
-            setDrawerOpen(false)
-          }}
           onOpenSettings={() => {
             setSidebar({ mode: "settings" })
             setDrawerOpen(true)
@@ -382,7 +368,6 @@ export function TreeView({
             )}
           </div>
           <ReactFlow
-            key={focusPerson?.id ?? "all"}
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
@@ -443,26 +428,6 @@ export function TreeView({
                     className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
                   >
                     <X className="h-3.5 w-3.5" /> Cancel (Esc)
-                  </button>
-                </div>
-              </Panel>
-            )}
-
-            {focusPerson && (
-              <Panel position="top-center">
-                <div className="glass flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-2xl py-1.5 pl-4 pr-1.5 text-xs text-white shadow-glass ring-1 ring-white/25 sm:flex-nowrap sm:rounded-full sm:text-sm">
-                  <Crosshair className="h-4 w-4 shrink-0" />
-                  <span>
-                    Viewing <b>{focusPerson.name}</b>&rsquo;s family ·{" "}
-                    {Object.keys(visiblePeople).length} of{" "}
-                    {Object.keys(family.people).length} people
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setFocusId(undefined)}
-                    className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
-                  >
-                    <Maximize2 className="h-3.5 w-3.5" /> Show everyone
                   </button>
                 </div>
               </Panel>

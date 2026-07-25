@@ -24,7 +24,6 @@ interface Props {
   editable: boolean
   onSelect: (id: string) => void
   onAddRoot: () => void
-  onFocus: (id: string) => void
   onOpenSettings: () => void
   onClose: () => void
   collapsed: boolean
@@ -41,7 +40,6 @@ export function Sidebar({
   editable,
   onSelect,
   onAddRoot,
-  onFocus,
   onOpenSettings,
   onClose,
   collapsed,
@@ -154,7 +152,6 @@ export function Sidebar({
             allTrees={allTrees}
             person={editingPerson}
             onSelect={onSelect}
-            onFocus={onFocus}
             onClose={onClose}
           />
         ) : editingPerson ? (

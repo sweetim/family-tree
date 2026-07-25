@@ -26,7 +26,7 @@ Private folders are prefixed `_` so Next.js excludes them from routing.
 
 | Component | Location | Responsibility |
 |---|---|---|
-| `TreeView` | `_tree/TreeView.tsx:39` | Orchestrates React Flow. Manages sidebar state, focus view, click-to-connect (same cycle/eligibility rules as the sidebar), edge-click removal (with confirm), and delete-key handling (confirm "from ALL trees"). |
+| `TreeView` | `_tree/TreeView.tsx:39` | Orchestrates React Flow. Manages sidebar state, click-to-connect (same cycle/eligibility rules as the sidebar), edge-click removal (with confirm), and delete-key handling (confirm "from ALL trees"). |
 
 ### Sidebar
 

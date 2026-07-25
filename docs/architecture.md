@@ -77,7 +77,6 @@ active snapshots. See [state-and-sync.md](./state-and-sync.md).
 ```text
 GlobalState normalized maps
     -> projectTree(persons, relationships, treeId)
-    -> optional focusFamily(people, personId)
     -> buildFlow(people, settings)
     -> React Flow with PersonNode and UnionNode
 ```

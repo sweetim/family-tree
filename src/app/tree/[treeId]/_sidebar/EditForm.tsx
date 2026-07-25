@@ -1,6 +1,5 @@
 import {
   Baby,
-  Crosshair,
   GitMerge,
   Heart,
   Network,
@@ -48,7 +47,6 @@ export function EditForm({
   allTrees,
   person,
   onSelect,
-  onFocus,
   onClose,
 }: {
   family: FamilyStore
@@ -56,7 +54,6 @@ export function EditForm({
   allTrees: TreeMeta[]
   person: Person
   onSelect: (id: string) => void
-  onFocus: (id: string) => void
   onClose: () => void
 }) {
   const { people } = family
@@ -177,21 +174,11 @@ export function EditForm({
         onSubmit={handleSubmit}
         className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-soft"
       >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h2 className="text-base font-semibold tracking-tight text-slate-800">
-              Edit member
-            </h2>
-            <p className="text-xs text-slate-400">{person.name}</p>
-          </div>
-          <button
-            type="button"
-            title={`Show only ${person.name}'s blood relatives and their spouses`}
-            onClick={() => onFocus(person.id)}
-            className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-cobalt-50 px-3 py-1.5 text-xs font-medium text-cobalt-600 transition-colors hover:bg-cobalt-100"
-          >
-            <Crosshair className="h-3.5 w-3.5" /> View their family
-          </button>
+        <div>
+          <h2 className="text-base font-semibold tracking-tight text-slate-800">
+            Edit member
+          </h2>
+          <p className="text-xs text-slate-400">{person.name}</p>
         </div>
 
         <PersonFields

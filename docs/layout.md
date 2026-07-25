@@ -78,5 +78,5 @@ Defined at `src/lib/layout.ts:25`–`43`:
 `buildFlow` output is consumed by `<ReactFlow>` in `TreeView`
 (`src/app/tree/[treeId]/_tree/TreeView.tsx:39`), which registers `PersonNode` and
 `UnionNode` (see [components.md](./components.md)) as the node renderers. The
-optional `selectedId`/`linking` parameters drive focus-view and click-to-connect
+optional `selectedId`/`linking` parameters drive click-to-connect
 highlighting.
