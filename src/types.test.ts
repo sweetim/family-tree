@@ -6,8 +6,8 @@ import {
   type NormalizedRelationships,
   type PersonIdentity,
   projectTree,
+  projectTrees,
   unionIsCurrent,
-  withForeignParents,
 } from "./types"
 
 const timestamp = "2024-01-01T00:00:00.000Z"
@@ -87,6 +87,9 @@ const identities: Record<string, PersonIdentity> = {
   yumi: { id: "yumi", name: "Yumi" },
   kid: { id: "kid", name: "Kid" },
   parent: { id: "parent", name: "Foreign Parent" },
+  partner: { id: "partner", name: "Foreign Partner" },
+  child: { id: "child", name: "Foreign Child" },
+  relative: { id: "relative", name: "Foreign Relative" },
 }
 
 describe("normalized projection", () => {
@@ -174,12 +177,28 @@ describe("normalized projection", () => {
     expect(projectTree(identities, graph, "a").tim?.spouseIds).toEqual(["yumi"])
   })
 
-  test("show-all-families adds a direct parent associated to another tree", () => {
+  test("show-all-families includes all members and relationships from other trees", () => {
     const graph = relationships()
+    for (const personId of ["kid", "parent", "partner", "child", "relative"]) {
+      graph.treeMembers[JSON.stringify(["b", personId])] = {
+        treeId: "b",
+        personId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }
+    }
     graph.parentChildRelationships.foreign = {
       id: "foreign",
       parentPersonId: "parent",
       childPersonId: "kid",
+      type: "biological",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    graph.parentChildRelationships["foreign-child"] = {
+      id: "foreign-child",
+      parentPersonId: "parent",
+      childPersonId: "child",
       type: "biological",
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -190,18 +209,35 @@ describe("normalized projection", () => {
       createdAt: timestamp,
       updatedAt: timestamp,
     }
+    graph.treeParentChildRelationships['["b","foreign-child"]'] = {
+      treeId: "b",
+      parentChildRelationshipId: "foreign-child",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    graph.unions["foreign-union"] = {
+      id: "foreign-union",
+      firstPersonId: "parent",
+      secondPersonId: "partner",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    graph.treeUnions['["b","foreign-union"]'] = {
+      treeId: "b",
+      unionId: "foreign-union",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
 
-    const family = withForeignParents(
-      projectTree(identities, graph, "a"),
-      identities,
-      graph,
-      "a",
-    )
-    expect(family.parent?.name).toBe("Foreign Parent")
+    const family = projectTrees(identities, graph, ["a", "b"])
+
     expect(family.kid?.parents.map((link) => link.id)).toEqual([
       "tim",
       "parent",
     ])
+    expect(family.parent?.spouseIds).toEqual(["partner"])
+    expect(family.child?.parents.map((link) => link.id)).toEqual(["parent"])
+    expect(family.relative?.name).toBe("Foreign Relative")
   })
 
   test("uses deterministic ids when timestamps and event dates tie", () => {

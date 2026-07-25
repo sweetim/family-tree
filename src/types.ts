@@ -264,61 +264,33 @@ export function projectTree(
   return family
 }
 
-/** Add direct parents that are associated only with another accessible tree. */
-export function withForeignParents(
-  people: FamilyData,
+/** Merge the projected members and relationships from multiple trees. */
+export function projectTrees(
   identities: Record<string, PersonIdentity>,
   relationships: NormalizedRelationships,
-  treeId: string,
+  treeIds: string[],
 ): FamilyData {
   const output: FamilyData = {}
-  for (const [id, person] of Object.entries(people)) {
-    output[id] = {
-      ...person,
-      parents: [...person.parents],
-      spouseIds: [...person.spouseIds],
-      marriageDates: { ...person.marriageDates },
-    }
-  }
-
-  const currentAssociationIds = new Set(
-    Object.values(relationships.treeParentChildRelationships)
-      .filter((association) => association.treeId === treeId)
-      .map((association) => association.parentChildRelationshipId),
-  )
-  const foreignAssociations = Object.values(
-    relationships.treeParentChildRelationships,
-  )
-    .filter((association) => association.treeId !== treeId)
-    .sort(byCreatedAt)
-  const seenForeignAssociationIds = new Set<string>()
-
-  for (const association of foreignAssociations) {
-    const relationshipId = association.parentChildRelationshipId
-    if (seenForeignAssociationIds.has(relationshipId)) continue
-    seenForeignAssociationIds.add(relationshipId)
-    if (currentAssociationIds.has(relationshipId)) continue
-    const relationship = relationships.parentChildRelationships[relationshipId]
-    if (!relationship || !people[relationship.childPersonId]) continue
-    const parentIdentity = identities[relationship.parentPersonId]
-    if (!parentIdentity) continue
-    output[relationship.parentPersonId] ??= {
-      ...parentIdentity,
-      parents: [],
-      spouseIds: [],
-      marriageDates: {},
-    }
-    const child = output[relationship.childPersonId]
-    if (
-      child
-      && child.parents.length < 2
-      && !child.parents.some((link) => link.id === relationship.parentPersonId)
-    ) {
-      child.parents.push({
-        id: relationship.parentPersonId,
-        adopted: relationship.type === "adoptive" || undefined,
-        type: relationship.type,
-      })
+  for (const treeId of treeIds) {
+    for (const [id, person] of Object.entries(
+      projectTree(identities, relationships, treeId),
+    )) {
+      const existing = output[id]
+      if (!existing) {
+        output[id] = person
+        continue
+      }
+      for (const parent of person.parents) {
+        if (!existing.parents.some((link) => link.id === parent.id)) {
+          existing.parents.push(parent)
+        }
+      }
+      for (const spouseId of person.spouseIds) {
+        if (!existing.spouseIds.includes(spouseId)) {
+          existing.spouseIds.push(spouseId)
+        }
+      }
+      Object.assign(existing.marriageDates, person.marriageDates)
     }
   }
   return output

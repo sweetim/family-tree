@@ -25,11 +25,11 @@ import {
   type PersonIdentity,
   type PersonInput,
   projectTree,
+  projectTrees,
   type Relationship,
   type Union,
   type UnionEvent,
   unionIsCurrent,
-  withForeignParents,
 } from "./types"
 
 export type ShareRole = "viewer" | "editor"
@@ -1928,10 +1928,14 @@ export function useTreePeople(treeId: string | undefined): Person[] {
 export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
   return useMemo(() => {
-    const base = projectTree(graph.persons, graph, treeId)
-    return enabled
-      ? withForeignParents(base, graph.persons, graph, treeId)
-      : base
+    if (!enabled) return projectTree(graph.persons, graph, treeId)
+    const treeIds = [
+      treeId,
+      ...graph.index
+        .filter((tree) => tree.id !== treeId)
+        .map((tree) => tree.id),
+    ]
+    return projectTrees(graph.persons, graph, treeIds)
   }, [graph, treeId, enabled])
 }
 

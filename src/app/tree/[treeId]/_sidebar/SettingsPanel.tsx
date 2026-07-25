@@ -103,9 +103,8 @@ export function SettingsPanel({
             Show all families
           </span>
           <span className="block text-xs text-slate-500">
-            Render members&rsquo; parents from other trees inline. Off: a
-            cross-tree parent is hidden here and the child&rsquo;s card shows a
-            jump button to its family instead.
+            Render every accessible family&rsquo;s members and relationships on
+            this canvas. Off: show only this family.
           </span>
         </span>
         <input

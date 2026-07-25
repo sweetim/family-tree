@@ -14,9 +14,8 @@ export type ViewSettings = {
    */
   marriageYears: boolean
   /**
-   * Render members' parents that live in other trees inline on the canvas.
-   * Off (default): a cross-tree parent is not shown here — the child's card
-   * shows a jump button to the parent's family instead.
+   * Render every accessible family's members and relationships on one canvas.
+   * Off (default): only the current family's members are shown.
    */
   showAllFamilies: boolean
 }
