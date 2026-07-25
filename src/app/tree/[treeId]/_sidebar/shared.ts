@@ -20,6 +20,7 @@ export type SidebarState =
   | { mode: "marriage"; a: string; b: string }
   | { mode: "linkParent"; personId: string }
   | { mode: "linkSpouse"; personId: string }
+  | { mode: "linkChild"; personId: string }
   | { mode: "settings" }
 
 export type Fields = {

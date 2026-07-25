@@ -181,6 +181,10 @@ export function TreeView({
           setSidebar({ mode: "linkSpouse", personId: sourceId })
           setDrawerOpen(true)
           setSidebarHidden(false)
+        } else if (kind === "child") {
+          setSidebar({ mode: "linkChild", personId: sourceId })
+          setDrawerOpen(true)
+          setSidebarHidden(false)
         }
       },
       editMarriage: (a, b) => {

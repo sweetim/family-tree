@@ -2298,6 +2298,13 @@ export function useFamily(treeId: string) {
     [treeId],
   )
 
+  const linkChildAcrossTrees = useCallback(
+    (parentPersonId: string, otherTreeId: string, childPersonId: string) => {
+      linkParentAcrossTrees(childPersonId, otherTreeId, parentPersonId)
+    },
+    [linkParentAcrossTrees],
+  )
+
   const removeFromTree = useCallback(
     (personId: string, targetTreeId: string) => {
       update((previous) =>
@@ -2334,6 +2341,7 @@ export function useFamily(treeId: string) {
     setParentAdopted,
     linkAcrossTrees,
     linkParentAcrossTrees,
+    linkChildAcrossTrees,
     removeFromTree,
     replaceAll,
   }
