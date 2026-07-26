@@ -1030,6 +1030,14 @@ export async function postSync(request: Request): Promise<Response> {
   }
 
   const createdParentRelationshipIds = new Set<string>()
+  // Client-generated relationship ids that collided with a pre-existing active
+  // canonical row for the same (parent, child) pair, mapped to that canonical
+  // id so downstream association wires attach to the canonical relationship.
+  const parentRelationshipIdAlias = new Map<string, string>()
+  // Canonical relationship ids adopted (not created) in this push. Treated like
+  // created ids for association ACL gating, but excluded from orphan cleanup so
+  // a pre-existing canonical row is never deleted as a side effect.
+  const adoptedParentRelationshipIds = new Set<string>()
   for (const wire of body.parentChildRelationships) {
     if ("deletedAt" in wire) continue
     const updatedAt = wireTimestamp(wire)
@@ -1082,7 +1090,28 @@ export async function postSync(request: Request): Promise<Response> {
       } catch (error) {
         if (!isParentGraphConstraintError(error)) throw error
       }
-      if (inserted) createdParentRelationshipIds.add(wire.id)
+      if (inserted) {
+        createdParentRelationshipIds.add(wire.id)
+      } else {
+        // The insert was dropped by a conflict on the active (parent, child)
+        // partial unique index: a canonical active row for this pair already
+        // exists under a different id (typically an orphan left behind by a
+        // prior remove-parent). Adopt that canonical row so the link can
+        // attach and the orphan gets re-associated, rather than reporting the
+        // wire as skipped (which would wipe the optimistic link).
+        const canonical = await db.query.parentChildRelationships.findFirst({
+          where: and(
+            eq(parentChildRelationships.parentPersonId, wire.parentPersonId),
+            eq(parentChildRelationships.childPersonId, wire.childPersonId),
+            isNull(parentChildRelationships.deletedAt),
+          ),
+        })
+        if (canonical) {
+          parentRelationshipIdAlias.set(wire.id, canonical.id)
+          adoptedParentRelationshipIds.add(canonical.id)
+          inserted = true
+        }
+      }
       classify(applied, skipped, "parentChildRelationships", wire.id, inserted)
       continue
     }
@@ -1269,6 +1298,13 @@ export async function postSync(request: Request): Promise<Response> {
   const associatedParentRelationshipIds = new Set<string>()
   for (const wire of body.treeParentChildRelationships) {
     if ("deletedAt" in wire) continue
+    // The client may have generated a fresh relationship id that collided with
+    // a pre-existing canonical row; resolve to that canonical id so the
+    // association attaches to the real relationship. The dirty key reported
+    // back to the client still uses its original id.
+    const relationshipId =
+      parentRelationshipIdAlias.get(wire.parentChildRelationshipId)
+      ?? wire.parentChildRelationshipId
     const key = associationKey(wire.treeId, wire.parentChildRelationshipId)
     const updatedAt = wireTimestamp(wire)
     const createdAt = wireCreatedAt(wire)
@@ -1284,7 +1320,7 @@ export async function postSync(request: Request): Promise<Response> {
     }
     const relationship = await db.query.parentChildRelationships.findFirst({
       where: and(
-        eq(parentChildRelationships.id, wire.parentChildRelationshipId),
+        eq(parentChildRelationships.id, relationshipId),
         isNull(parentChildRelationships.deletedAt),
       ),
     })
@@ -1305,13 +1341,14 @@ export async function postSync(request: Request): Promise<Response> {
         eq(treeParentChildRelationships.treeId, wire.treeId),
         eq(
           treeParentChildRelationships.parentChildRelationshipId,
-          wire.parentChildRelationshipId,
+          relationshipId,
         ),
       ),
     })
     if (
       !existing
       && !createdParentRelationshipIds.has(relationship.id)
+      && !adoptedParentRelationshipIds.has(relationship.id)
       && !(await canWriteExistingParentRelationship(
         db,
         me.id,
@@ -1326,7 +1363,7 @@ export async function postSync(request: Request): Promise<Response> {
       .insert(treeParentChildRelationships)
       .values({
         treeId: wire.treeId,
-        parentChildRelationshipId: wire.parentChildRelationshipId,
+        parentChildRelationshipId: relationshipId,
         createdAt,
         updatedAt: updatedAt,
       })
@@ -1340,7 +1377,7 @@ export async function postSync(request: Request): Promise<Response> {
       })
       .returning({ treeId: treeParentChildRelationships.treeId })
     if (rows.length > 0) {
-      associatedParentRelationshipIds.add(wire.parentChildRelationshipId)
+      associatedParentRelationshipIds.add(relationship.id)
     }
     classify(
       applied,
