@@ -11,7 +11,14 @@ import {
   Users,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { type FormEvent, type ReactNode, useMemo, useState } from "react"
+import {
+  type FormEvent,
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import { authClient, useSession } from "../lib/auth-client"
 import {
   countMembers,
@@ -19,7 +26,6 @@ import {
   type TreeIndexStore,
   type TreeMeta,
   useHydrated,
-  usePersonSearch,
 } from "../store"
 import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
@@ -200,17 +206,35 @@ function PersonSearch({
   navigate: (to: string) => void
   treeNameById: Map<string, string>
 }) {
-  const results = usePersonSearch()
   const [query, setQuery] = useState("")
-  const trimmed = query.trim().toLowerCase()
-  const matches = useMemo(() => {
-    if (!trimmed) return []
-    return results
-      .filter((result) => result.name.toLowerCase().includes(trimmed))
-      .slice(0, 8)
-  }, [results, trimmed])
+  const deferredQuery = useDeferredValue(query.trim())
+  const [matches, setMatches] = useState<
+    Array<{ personId: string; name: string; treeId: string }>
+  >([])
 
-  if (results.length === 0) return null
+  useEffect(() => {
+    if (!deferredQuery) {
+      setMatches([])
+      return
+    }
+    const controller = new AbortController()
+    void fetch(
+      `/api/v2/people/search?query=${encodeURIComponent(deferredQuery)}`,
+      { credentials: "include", signal: controller.signal },
+    )
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`search failed: ${response.status}`)
+        return (await response.json()) as {
+          results: Array<{ personId: string; name: string; treeId: string }>
+        }
+      })
+      .then((body) => setMatches(body.results))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return
+        console.error(error)
+      })
+    return () => controller.abort()
+  }, [deferredQuery])
 
   return (
     <div className="relative mb-10">
@@ -327,7 +351,10 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
           </button>
         </form>
 
-        <PersonSearch navigate={navigate} treeNameById={treeNameById} />
+        <PersonSearch
+          navigate={navigate}
+          treeNameById={treeNameById}
+        />
 
         {trees.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-10 text-center shadow-soft">

@@ -142,9 +142,8 @@ Use two or three trees that reference the same person and relationships.
 | Merge duplicate people from writable trees | Relationships move to immutable replacement facts and survive reload. |
 | Delete a person globally | The person and all related memberships and facts disappear from every tree. |
 
-The Core UI currently edits marriage dates and biological/adoptive parent types.
-The schema supports additional union events and parent types, but their UI is not
-part of the Core scope.
+The UI currently edits marriage/divorce history and biological/adoptive parent
+types. The schema supports additional union events and parent types.
 
 ## Permission checks
 
@@ -159,14 +158,19 @@ Create separate owner, editor, and viewer development accounts.
 Also verify:
 
 - A viewer-only tree is not offered as a same-person merge source.
-- Revoking a share removes the tree after a new full pull or reload.
+- Revoking a share removes the tree after the next manifest refresh.
 - Switching directly between signed-in accounts clears the previous account's
   local store before loading the next account.
-- A rejected optimistic write is replaced by an authoritative full pull.
+- A conflicting optimistic write remains visible and marked `conflict`; editing
+  it again rebases on the authoritative server revision.
+- Reloading while offline preserves pending edits in IndexedDB and retries them
+  after connectivity returns.
+- Two tabs editing the same record produce an explicit revision conflict rather
+  than silently replacing local intent.
 
 ## Optional local PostgreSQL migration rehearsal
 
-The application uses the Neon HTTP driver, so `drizzle-kit migrate` is intended
+The application uses the Neon serverless Pool driver, so `drizzle-kit migrate` is intended
 for Neon-compatible databases. For a local PostgreSQL container, execute the SQL
 migrations directly with `psql`:
 

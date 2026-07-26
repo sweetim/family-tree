@@ -3,20 +3,31 @@ import type {
   ParentChildRelationshipWire,
   PersonPushWire,
   PersonWire,
+  SyncChangePage,
   LocalRole as SyncLocalRole,
+  SyncMutationResponse,
   SyncPullResponse,
   SyncPushRequest,
   SyncPushResponse,
   ShareRole as SyncShareRole,
+  TreeManifestItem,
+  TreeManifestResponse,
   TreeMemberWire,
   TreeParentChildRelationshipWire,
   TreePushWire,
+  TreeSnapshotResponse,
   TreeUnionWire,
   TreeWire,
   UnionEventWire,
   UnionWire,
 } from "../sync/types"
 import type { NormalizedRelationships, PersonIdentity } from "../types"
+import {
+  loadPersistedStore,
+  type PersistedConflict,
+  type PersistedStore,
+  savePersistedStore,
+} from "./persistence"
 
 export type ShareRole = SyncShareRole
 export type LocalRole = SyncLocalRole
@@ -26,6 +37,11 @@ export type TreeMeta = {
   name: string
   createdAt: string
   updatedAt?: string
+  revision?: number
+  syncVersion?: number
+  memberCount?: number
+  loaded?: boolean
+  cursor?: string
   ownerId?: string
   ownerEmail?: string | null
   role?: LocalRole
@@ -35,6 +51,8 @@ export type GlobalState = NormalizedRelationships & {
   persons: Record<string, PersonIdentity>
   index: TreeMeta[]
 }
+
+export type SyncStatus = "saved" | "saving" | "offline" | "conflict"
 
 const RECORD_COLLECTIONS = [
   "persons",
@@ -49,14 +67,24 @@ const RECORD_COLLECTIONS = [
 
 export type DirtyCollection = (typeof RECORD_COLLECTIONS)[number]
 export type DirtyAction = "upsert" | "delete"
-export type DirtyRecord = { action: DirtyAction; revision: number }
+export type DirtyRecord = {
+  action: DirtyAction
+  revision: number
+  baseRevision?: number
+  blocked?: boolean
+  operationId?: string
+  sourceId?: string
+  changedAt?: number
+}
 export type DirtyMap = Map<string, DirtyRecord>
 export type DirtyState = Record<DirtyCollection, DirtyMap>
-type TombstoneClocks = Record<DirtyCollection, Map<string, string>>
+type TombstoneClock = { updatedAt: string; revision?: number }
+type TombstoneClocks = Record<DirtyCollection, Map<string, TombstoneClock>>
 
 const EPOCH = "1970-01-01T00:00:00.000Z"
 const STORED_PHOTO_MARKER = "stored-photo"
-const MAX_SYNC_BATCH_RECORDS = 1_000
+const MAX_SYNC_BATCH_RECORDS = 5_000
+const MAX_SYNC_RECORDS_PER_COLLECTION = 2_000
 const MAX_SYNC_BATCH_BYTES = 4 * 1024 * 1024
 
 export function isStoredPhotoMarker(value: string | undefined): boolean {
@@ -144,20 +172,114 @@ let nextRevision = 1
 let storeGeneration = 0
 let pushInFlight: Promise<void> | undefined
 let pushInFlightGeneration = -1
+const treeSyncInFlight = new Map<string, Promise<void>>()
+let deviceId = newId()
+const storeInstanceId = newId()
+const mutationIdsByBatch = new Map<string, string>()
+const clearedDirtyTokens = new Set<string>()
+let syncConflicts: PersistedConflict[] = []
+const clearedConflictIds = new Set<string>()
+let persistenceUserId: string | null = null
+let persistenceScheduled = false
+let persistenceWrite = Promise.resolve()
+let persistenceRestore: Promise<void> | undefined
+let persistenceRestoreUserId: string | null = null
+let persistenceRestoreToken = 0
+
+function persistedSnapshot(): PersistedStore {
+  return {
+    state,
+    dirty: Object.fromEntries(
+      RECORD_COLLECTIONS.map((collection) => [
+        collection,
+        [...dirtyState[collection]],
+      ]),
+    ) as PersistedStore["dirty"],
+    deviceId,
+    mutationIdsByBatch: [...mutationIdsByBatch],
+    nextRevision,
+    clearedDirtyTokens: [...clearedDirtyTokens],
+    conflicts: syncConflicts,
+    clearedConflictIds: [...clearedConflictIds],
+  }
+}
+
+function persistCurrentStore(): Promise<void> {
+  const userId = persistenceUserId
+  if (!userId) return Promise.resolve()
+  const snapshot = persistedSnapshot()
+  persistenceWrite = persistenceWrite
+    .catch(() => undefined)
+    .then(async () => {
+      const persisted = await savePersistedStore(userId, snapshot)
+      if (!persisted || persistenceUserId !== userId) return
+      syncConflicts = persisted.conflicts ?? []
+      for (const collection of RECORD_COLLECTIONS) {
+        const merged = new Map(persisted.dirty[collection] ?? [])
+        for (const [id, current] of dirtyState[collection]) {
+          const stored = merged.get(id)
+          if (!stored) continue
+          if (
+            stored.sourceId === current.sourceId
+            && stored.revision === current.revision
+            && stored.blocked
+          ) {
+            dirtyState[collection].set(id, { ...current, blocked: true })
+          }
+        }
+      }
+      setSyncStatus(statusFromDirtyState())
+      for (const listener of listeners) listener()
+    })
+  return persistenceWrite
+}
+
+function schedulePersistence(): void {
+  if (!persistenceUserId || persistenceScheduled) return
+  persistenceScheduled = true
+  queueMicrotask(() => {
+    persistenceScheduled = false
+    void persistCurrentStore().catch((error) =>
+      console.error("failed to persist sync outbox", error),
+    )
+  })
+}
 
 function markDirty(
   collection: DirtyCollection,
   id: string,
   action: DirtyAction,
+  baseRevision?: number,
+  operationId?: string,
 ): void {
-  dirtyState[collection].set(id, { action, revision: nextRevision++ })
+  dirtyState[collection].set(id, {
+    action,
+    revision: nextRevision++,
+    baseRevision: dirtyState[collection].get(id)?.blocked
+      ? baseRevision
+      : (dirtyState[collection].get(id)?.baseRevision ?? baseRevision),
+    operationId,
+    sourceId: storeInstanceId,
+    changedAt: Date.now(),
+  })
 }
 
-function stampRecordMap<T extends { updatedAt: string }>(
+function dirtyToken(
+  collection: DirtyCollection,
+  id: string,
+  record: DirtyRecord,
+): string | undefined {
+  return record.sourceId
+    ? JSON.stringify([collection, id, record.sourceId, record.revision])
+    : undefined
+}
+
+function stampRecordMap<T extends { updatedAt: string; revision?: number }>(
   previous: Record<string, T>,
   next: Record<string, T>,
   collection: Exclude<DirtyCollection, "persons" | "trees">,
   now: string,
+  operationId: string,
 ): Record<string, T> {
   if (previous === next) return next
   let stamped = next
@@ -169,10 +291,12 @@ function stampRecordMap<T extends { updatedAt: string }>(
       cloned = true
     }
     stamped[id] = { ...record, updatedAt: now }
-    markDirty(collection, id, "upsert")
+    markDirty(collection, id, "upsert", previous[id]?.revision, operationId)
   }
   for (const id of Object.keys(previous)) {
-    if (!next[id]) markDirty(collection, id, "delete")
+    if (!next[id]) {
+      markDirty(collection, id, "delete", previous[id]?.revision, operationId)
+    }
   }
   return stamped
 }
@@ -183,7 +307,57 @@ export function stampAndEnqueue(
   next: GlobalState,
 ): GlobalState {
   if (previous === next) return next
+  const changedValues = <T>(
+    previousRecords: Record<string, T>,
+    nextRecords: Record<string, T>,
+  ): unknown[] => [
+    ...Object.entries(nextRecords)
+      .filter(([id, record]) => record !== previousRecords[id])
+      .map(([, record]) => record),
+    ...Object.keys(previousRecords)
+      .filter((id) => !nextRecords[id])
+      .map((id) => ({ id, deleted: true })),
+  ]
+  const previousTrees = Object.fromEntries(
+    previous.index.map((tree) => [tree.id, tree]),
+  )
+  const nextTrees = Object.fromEntries(
+    next.index.map((tree) => [tree.id, tree]),
+  )
+  const operationCollections = [
+    changedValues(previous.persons, next.persons),
+    changedValues(previousTrees, nextTrees),
+    changedValues(previous.treeMembers, next.treeMembers),
+    changedValues(previous.unions, next.unions),
+    changedValues(previous.unionEvents, next.unionEvents),
+    changedValues(previous.treeUnions, next.treeUnions),
+    changedValues(
+      previous.parentChildRelationships,
+      next.parentChildRelationships,
+    ),
+    changedValues(
+      previous.treeParentChildRelationships,
+      next.treeParentChildRelationships,
+    ),
+  ]
+  const operationRecordCount = operationCollections.reduce(
+    (total, records) => total + records.length,
+    0,
+  )
+  const operationBytes = new TextEncoder().encode(
+    JSON.stringify(operationCollections),
+  ).byteLength
+  if (
+    operationCollections.some(
+      (records) => records.length > MAX_SYNC_RECORDS_PER_COLLECTION,
+    )
+    || operationRecordCount > MAX_SYNC_BATCH_RECORDS
+    || operationBytes > MAX_SYNC_BATCH_BYTES
+  ) {
+    throw new Error("This change is too large to synchronize atomically.")
+  }
   const now = new Date().toISOString()
+  const operationId = newId()
 
   let persons = next.persons
   if (previous.persons !== next.persons) {
@@ -195,10 +369,24 @@ export function stampAndEnqueue(
         cloned = true
       }
       persons[id] = { ...person, updatedAt: now }
-      markDirty("persons", id, "upsert")
+      markDirty(
+        "persons",
+        id,
+        "upsert",
+        previous.persons[id]?.revision,
+        operationId,
+      )
     }
     for (const id of Object.keys(previous.persons)) {
-      if (!next.persons[id]) markDirty("persons", id, "delete")
+      if (!next.persons[id]) {
+        markDirty(
+          "persons",
+          id,
+          "delete",
+          previous.persons[id]?.revision,
+          operationId,
+        )
+      }
     }
   }
 
@@ -216,11 +404,19 @@ export function stampAndEnqueue(
         cloned = true
       }
       index[position] = { ...tree, updatedAt: now }
-      markDirty("trees", tree.id, "upsert")
+      markDirty(
+        "trees",
+        tree.id,
+        "upsert",
+        previousById.get(tree.id)?.revision,
+        operationId,
+      )
     }
     const nextIds = new Set(next.index.map((tree) => tree.id))
     for (const tree of previous.index) {
-      if (!nextIds.has(tree.id)) markDirty("trees", tree.id, "delete")
+      if (!nextIds.has(tree.id)) {
+        markDirty("trees", tree.id, "delete", tree.revision, operationId)
+      }
     }
   }
 
@@ -233,31 +429,42 @@ export function stampAndEnqueue(
       next.treeMembers,
       "treeMembers",
       now,
+      operationId,
     ),
-    unions: stampRecordMap(previous.unions, next.unions, "unions", now),
+    unions: stampRecordMap(
+      previous.unions,
+      next.unions,
+      "unions",
+      now,
+      operationId,
+    ),
     unionEvents: stampRecordMap(
       previous.unionEvents,
       next.unionEvents,
       "unionEvents",
       now,
+      operationId,
     ),
     treeUnions: stampRecordMap(
       previous.treeUnions,
       next.treeUnions,
       "treeUnions",
       now,
+      operationId,
     ),
     parentChildRelationships: stampRecordMap(
       previous.parentChildRelationships,
       next.parentChildRelationships,
       "parentChildRelationships",
       now,
+      operationId,
     ),
     treeParentChildRelationships: stampRecordMap(
       previous.treeParentChildRelationships,
       next.treeParentChildRelationships,
       "treeParentChildRelationships",
       now,
+      operationId,
     ),
   }
 }
@@ -267,6 +474,28 @@ type UpdateOptions = { remote?: boolean }
 const listeners = new Set<() => void>()
 let hydrated = false
 let notificationsSuppressed = false
+let syncStatus: SyncStatus = "saved"
+
+function setSyncStatus(value: SyncStatus): void {
+  if (syncStatus === value) return
+  syncStatus = value
+  for (const listener of listeners) listener()
+}
+
+function statusFromDirtyState(): SyncStatus {
+  if (
+    RECORD_COLLECTIONS.some((collection) =>
+      [...dirtyState[collection].values()].some((record) => record.blocked),
+    )
+  ) {
+    return "conflict"
+  }
+  return RECORD_COLLECTIONS.some(
+    (collection) => dirtyState[collection].size > 0,
+  )
+    ? "saving"
+    : "saved"
+}
 
 export function update(
   updater: (previous: GlobalState) => GlobalState,
@@ -279,6 +508,8 @@ export function update(
   if (!notificationsSuppressed) {
     for (const listener of listeners) listener()
   }
+  schedulePersistence()
+  if (!options?.remote) setSyncStatus("saving")
   if (!options?.remote) void pushDirty()
 }
 
@@ -300,10 +531,15 @@ export function takeDirtyBatch(
   maximumRecords: number,
 ): DirtyState {
   const batch = emptyDirtyState()
+  const targetOperationId = RECORD_COLLECTIONS.flatMap((collection) => [
+    ...source[collection].values(),
+  ]).find((record) => !record.blocked)?.operationId
   let remaining = maximumRecords
   for (const collection of RECORD_COLLECTIONS) {
     if (remaining === 0) break
     for (const [id, record] of source[collection]) {
+      if (record.blocked) continue
+      if (record.operationId !== targetOperationId) continue
       batch[collection].set(id, record)
       remaining--
       if (remaining === 0) break
@@ -321,10 +557,166 @@ export function clearDirty(ids: DirtyIds, shipped?: DirtyState): void {
       const current = dirtyState[collection].get(id)
       const sent = shipped?.[collection].get(id)
       if (!shipped || (current && sent && current.revision === sent.revision)) {
+        if (current) {
+          const token = dirtyToken(collection, id, current)
+          if (token) clearedDirtyTokens.add(token)
+        }
         dirtyState[collection].delete(id)
       }
     }
   }
+  schedulePersistence()
+}
+
+function acknowledgeApplied(
+  result: SyncPushResponse,
+  shipped: DirtyState,
+): void {
+  const acknowledgedRevisions = Object.fromEntries(
+    RECORD_COLLECTIONS.map((collection) => [
+      collection,
+      new Map<string, number>(),
+    ]),
+  ) as Record<DirtyCollection, Map<string, number>>
+
+  for (const collection of RECORD_COLLECTIONS) {
+    for (const id of result.applied[collection]) {
+      const sent = shipped[collection].get(id)
+      if (!sent) continue
+      const revision = (sent.baseRevision ?? 0) + 1
+      acknowledgedRevisions[collection].set(id, revision)
+      const pending = dirtyState[collection].get(id)
+      if (pending && pending.revision !== sent.revision) {
+        dirtyState[collection].set(id, { ...pending, baseRevision: revision })
+      }
+    }
+  }
+
+  update(
+    (previous) => {
+      let persons = previous.persons
+      for (const [id, revision] of acknowledgedRevisions.persons) {
+        const person = persons[id]
+        if (!person) continue
+        if (persons === previous.persons) persons = { ...persons }
+        persons[id] = { ...person, revision, updatedAt: result.serverTime }
+      }
+
+      let index = previous.index
+      for (const [id, revision] of acknowledgedRevisions.trees) {
+        const position = index.findIndex((tree) => tree.id === id)
+        if (position < 0) continue
+        if (index === previous.index) index = [...index]
+        const tree = index[position]
+        if (tree) {
+          index[position] = { ...tree, revision, updatedAt: result.serverTime }
+        }
+      }
+
+      const stampCollection = <
+        T extends { revision?: number; updatedAt: string },
+      >(
+        records: Record<string, T>,
+        collection: Exclude<DirtyCollection, "persons" | "trees">,
+      ): Record<string, T> => {
+        let next = records
+        for (const [id, revision] of acknowledgedRevisions[collection]) {
+          const record = next[id]
+          if (!record) continue
+          if (next === records) next = { ...records }
+          next[id] = { ...record, revision, updatedAt: result.serverTime }
+        }
+        return next
+      }
+
+      return {
+        ...previous,
+        persons,
+        index,
+        treeMembers: stampCollection(previous.treeMembers, "treeMembers"),
+        unions: stampCollection(previous.unions, "unions"),
+        unionEvents: stampCollection(previous.unionEvents, "unionEvents"),
+        treeUnions: stampCollection(previous.treeUnions, "treeUnions"),
+        parentChildRelationships: stampCollection(
+          previous.parentChildRelationships,
+          "parentChildRelationships",
+        ),
+        treeParentChildRelationships: stampCollection(
+          previous.treeParentChildRelationships,
+          "treeParentChildRelationships",
+        ),
+      }
+    },
+    { remote: true },
+  )
+}
+
+function applyAliases(result: SyncPushResponse): void {
+  const aliases = result.aliases?.parentChildRelationships
+  if (!aliases || Object.keys(aliases).length === 0) return
+
+  update(
+    (previous) => {
+      const parentChildRelationships = { ...previous.parentChildRelationships }
+      const treeParentChildRelationships = {
+        ...previous.treeParentChildRelationships,
+      }
+      for (const [clientId, canonical] of Object.entries(aliases)) {
+        const local = parentChildRelationships[clientId]
+        if (local) {
+          delete parentChildRelationships[clientId]
+          parentChildRelationships[canonical.id] = {
+            ...local,
+            id: canonical.id,
+            revision: canonical.revision,
+            type: canonical.type,
+            updatedAt: result.serverTime,
+          }
+        }
+        const dirtyFact = dirtyState.parentChildRelationships.get(clientId)
+        if (dirtyFact) {
+          dirtyState.parentChildRelationships.delete(clientId)
+          dirtyState.parentChildRelationships.set(canonical.id, {
+            ...dirtyFact,
+            baseRevision: canonical.revision,
+          })
+        }
+        for (const [key, association] of Object.entries(
+          treeParentChildRelationships,
+        )) {
+          if (association.parentChildRelationshipId !== clientId) continue
+          delete treeParentChildRelationships[key]
+          const canonicalKey = treeParentChildRelationshipKey(
+            association.treeId,
+            canonical.id,
+          )
+          treeParentChildRelationships[canonicalKey] = {
+            ...association,
+            parentChildRelationshipId: canonical.id,
+            revision:
+              result.aliases?.treeParentChildRelationships?.[key]?.revision
+              ?? association.revision,
+            updatedAt: result.serverTime,
+          }
+          const dirtyAssociation =
+            dirtyState.treeParentChildRelationships.get(key)
+          if (dirtyAssociation) {
+            dirtyState.treeParentChildRelationships.delete(key)
+            dirtyState.treeParentChildRelationships.set(
+              canonicalKey,
+              dirtyAssociation,
+            )
+          }
+        }
+      }
+      return {
+        ...previous,
+        parentChildRelationships,
+        treeParentChildRelationships,
+      }
+    },
+    { remote: true },
+  )
 }
 
 function actionFor(dirty: DirtyMap, id: string): DirtyAction | undefined {
@@ -340,7 +732,12 @@ export function buildPushWires(
   for (const id of dirty.persons.keys()) {
     const person = snapshot.persons[id]
     if (actionFor(dirty.persons, id) === "delete" || !person) {
-      persons.push({ id, updatedAt: now, deletedAt: now })
+      persons.push({
+        id,
+        revision: dirty.persons.get(id)?.baseRevision,
+        updatedAt: now,
+        deletedAt: now,
+      })
     } else {
       persons.push({
         id,
@@ -349,6 +746,7 @@ export function buildPushWires(
         dod: person.dod,
         gender: person.gender,
         location: person.location,
+        revision: person.revision,
         ...(isStoredPhotoMarker(person.photo)
           ? {}
           : { photo: person.photo ?? null }),
@@ -361,12 +759,18 @@ export function buildPushWires(
   for (const id of dirty.trees.keys()) {
     const tree = snapshot.index.find((candidate) => candidate.id === id)
     if (actionFor(dirty.trees, id) === "delete" || !tree) {
-      trees.push({ id, updatedAt: now, deletedAt: now })
+      trees.push({
+        id,
+        revision: dirty.trees.get(id)?.baseRevision,
+        updatedAt: now,
+        deletedAt: now,
+      })
     } else {
       trees.push({
         id,
         name: tree.name,
         createdAt: tree.createdAt,
+        revision: tree.revision,
         updatedAt: tree.updatedAt ?? now,
       })
     }
@@ -377,7 +781,13 @@ export function buildPushWires(
     const record = snapshot.treeMembers[id]
     if (actionFor(dirty.treeMembers, id) === "delete" || !record) {
       const [treeId, personId] = parseAssociationKey(id)
-      treeMembers.push({ treeId, personId, updatedAt: now, deletedAt: now })
+      treeMembers.push({
+        treeId,
+        personId,
+        revision: dirty.treeMembers.get(id)?.baseRevision,
+        updatedAt: now,
+        deletedAt: now,
+      })
     } else treeMembers.push(record)
   }
 
@@ -386,7 +796,12 @@ export function buildPushWires(
     const record = snapshot.unions[id]
     unions.push(
       actionFor(dirty.unions, id) === "delete" || !record
-        ? { id, updatedAt: now, deletedAt: now }
+        ? {
+            id,
+            revision: dirty.unions.get(id)?.baseRevision,
+            updatedAt: now,
+            deletedAt: now,
+          }
         : record,
     )
   }
@@ -396,7 +811,12 @@ export function buildPushWires(
     const record = snapshot.unionEvents[id]
     unionEvents.push(
       actionFor(dirty.unionEvents, id) === "delete" || !record
-        ? { id, updatedAt: now, deletedAt: now }
+        ? {
+            id,
+            revision: dirty.unionEvents.get(id)?.baseRevision,
+            updatedAt: now,
+            deletedAt: now,
+          }
         : record,
     )
   }
@@ -406,7 +826,13 @@ export function buildPushWires(
     const record = snapshot.treeUnions[id]
     if (actionFor(dirty.treeUnions, id) === "delete" || !record) {
       const [treeId, unionId] = parseAssociationKey(id)
-      treeUnions.push({ treeId, unionId, updatedAt: now, deletedAt: now })
+      treeUnions.push({
+        treeId,
+        unionId,
+        revision: dirty.treeUnions.get(id)?.baseRevision,
+        updatedAt: now,
+        deletedAt: now,
+      })
     } else treeUnions.push(record)
   }
 
@@ -415,7 +841,12 @@ export function buildPushWires(
     const record = snapshot.parentChildRelationships[id]
     parentChildRelationships.push(
       actionFor(dirty.parentChildRelationships, id) === "delete" || !record
-        ? { id, updatedAt: now, deletedAt: now }
+        ? {
+            id,
+            revision: dirty.parentChildRelationships.get(id)?.baseRevision,
+            updatedAt: now,
+            deletedAt: now,
+          }
         : record,
     )
   }
@@ -431,6 +862,7 @@ export function buildPushWires(
       treeParentChildRelationships.push({
         treeId,
         parentChildRelationshipId,
+        revision: dirty.treeParentChildRelationships.get(id)?.baseRevision,
         updatedAt: now,
         deletedAt: now,
       })
@@ -466,6 +898,56 @@ function hasAcknowledgedIds(
   )
 }
 
+function dirtyBatchKey(dirty: DirtyState): string {
+  return JSON.stringify(
+    RECORD_COLLECTIONS.flatMap((collection) =>
+      [...dirty[collection]].map(([id, record]) => [
+        collection,
+        id,
+        record.revision,
+      ]),
+    ),
+  )
+}
+
+function firstPendingOperation(source: DirtyState): string | undefined {
+  return RECORD_COLLECTIONS.flatMap((collection) => [
+    ...source[collection].values(),
+  ]).find((record) => !record.blocked)?.operationId
+}
+
+function operationExceedsRecordLimits(
+  source: DirtyState,
+  operationId: string | undefined,
+): boolean {
+  let total = 0
+  for (const collection of RECORD_COLLECTIONS) {
+    const count = [...source[collection].values()].filter(
+      (record) => !record.blocked && record.operationId === operationId,
+    ).length
+    if (count > MAX_SYNC_RECORDS_PER_COLLECTION) return true
+    total += count
+  }
+  return total > MAX_SYNC_BATCH_RECORDS
+}
+
+function blockOperation(
+  source: DirtyState,
+  operationId: string | undefined,
+): void {
+  for (const collection of RECORD_COLLECTIONS) {
+    for (const [id, sent] of source[collection]) {
+      if (sent.operationId !== operationId) continue
+      const current = dirtyState[collection].get(id)
+      if (current?.revision === sent.revision) {
+        dirtyState[collection].set(id, { ...current, blocked: true })
+      }
+    }
+  }
+  schedulePersistence()
+  setSyncStatus("conflict")
+}
+
 export async function fetchFullPull(): Promise<SyncPullResponse> {
   const response = await fetch(`/api/sync?since=${encodeURIComponent(EPOCH)}`, {
     credentials: "include",
@@ -474,42 +956,289 @@ export async function fetchFullPull(): Promise<SyncPullResponse> {
   return (await response.json()) as SyncPullResponse
 }
 
+export async function fetchTreeManifest(): Promise<TreeManifestItem[]> {
+  const trees: TreeManifestItem[] = []
+  let cursor: string | undefined
+  do {
+    const parameters = new URLSearchParams({ limit: "100" })
+    if (cursor) parameters.set("cursor", cursor)
+    const response = await fetch(`/api/v2/trees?${parameters}`, {
+      credentials: "include",
+    })
+    if (!response.ok)
+      throw new Error(`tree manifest failed: ${response.status}`)
+    const page = (await response.json()) as TreeManifestResponse
+    trees.push(...page.trees)
+    cursor = page.nextCursor
+  } while (cursor)
+  return trees
+}
+
+export function applyTreeManifest(manifest: TreeManifestItem[]): void {
+  const remoteIds = new Set(manifest.map((tree) => tree.id))
+  const pendingTreeIds = new Set(dirtyState.trees.keys())
+  update(
+    (previous) => {
+      const localById = new Map(previous.index.map((tree) => [tree.id, tree]))
+      return {
+        ...previous,
+        index: [
+          ...manifest.map((tree) => {
+            const local = localById.get(tree.id)
+            const pending = dirtyState.trees.get(tree.id)
+            return {
+              ...local,
+              ...tree,
+              ...(pending?.action === "upsert" && local
+                ? { name: local.name }
+                : {}),
+              loaded: local?.loaded,
+              cursor: local?.cursor,
+            }
+          }),
+          ...previous.index.filter(
+            (tree) => !remoteIds.has(tree.id) && pendingTreeIds.has(tree.id),
+          ),
+        ],
+      }
+    },
+    { remote: true },
+  )
+}
+
+export async function fetchTreeSnapshot(
+  treeId: string,
+  focusPersonId?: string,
+): Promise<TreeSnapshotResponse> {
+  const path = focusPersonId
+    ? `/api/v2/trees/${encodeURIComponent(treeId)}/graph?focusPersonId=${encodeURIComponent(focusPersonId)}&radius=3`
+    : `/api/v2/trees/${encodeURIComponent(treeId)}/snapshot`
+  const response = await fetch(path, { credentials: "include" })
+  if (!response.ok) {
+    throw Object.assign(new Error(`tree snapshot failed: ${response.status}`), {
+      status: response.status,
+    })
+  }
+  return (await response.json()) as TreeSnapshotResponse
+}
+
+export async function deleteTreeOnServer(treeId: string): Promise<void> {
+  const generation = storeGeneration
+  const tree = state.index.find((candidate) => candidate.id === treeId)
+  if (!tree?.revision) throw new Error("tree is not synchronized")
+  const timestamp = new Date().toISOString()
+  const retryKey = `tree-delete:${treeId}:${tree.revision}`
+  const mutationId = mutationIdsByBatch.get(retryKey) ?? newId()
+  mutationIdsByBatch.set(retryKey, mutationId)
+  await persistCurrentStore()
+  const records: SyncPushRequest = {
+    persons: [],
+    trees: [
+      {
+        id: treeId,
+        revision: tree.revision,
+        updatedAt: timestamp,
+        deletedAt: timestamp,
+      },
+    ],
+    treeMembers: [],
+    unions: [],
+    unionEvents: [],
+    treeUnions: [],
+    parentChildRelationships: [],
+    treeParentChildRelationships: [],
+  }
+  const response = await fetch("/api/v2/mutations", {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      protocolVersion: 2,
+      deviceId,
+      mutationId,
+      records,
+    }),
+  })
+  if (generation !== storeGeneration) {
+    throw new Error("account changed during tree deletion")
+  }
+  if (!response.ok) throw new Error(`delete failed: ${response.status}`)
+  mutationIdsByBatch.delete(retryKey)
+  schedulePersistence()
+}
+
+export function applyTreeSnapshot(snapshot: TreeSnapshotResponse): void {
+  if (!snapshot.partial) {
+    update(
+      (previous) => ({
+        ...previous,
+        treeMembers: Object.fromEntries(
+          Object.entries(previous.treeMembers).filter(
+            ([key, record]) =>
+              record.treeId !== snapshot.tree.id
+              || dirtyState.treeMembers.has(key),
+          ),
+        ),
+        treeUnions: Object.fromEntries(
+          Object.entries(previous.treeUnions).filter(
+            ([key, record]) =>
+              record.treeId !== snapshot.tree.id
+              || dirtyState.treeUnions.has(key),
+          ),
+        ),
+        treeParentChildRelationships: Object.fromEntries(
+          Object.entries(previous.treeParentChildRelationships).filter(
+            ([key, record]) =>
+              record.treeId !== snapshot.tree.id
+              || dirtyState.treeParentChildRelationships.has(key),
+          ),
+        ),
+      }),
+      { remote: true },
+    )
+  }
+  applyRemote({ ...snapshot.records, trees: [snapshot.tree] })
+  update(
+    (previous) => ({
+      ...previous,
+      index: previous.index.map((tree) =>
+        tree.id === snapshot.tree.id
+          ? {
+              ...tree,
+              syncVersion: snapshot.syncVersion,
+              cursor: snapshot.cursor,
+              loaded: tree.loaded || !snapshot.partial,
+            }
+          : tree,
+      ),
+    }),
+    { remote: true },
+  )
+}
+
+async function runTreeSynchronization(treeId: string): Promise<void> {
+  const generation = storeGeneration
+  let cursor = state.index.find((tree) => tree.id === treeId)?.cursor
+  if (!cursor) {
+    const snapshot = await fetchTreeSnapshot(treeId)
+    if (generation === storeGeneration) applyTreeSnapshot(snapshot)
+    return
+  }
+  let hasMore = true
+  while (hasMore) {
+    const parameters = new URLSearchParams({ treeId, cursor, limit: "100" })
+    const response = await fetch(`/api/v2/changes?${parameters}`, {
+      credentials: "include",
+    })
+    if (generation !== storeGeneration) return
+    if (response.status === 404) {
+      const manifest = await fetchTreeManifest()
+      if (generation === storeGeneration) applyTreeManifest(manifest)
+      return
+    }
+    if (response.status === 410) {
+      const snapshot = await fetchTreeSnapshot(treeId)
+      if (generation === storeGeneration) applyTreeSnapshot(snapshot)
+      return
+    }
+    if (!response.ok) throw new Error(`changes failed: ${response.status}`)
+    const page = (await response.json()) as SyncChangePage
+    if (generation !== storeGeneration) return
+    for (const change of page.changes) applyRemote(change.records)
+    cursor = page.cursor
+    hasMore = page.hasMore
+    update(
+      (previous) => ({
+        ...previous,
+        index: previous.index.map((tree) =>
+          tree.id === treeId
+            ? {
+                ...tree,
+                cursor: page.cursor,
+                syncVersion: page.changes.at(-1)?.version ?? tree.syncVersion,
+              }
+            : tree,
+        ),
+      }),
+      { remote: true },
+    )
+  }
+}
+
+export function synchronizeTree(treeId: string): Promise<void> {
+  const existing = treeSyncInFlight.get(treeId)
+  if (existing) return existing
+  const synchronization = runTreeSynchronization(treeId).finally(() => {
+    if (treeSyncInFlight.get(treeId) === synchronization) {
+      treeSyncInFlight.delete(treeId)
+    }
+  })
+  treeSyncInFlight.set(treeId, synchronization)
+  return synchronization
+}
+
 async function runPushLoop(generation: number): Promise<void> {
   let authoritativePullNeeded = false
   while (generation === storeGeneration) {
     const pending = snapshotDirty()
-    let maximumRecords = MAX_SYNC_BATCH_RECORDS
-    let dirty = takeDirtyBatch(pending, maximumRecords)
-    let request = buildPushWires(state, dirty, new Date().toISOString())
+    const operationId = firstPendingOperation(pending)
+    if (operationExceedsRecordLimits(pending, operationId)) {
+      blockOperation(pending, operationId)
+      return
+    }
+    const dirty = takeDirtyBatch(pending, MAX_SYNC_BATCH_RECORDS)
+    const request = buildPushWires(state, dirty, new Date().toISOString())
     if (
       RECORD_COLLECTIONS.every((collection) => request[collection].length === 0)
     ) {
       return
     }
-    let serializedRequest = JSON.stringify(request)
-    while (
+    const serializedRequest = JSON.stringify(request)
+    if (
       new TextEncoder().encode(serializedRequest).byteLength
-        > MAX_SYNC_BATCH_BYTES
-      && maximumRecords > 1
+      > MAX_SYNC_BATCH_BYTES
     ) {
-      maximumRecords = Math.max(1, Math.floor(maximumRecords / 2))
-      dirty = takeDirtyBatch(pending, maximumRecords)
-      request = buildPushWires(state, dirty, new Date().toISOString())
-      serializedRequest = JSON.stringify(request)
+      blockOperation(pending, operationId)
+      return
     }
+    const batchKey = dirtyBatchKey(dirty)
+    const mutationId = mutationIdsByBatch.get(batchKey) ?? newId()
+    mutationIdsByBatch.set(batchKey, mutationId)
 
     try {
-      const response = await fetch("/api/sync", {
+      await persistCurrentStore()
+      const response = await fetch("/api/v2/mutations", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: serializedRequest,
+        body: JSON.stringify({
+          protocolVersion: 2,
+          deviceId,
+          mutationId,
+          records: request,
+        }),
       })
-      if (!response.ok) throw new Error(`push failed: ${response.status}`)
-      const result = (await response.json()) as SyncPushResponse
+      const result = (await response.json()) as SyncMutationResponse
+      if (!response.ok && response.status !== 409) {
+        throw new Error(`push failed: ${response.status}`)
+      }
       if (generation !== storeGeneration) return
+      mutationIdsByBatch.delete(batchKey)
+      schedulePersistence()
+      acknowledgeApplied(result, dirty)
       clearDirty(result.applied, dirty)
-      clearDirty(result.skipped, dirty)
+      applyAliases(result)
+      for (const collection of RECORD_COLLECTIONS) {
+        for (const id of result.skipped[collection]) {
+          const current = dirtyState[collection].get(id)
+          const sent = dirty[collection].get(id)
+          if (current && sent && current.revision === sent.revision) {
+            dirtyState[collection].set(id, { ...current, blocked: true })
+          }
+        }
+      }
+      schedulePersistence()
+      setSyncStatus(statusFromDirtyState())
       authoritativePullNeeded ||= hasAcknowledgedIds(result.skipped)
       if (hasNewerDirtyRecords(dirty)) continue
       if (authoritativePullNeeded) {
@@ -521,6 +1250,7 @@ async function runPushLoop(generation: number): Promise<void> {
       return
     } catch (error) {
       console.error("sync push failed", error)
+      setSyncStatus("offline")
       return
     }
   }
@@ -531,7 +1261,15 @@ function pushDirty(): Promise<void> {
     return pushInFlight
   }
   const generation = storeGeneration
-  const promise = runPushLoop(generation).finally(() => {
+  const execute = () => runPushLoop(generation)
+  const execution =
+    typeof navigator !== "undefined" && navigator.locks
+      ? navigator.locks.request(
+          `family-tree-sync:${persistenceUserId ?? "anonymous"}`,
+          execute,
+        )
+      : execute()
+  const promise = execution.finally(() => {
     if (pushInFlight === promise) pushInFlight = undefined
   })
   pushInFlight = promise
@@ -539,29 +1277,57 @@ function pushDirty(): Promise<void> {
   return promise
 }
 
-type RemoteWire = { updatedAt: string; deletedAt?: string }
+export function synchronizePending(): Promise<void> {
+  return pushDirty()
+}
+
+type RemoteWire = { updatedAt: string; deletedAt?: string; revision?: number }
+
+function remoteIsNewer(
+  local: { updatedAt?: string; revision?: number },
+  remote: RemoteWire,
+): boolean {
+  if (local.revision !== undefined && remote.revision !== undefined) {
+    return remote.revision > local.revision
+  }
+  return remote.deletedAt
+    ? (local.updatedAt ?? "") <= remote.updatedAt
+    : (local.updatedAt ?? "") < remote.updatedAt
+}
 
 function tombstoneBlocks(
   collection: DirtyCollection,
   id: string,
   updatedAt: string,
+  revision?: number,
 ): boolean {
-  return (remoteTombstoneClocks[collection].get(id) ?? "") >= updatedAt
+  const clock = remoteTombstoneClocks[collection].get(id)
+  if (!clock) return false
+  if (clock.revision !== undefined && revision !== undefined) {
+    return clock.revision >= revision
+  }
+  return clock.updatedAt >= updatedAt
 }
 
 function recordTombstone(
   collection: DirtyCollection,
   id: string,
   updatedAt: string,
+  revision?: number,
 ): void {
   const current = remoteTombstoneClocks[collection].get(id)
-  if (!current || current < updatedAt) {
-    remoteTombstoneClocks[collection].set(id, updatedAt)
+  if (
+    !current
+    || (revision !== undefined && current.revision !== undefined
+      ? revision > current.revision
+      : updatedAt > current.updatedAt)
+  ) {
+    remoteTombstoneClocks[collection].set(id, { updatedAt, revision })
   }
 }
 
 function mergeRemoteRecords<
-  T extends { updatedAt: string },
+  T extends { updatedAt: string; revision?: number },
   W extends RemoteWire,
 >(
   records: Record<string, T>,
@@ -575,19 +1341,12 @@ function mergeRemoteRecords<
   for (const wire of wires) {
     const id = keyFor(wire)
     const local = result[id]
-    if (tombstoneBlocks(collection, id, wire.updatedAt)) continue
-    if (dirtyState[collection].get(id)?.action === "delete") continue
-    if (
-      local
-      && (wire.deletedAt
-        ? local.updatedAt > wire.updatedAt
-        : local.updatedAt >= wire.updatedAt)
-    ) {
-      continue
-    }
+    if (tombstoneBlocks(collection, id, wire.updatedAt, wire.revision)) continue
+    if (dirtyState[collection].has(id)) continue
+    if (local && !remoteIsNewer(local, wire)) continue
     if (result === records) result = { ...records }
     if (wire.deletedAt) {
-      recordTombstone(collection, id, wire.updatedAt)
+      recordTombstone(collection, id, wire.updatedAt, wire.revision)
       delete result[id]
     } else result[id] = toRecord(wire)
   }
@@ -613,19 +1372,16 @@ export function applyRemote(remote: RemoteRecords): void {
       if (remote.persons) {
         for (const wire of remote.persons) {
           const local = persons[wire.id]
-          if (tombstoneBlocks("persons", wire.id, wire.updatedAt)) continue
-          if (dirtyState.persons.get(wire.id)?.action === "delete") continue
           if (
-            local
-            && ("deletedAt" in wire
-              ? (local.updatedAt ?? "") > wire.updatedAt
-              : (local.updatedAt ?? "") >= wire.updatedAt)
+            tombstoneBlocks("persons", wire.id, wire.updatedAt, wire.revision)
           ) {
             continue
           }
+          if (dirtyState.persons.has(wire.id)) continue
+          if (local && !remoteIsNewer(local, wire)) continue
           if (persons === previous.persons) persons = { ...persons }
           if ("deletedAt" in wire) {
-            recordTombstone("persons", wire.id, wire.updatedAt)
+            recordTombstone("persons", wire.id, wire.updatedAt, wire.revision)
             delete persons[wire.id]
           } else {
             persons[wire.id] = {
@@ -636,6 +1392,7 @@ export function applyRemote(remote: RemoteRecords): void {
               gender: wire.gender,
               location: wire.location,
               photo: wire.hasPhoto ? STORED_PHOTO_MARKER : wire.photo,
+              revision: wire.revision,
               updatedAt: wire.updatedAt,
               ownerId: wire.ownerId,
             }
@@ -649,16 +1406,37 @@ export function applyRemote(remote: RemoteRecords): void {
         const byId = new Map(index.map((tree) => [tree.id, tree] as const))
         for (const wire of remote.trees) {
           const local = byId.get(wire.id)
-          if (tombstoneBlocks("trees", wire.id, wire.updatedAt)) continue
+          if (
+            tombstoneBlocks("trees", wire.id, wire.updatedAt, wire.revision)
+          ) {
+            continue
+          }
+          const dirtyTree = dirtyState.trees.get(wire.id)
+          if (dirtyTree) {
+            if (!("deletedAt" in wire) && local) {
+              const role = wire.role ?? local.role
+              const ownerEmail =
+                wire.ownerEmail !== undefined
+                  ? wire.ownerEmail
+                  : local.ownerEmail
+              if (role !== local.role || ownerEmail !== local.ownerEmail) {
+                if (index === previous.index) index = [...index]
+                const position = index.findIndex((tree) => tree.id === wire.id)
+                if (position >= 0)
+                  index[position] = { ...local, role, ownerEmail }
+              }
+            }
+            continue
+          }
           if ("deletedAt" in wire) {
-            if (local && (local.updatedAt ?? "") > wire.updatedAt) continue
+            if (local && !remoteIsNewer(local, wire)) continue
           } else if (local) {
             const role = wire.role ?? local.role
             const ownerEmail =
               wire.ownerEmail !== undefined ? wire.ownerEmail : local.ownerEmail
             const accessChanged =
               role !== local.role || ownerEmail !== local.ownerEmail
-            if ((local.updatedAt ?? "") > wire.updatedAt) {
+            if (!remoteIsNewer(local, wire)) {
               if (accessChanged) {
                 if (index === previous.index) index = [...index]
                 const position = index.findIndex((tree) => tree.id === wire.id)
@@ -676,7 +1454,7 @@ export function applyRemote(remote: RemoteRecords): void {
           const position = index.findIndex((tree) => tree.id === wire.id)
           if ("deletedAt" in wire) {
             if (position >= 0) index.splice(position, 1)
-            recordTombstone("trees", wire.id, wire.updatedAt)
+            recordTombstone("trees", wire.id, wire.updatedAt, wire.revision)
             deletedTrees.set(wire.id, wire.updatedAt)
             byId.delete(wire.id)
           } else {
@@ -684,10 +1462,14 @@ export function applyRemote(remote: RemoteRecords): void {
               id: wire.id,
               name: wire.name,
               createdAt: wire.createdAt,
+              revision: wire.revision,
               updatedAt: wire.updatedAt,
               ownerId: wire.ownerId,
               ownerEmail: wire.ownerEmail ?? local?.ownerEmail,
               role: wire.role ?? local?.role,
+              syncVersion: local?.syncVersion,
+              memberCount: local?.memberCount,
+              loaded: local?.loaded,
             }
             if (position >= 0) index[position] = replacement
             else index.push(replacement)
@@ -845,18 +1627,11 @@ function sharedRemoteRecords(
 /** Replace the complete local graph from an authoritative epoch pull. */
 export function applyFullPull(pull: SyncPullResponse): void {
   const previous = state
+  const pendingDirty = snapshotDirty()
   const previousTombstoneIds = Object.fromEntries(
     RECORD_COLLECTIONS.map((collection) => [
       collection,
       [...remoteTombstoneClocks[collection].keys()],
-    ]),
-  ) as Record<DirtyCollection, string[]>
-  const pendingDeleteIds = Object.fromEntries(
-    RECORD_COLLECTIONS.map((collection) => [
-      collection,
-      [...dirtyState[collection]]
-        .filter(([, record]) => record.action === "delete")
-        .map(([id]) => id),
     ]),
   ) as Record<DirtyCollection, string[]>
   notificationsSuppressed = true
@@ -864,26 +1639,22 @@ export function applyFullPull(pull: SyncPullResponse): void {
     state = emptyState()
     dirtyState = emptyDirtyState()
     remoteTombstoneClocks = emptyTombstoneClocks()
-    nextRevision = 1
-    for (const collection of RECORD_COLLECTIONS) {
-      for (const id of pendingDeleteIds[collection]) {
-        markDirty(collection, id, "delete")
-      }
-    }
     applyRemote(pull.own)
     for (const shared of pull.shared) applyRemote(sharedRemoteRecords(shared))
     for (const id of new Set([
       ...Object.keys(previous.persons),
       ...previousTombstoneIds.persons,
     ])) {
-      if (!state.persons[id]) recordTombstone("persons", id, pull.serverTime)
+      if (!state.persons[id] && !pendingDirty.persons.has(id)) {
+        recordTombstone("persons", id, pull.serverTime)
+      }
     }
     const nextTreeIds = new Set(state.index.map((tree) => tree.id))
     for (const id of new Set([
       ...previous.index.map((tree) => tree.id),
       ...previousTombstoneIds.trees,
     ])) {
-      if (!nextTreeIds.has(id)) {
+      if (!nextTreeIds.has(id) && !pendingDirty.trees.has(id)) {
         recordTombstone("trees", id, pull.serverTime)
       }
     }
@@ -900,11 +1671,104 @@ export function applyFullPull(pull: SyncPullResponse): void {
         ...Object.keys(previous[collection]),
         ...previousTombstoneIds[collection],
       ])) {
-        if (!state[collection][id]) {
+        if (!state[collection][id] && !pendingDirty[collection].has(id)) {
           recordTombstone(collection, id, pull.serverTime)
         }
       }
     }
+
+    const replayRecords = <T extends { revision?: number; updatedAt?: string }>(
+      serverRecords: Record<string, T>,
+      localRecords: Record<string, T>,
+      pending: DirtyMap,
+    ): Record<string, T> => {
+      const replayed = { ...serverRecords }
+      for (const [id, dirty] of pending) {
+        if (dirty.action === "delete") {
+          delete replayed[id]
+          continue
+        }
+        const local = localRecords[id]
+        if (!local) continue
+        const server = serverRecords[id]
+        replayed[id] = server
+          ? {
+              ...local,
+              revision: server.revision,
+              ...(server.updatedAt ? { updatedAt: server.updatedAt } : {}),
+            }
+          : local
+      }
+      return replayed
+    }
+
+    const serverTrees = new Map(state.index.map((tree) => [tree.id, tree]))
+    const localTrees = new Map(previous.index.map((tree) => [tree.id, tree]))
+    for (const [id, dirty] of pendingDirty.trees) {
+      const position = state.index.findIndex((tree) => tree.id === id)
+      if (dirty.action === "delete") {
+        if (position >= 0) state.index.splice(position, 1)
+        continue
+      }
+      const local = localTrees.get(id)
+      if (!local) continue
+      const server = serverTrees.get(id)
+      const replayed = server
+        ? {
+            ...local,
+            revision: server.revision,
+            updatedAt: server.updatedAt,
+            role: server.role,
+            ownerId: server.ownerId,
+            ownerEmail: server.ownerEmail,
+          }
+        : local
+      if (position >= 0) state.index[position] = replayed
+      else state.index.push(replayed)
+    }
+    state.persons = replayRecords(
+      state.persons,
+      previous.persons,
+      pendingDirty.persons,
+    )
+    state.treeMembers = replayRecords(
+      state.treeMembers,
+      previous.treeMembers,
+      pendingDirty.treeMembers,
+    )
+    state.unions = replayRecords(
+      state.unions,
+      previous.unions,
+      pendingDirty.unions,
+    )
+    state.unionEvents = replayRecords(
+      state.unionEvents,
+      previous.unionEvents,
+      pendingDirty.unionEvents,
+    )
+    state.treeUnions = replayRecords(
+      state.treeUnions,
+      previous.treeUnions,
+      pendingDirty.treeUnions,
+    )
+    state.parentChildRelationships = replayRecords(
+      state.parentChildRelationships,
+      previous.parentChildRelationships,
+      pendingDirty.parentChildRelationships,
+    )
+    state.treeParentChildRelationships = replayRecords(
+      state.treeParentChildRelationships,
+      previous.treeParentChildRelationships,
+      pendingDirty.treeParentChildRelationships,
+    )
+    dirtyState = pendingDirty
+    nextRevision =
+      Math.max(
+        0,
+        ...RECORD_COLLECTIONS.flatMap((collection) =>
+          [...dirtyState[collection].values()].map((record) => record.revision),
+        ),
+      ) + 1
   } finally {
     notificationsSuppressed = false
   }
@@ -940,11 +1804,160 @@ export function resetStore(): void {
   dirtyState = emptyDirtyState()
   remoteTombstoneClocks = emptyTombstoneClocks()
   nextRevision = 1
+  deviceId = newId()
+  mutationIdsByBatch.clear()
+  clearedDirtyTokens.clear()
+  syncConflicts = []
+  clearedConflictIds.clear()
+  treeSyncInFlight.clear()
+  persistenceUserId = null
+  persistenceScheduled = false
+  persistenceRestore = undefined
+  persistenceRestoreUserId = null
+  persistenceRestoreToken++
   setHydrated(false)
+}
+
+export async function restorePersistentStore(userId: string): Promise<void> {
+  if (persistenceRestoreUserId === userId && persistenceRestore) {
+    await persistenceRestore
+    return
+  }
+  persistenceUserId = userId
+  persistenceRestoreUserId = userId
+  const generation = storeGeneration
+  const token = ++persistenceRestoreToken
+  persistenceRestore = (async () => {
+    const persisted = await loadPersistedStore(userId)
+    if (
+      !persisted
+      || generation !== storeGeneration
+      || persistenceUserId !== userId
+      || token !== persistenceRestoreToken
+    ) {
+      return
+    }
+    state = persisted.state
+    dirtyState = Object.fromEntries(
+      RECORD_COLLECTIONS.map((collection) => [
+        collection,
+        new Map(persisted.dirty[collection] ?? []),
+      ]),
+    ) as DirtyState
+    deviceId = persisted.deviceId || newId()
+    mutationIdsByBatch.clear()
+    for (const [key, value] of persisted.mutationIdsByBatch) {
+      mutationIdsByBatch.set(key, value)
+    }
+    clearedDirtyTokens.clear()
+    for (const token of persisted.clearedDirtyTokens ?? []) {
+      clearedDirtyTokens.add(token)
+    }
+    syncConflicts = persisted.conflicts ?? []
+    clearedConflictIds.clear()
+    for (const conflictId of persisted.clearedConflictIds ?? []) {
+      clearedConflictIds.add(conflictId)
+    }
+    nextRevision = Math.max(1, persisted.nextRevision)
+    syncStatus = RECORD_COLLECTIONS.some((collection) =>
+      [...dirtyState[collection].values()].some((record) => record.blocked),
+    )
+      ? "conflict"
+      : RECORD_COLLECTIONS.some((collection) => dirtyState[collection].size > 0)
+        ? "saving"
+        : "saved"
+    for (const listener of listeners) listener()
+  })()
+  await persistenceRestore
 }
 
 export function useHydrated(): boolean {
   return useSyncExternalStore(subscribe, getHydrated, getHydrated)
+}
+
+export function useSyncStatus(): SyncStatus {
+  return useSyncExternalStore(
+    subscribe,
+    () => syncStatus,
+    () => syncStatus,
+  )
+}
+
+export function useSyncConflictCount(): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => syncConflicts.length,
+    () => syncConflicts.length,
+  )
+}
+
+export function resolveNextSyncConflict(
+  resolution: "current" | "alternate",
+): void {
+  const conflict = syncConflicts.shift()
+  if (!conflict) return
+  clearedConflictIds.add(conflict.conflictId)
+
+  if (resolution === "alternate") {
+    update((previous) => {
+      const draft = makeDraft(previous)
+      if (conflict.collection === "trees") {
+        draft.index = previous.index.filter((tree) => tree.id !== conflict.id)
+        if (conflict.record.action === "upsert" && conflict.value) {
+          const current = previous.index.find((tree) => tree.id === conflict.id)
+          draft.index.push({
+            ...(conflict.value as TreeMeta),
+            revision: current?.revision,
+            updatedAt: current?.updatedAt,
+            ownerId: current?.ownerId,
+            ownerEmail: current?.ownerEmail,
+            role: current?.role,
+          })
+        }
+      } else {
+        const records = draft[conflict.collection] as unknown as Record<
+          string,
+          unknown
+        >
+        if (conflict.record.action === "delete") delete records[conflict.id]
+        else if (conflict.value !== undefined) {
+          const current = records[conflict.id]
+          records[conflict.id] =
+            current
+            && typeof current === "object"
+            && conflict.value
+            && typeof conflict.value === "object"
+              ? {
+                  ...(conflict.value as Record<string, unknown>),
+                  revision: (current as { revision?: number }).revision,
+                  updatedAt: (current as { updatedAt?: string }).updatedAt,
+                }
+              : conflict.value
+        }
+      }
+      return draft
+    })
+    return
+  }
+
+  const current = dirtyState[conflict.collection].get(conflict.id)
+  if (current) {
+    dirtyState[conflict.collection].set(conflict.id, {
+      ...current,
+      blocked: false,
+      revision: nextRevision++,
+      operationId: newId(),
+      sourceId: storeInstanceId,
+      changedAt: Date.now(),
+    })
+    setSyncStatus("saving")
+    schedulePersistence()
+    for (const listener of listeners) listener()
+    void pushDirty()
+  } else {
+    schedulePersistence()
+    for (const listener of listeners) listener()
+  }
 }
 
 export function now(): string {

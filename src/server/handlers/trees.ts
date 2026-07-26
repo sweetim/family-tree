@@ -3,6 +3,7 @@ import { getDB } from "../../db/index"
 import {
   treeMembers,
   treeParentChildRelationships,
+  treeShares,
   trees,
   treeUnions,
 } from "../../db/schema"
@@ -28,7 +29,8 @@ export async function deleteTree(
     target_tree AS MATERIALIZED (
       UPDATE ${trees}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${trees.id} = ${treeId}
         AND ${trees.ownerId} = ${me.id}
         AND ${trees.deletedAt} IS NULL
@@ -37,7 +39,8 @@ export async function deleteTree(
     tombstoned_memberships AS (
       UPDATE ${treeMembers}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${treeMembers.treeId} IN (SELECT id FROM target_tree)
         AND ${treeMembers.deletedAt} IS NULL
       RETURNING ${treeMembers.treeId}
@@ -45,7 +48,8 @@ export async function deleteTree(
     tombstoned_tree_unions AS (
       UPDATE ${treeUnions}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${treeUnions.treeId} IN (SELECT id FROM target_tree)
         AND ${treeUnions.deletedAt} IS NULL
       RETURNING ${treeUnions.treeId}
@@ -53,12 +57,18 @@ export async function deleteTree(
     tombstoned_tree_parent_relationships AS (
       UPDATE ${treeParentChildRelationships}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${treeParentChildRelationships.treeId} IN (
         SELECT id FROM target_tree
       )
         AND ${treeParentChildRelationships.deletedAt} IS NULL
       RETURNING ${treeParentChildRelationships.treeId}
+    ),
+    removed_shares AS (
+      DELETE FROM ${treeShares}
+      WHERE ${treeShares.treeId} IN (SELECT id FROM target_tree)
+      RETURNING ${treeShares.treeId}
     )
     SELECT id FROM target_tree
   `)

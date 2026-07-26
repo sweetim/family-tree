@@ -1,144 +1,87 @@
 # Client Store and Sync
 
-`src/store.ts` is a hand-rolled external store connected to React with
-`useSyncExternalStore`. State and pending changes are in memory only.
+`src/store/` contains a normalized external store connected to React with
+`useSyncExternalStore`. Rendering remains optimistic, while PostgreSQL is the
+durable authority.
 
-## Normalized state
+## State
 
-`GlobalState` contains:
+`GlobalState` contains people, tree metadata, memberships, unions and events,
+tree-union associations, parent facts, and tree-parent associations.
+`projectTree` derives the UI-facing `FamilyData` shape.
 
-- `persons`: shared identity records keyed by person id.
-- `index`: tree metadata (`TreeMeta`) including owner/share metadata.
-- `treeMembers`: memberships keyed by `(treeId, personId)`.
-- `unions`: canonical shared unions keyed by id.
-- `unionEvents`: shared history records keyed by id.
-- `treeUnions`: tree associations keyed by `(treeId, unionId)`.
-- `parentChildRelationships`: shared parent facts keyed by id.
-- `treeParentChildRelationships`: tree associations keyed by
-  `(treeId, parentChildRelationshipId)`.
+Every server record has an integer `revision`. Local edits retain the last
+server revision as their concurrency base; browser wall-clock time is not used
+for conflict resolution.
 
-`projectTree` derives `FamilyData` for the layout and sidebar from these maps.
+## Bootstrap and lazy reads
 
-## Local mutations
+Account bootstrap restores the account's IndexedDB snapshot, then fetches the
+paginated `/api/v2/trees` manifest. The home page therefore loads only metadata
+and counts. Opening a main tree fetches that tree's snapshot. A person deep link
+fetches a bounded radius-three graph, and cross-tree member selectors load the
+selected tree on demand.
 
-Most mutations use `update` optimistically. `stampAndEnqueue` compares record
-references, stamps each changed record with a new client `updatedAt`, and puts
-its id in a per-collection dirty map. The exact dirty/sync collections are:
+People search is server-side and bounded, so search does not require all family
+graphs in memory.
 
-1. `persons`
-2. `trees`
-3. `treeMembers`
-4. `unions`
-5. `unionEvents`
-6. `treeUnions`
-7. `parentChildRelationships`
-8. `treeParentChildRelationships`
+## Durable outbox
 
-Each dirty entry has an action and monotonically increasing local revision.
-Acknowledging an older push cannot clear a newer edit to the same record.
-Deletes serialize as tombstones; association tombstones carry their composite
-key fields.
+Optimistic state, dirty records, base revisions, stable device ID, mutation
+retry IDs, and local revision counters are stored per account in IndexedDB.
+Reload, browser restart, network failure, or an interrupted response therefore
+does not discard pending intent.
 
-Pushes are serialized. Only one `POST /api/sync` is in flight for a store
-generation, and the loop sends newer dirty revisions after the current request
-returns. Failed records remain dirty in memory. Successful applied and skipped
-revisions are cleared; any skipped record schedules an authoritative epoch pull
-after newer pending edits have been pushed.
+Pushes are serialized. A stable mutation ID is persisted before the request.
+Retries use the same ID and receive `alreadyApplied` when the first response was
+lost after commit. Network failures remain pending and retry on a 15-second
+timer, browser focus, and the `online` event.
 
-Large dirty queues are sent in dependency-ordered batches of at most 1,000
-records and 4 MiB. This keeps legitimate imports below the server limits while
-preserving foreign-key ordering across requests.
+IndexedDB writes merge dirty records transactionally across tabs. If two tabs
+edit the same record offline, both values are retained and the account menu
+offers explicit `Keep current` and `Use other edit` resolution instead of
+choosing one silently.
 
-Push commands and pull responses use distinct DTOs. Commands omit server-owned
-owner/share fields. A photo command omits `photo` to retain the stored image,
-uses `null` to remove it, or sends a bounded JPEG data URL to replace it. Pulls
-return only `hasPhoto`; Blob URLs are never part of the client DTO.
+## Atomic mutations and conflicts
 
-The server authenticates before reading a push and limits it to 5 MiB, 2,000
-records per collection, and 5,000 records total. User-controlled text and photo
-data are length-bounded before database or Blob work begins.
+`POST /api/v2/mutations` sends a bounded normalized record set as one logical
+mutation. Server ACL checks, dependency checks, canonical ID adoption, graph
+constraints, writes, scope-version increments, change-log insertion, and the
+idempotency receipt share one transaction.
 
-Tree deletion is server-authoritative instead: the client awaits
-`DELETE /api/trees/[treeId]`, then removes the confirmed tree and its local
-associations. A failed request leaves the tree visible.
+Successful acknowledgements advance local server revisions without clearing a
+newer local edit. A conflict rolls back the complete mutation. Conflicting
+records remain in the durable outbox, remain visible over the refreshed server
+base, and are marked blocked rather than silently discarded. A subsequent user
+edit rebases that intent on the current server revision.
 
-## Shared facts and local detach
+The account menu displays `saved`, `saving`, `offline`, or `conflict` state.
 
-- Person identity edits are global.
-- Marriage-date edits change the shared `married` event and appear in every
-  associated tree.
-- Adoption toggles change the shared parent/child type and appear in every
-  associated tree.
-- Spouse unlink, parent removal, and remove-from-tree delete only associations
-  for the selected tree.
-- Person deletion is global. The client removes its local memberships and tree
-  associations; the server owner-authorized cascade tombstones all canonical
-  facts and associations involving the person.
-- Adding a spouse associates the shared union with writable trees containing
-  both people. A newly added spouse is also added to writable trees containing
-  their partner.
-- Adding a child propagates to writable trees containing all selected parents.
+## Incremental synchronization
 
-The Core UI creates a `married` event and edits its date. Although the model
-supports divorce and other history events, unlinking in Core is a tree-local
-detach rather than a divorce event.
+Each loaded tree stores an opaque cursor. Polling, focus, and online refreshes
+request `/api/v2/changes` and merge only committed batches after that cursor.
+Change rows include authoritative revisions and tombstones. Cursor pages are
+bounded to 100 batches.
 
-## Remote merge and reconciliation
+If history has expired, the server returns `410 resetRequired` and the client
+reloads only that tree. If access was revoked, it refreshes the manifest and
+removes the inaccessible tree. Shared-tree changes no longer force complete
+snapshots of every shared tree.
 
-`applyRemote` merges every normalized record independently by `updatedAt` and
-does not enqueue it again. Newer local records win; newer remote tombstones
-remove local records.
+## Deletion and aliases
 
-An in-memory remote tombstone clock is kept per id in every collection. It
-blocks a delayed older or equal active record from resurrecting deleted data.
-Tree tombstones also remove and clock their local associations. A pending
-local delete blocks the matching remote record from the same merge until the
-delete is acknowledged, so an in-flight tombstone cannot be undone by a pull
-that still reports the record active.
+Tree deletion uses the same v2 mutation service as other edits. It atomically
+tombstones tree-local records and removes shares. Person-owner deletion
+atomically tombstones the person and every dependent fact and association.
 
-`applyFullPull` is authoritative: it rebuilds all maps from an epoch pull,
-clears dirty queues, and records the pull's `serverTime` as a tombstone clock
-for anything formerly local but now absent. This removes revoked shared trees
-and stale optimistic records. Unacknowledged local deletes are re-enqueued
-before the rebuild so they survive it: a concurrent pull cannot resurrect a
-record whose tombstone has not yet reached the server.
+Parent relationship collisions return canonical fact and association aliases.
+The store remaps records, keys, revisions, and queued work immediately, avoiding
+the former remove/re-add/remove identity mismatch.
 
-The store performs a full reconciliation:
+## Photos
 
-- whenever the authenticated account changes, after resetting all state and
-  tombstone clocks;
-- after a push reports any skipped record.
-
-There is no polling, websocket, or background refresh. Normal operation is a
-full pull on account bootstrap followed by serialized pushes on mutation.
-
-## Pull shape
-
-Owned data can be returned as timestamp deltas with active dependencies needed
-to project each owned tree. Every shared tree is instead an authoritative
-active snapshot on every pull: active tree metadata, people, memberships,
-unions, events, and parent associations only. Former shared dependencies and
-tombstones are omitted; full reconciliation removes anything absent.
-
-The server loads accessible tree metadata once, then queries each normalized
-collection across all relevant tree IDs. Shared snapshots are regrouped in
-memory. Query count is therefore bounded by collection count rather than tree
-count.
-
-## Store operations
-
-`useTreeIndex` creates, renames, and deletes trees. `useFamily(treeId)` returns
-projected people, `readOnly` for viewers, and person/relationship mutations.
-Important behavior:
-
-- `updatePerson` edits shared identity.
-- `unlinkSpouse`, `removeParent`, and `removeFromTree` detach one tree.
-- `updateSpouseDate` and `setParentAdopted` edit shared facts.
-- `addParent` refuses self-links, a third global parent, and ancestry cycles.
-- `mergePersons` creates replacement facts for writable associations rather
-  than mutating immutable union or parent endpoints.
-- `replaceAll` reconciles imported projected `FamilyData` into normalized maps.
-
-Legacy projected JSON import remains supported at the import boundary; it is
-converted to normalized records before sync. View preferences in
-`src/lib/view-settings.ts` remain client-only in `localStorage`.
+Stored photos remain represented by a marker in client state. Pulls expose only
+`hasPhoto`. New Blob uploads are tracked during mutation execution: rollback
+deletes newly uploaded blobs, while replaced blobs are deleted only after the
+database transaction commits.

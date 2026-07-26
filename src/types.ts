@@ -19,6 +19,8 @@ export type PersonIdentity = {
   photo?: string
   /** ISO timestamp of the last edit. Set by the sync seam. */
   updatedAt?: string
+  /** Server-owned optimistic concurrency revision. */
+  revision?: number
   /** Owner user id when the record came from the server. */
   ownerId?: string
 }
@@ -60,6 +62,7 @@ export type TreeMember = {
   personId: string
   createdAt: string
   updatedAt: string
+  revision?: number
 }
 
 export type Union = {
@@ -68,6 +71,7 @@ export type Union = {
   secondPersonId: string
   createdAt: string
   updatedAt: string
+  revision?: number
 }
 
 export type UnionEvent = {
@@ -77,6 +81,7 @@ export type UnionEvent = {
   eventDate?: string
   createdAt: string
   updatedAt: string
+  revision?: number
 }
 
 /** UI-facing summary of a couple's union: its latest event plus the
@@ -96,6 +101,7 @@ export type TreeUnion = {
   unionId: string
   createdAt: string
   updatedAt: string
+  revision?: number
 }
 
 export type ParentChildRelationship = {
@@ -105,6 +111,7 @@ export type ParentChildRelationship = {
   type: ParentChildRelationshipType
   createdAt: string
   updatedAt: string
+  revision?: number
 }
 
 export type TreeParentChildRelationship = {
@@ -112,6 +119,7 @@ export type TreeParentChildRelationship = {
   parentChildRelationshipId: string
   createdAt: string
   updatedAt: string
+  revision?: number
 }
 
 export type NormalizedRelationships = {

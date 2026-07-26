@@ -1,6 +1,11 @@
 import { ChevronDown, LogOut, User } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { authClient, useSession } from "../lib/auth-client"
+import {
+  resolveNextSyncConflict,
+  useSyncConflictCount,
+  useSyncStatus,
+} from "../store"
 
 /**
  * Account menu — Sign in with Google when signed out, an avatar dropdown when
@@ -9,6 +14,8 @@ import { authClient, useSession } from "../lib/auth-client"
 export function AccountMenu() {
   const { data: session, isPending } = useSession()
   const [open, setOpen] = useState(false)
+  const syncStatus = useSyncStatus()
+  const conflictCount = useSyncConflictCount()
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -64,6 +71,16 @@ export function AccountMenu() {
               {initial}
             </span>
           )}
+          <span
+            title={`Sync: ${syncStatus}`}
+            className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white ${
+              syncStatus === "saved"
+                ? "bg-emerald-500"
+                : syncStatus === "saving"
+                  ? "bg-amber-400"
+                  : "bg-red-500"
+            }`}
+          />
         </span>
         <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
       </button>
@@ -83,6 +100,31 @@ export function AccountMenu() {
               </p>
             </div>
           </div>
+          <p className="px-3 pb-2 text-xs text-slate-500">Sync: {syncStatus}</p>
+          {conflictCount > 0 ? (
+            <div className="mx-1 mb-1 rounded-xl bg-amber-50 p-2 text-xs text-amber-900">
+              <p>
+                {conflictCount} alternate offline{" "}
+                {conflictCount === 1 ? "edit" : "edits"} retained.
+              </p>
+              <div className="mt-2 flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => resolveNextSyncConflict("current")}
+                  className="rounded-lg bg-white px-2 py-1 ring-1 ring-amber-200"
+                >
+                  Keep current
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resolveNextSyncConflict("alternate")}
+                  className="rounded-lg bg-amber-600 px-2 py-1 text-white"
+                >
+                  Use other edit
+                </button>
+              </div>
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => {

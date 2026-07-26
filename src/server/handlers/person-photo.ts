@@ -11,6 +11,33 @@ import {
   MAX_PHOTO_BYTES,
 } from "../blob"
 
+const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
+
+async function readBoundedBody(
+  body: ReadableStream<Uint8Array>,
+): Promise<Uint8Array | null> {
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > MAX_PHOTO_BYTES) {
+      await reader.cancel()
+      return null
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
 /**
  * Streams a person's photo to an authorized viewer. Authorization mirrors the
  * rest of the app: the session user must have at least a viewer role on the
@@ -45,7 +72,8 @@ export async function getPersonPhoto(
       return new Response(photo.bytes, {
         headers: {
           "content-type": photo.contentType,
-          "cache-control": "private, max-age=3600, immutable",
+          "cache-control": "private, no-store",
+          "x-content-type-options": "nosniff",
         },
       })
     } catch {
@@ -65,17 +93,26 @@ export async function getPersonPhoto(
   if (!upstream.ok || !upstream.body) {
     return new Response(null, { status: 502 })
   }
+  const contentType =
+    upstream.headers.get("content-type")?.split(";", 1)[0]?.trim()
+    ?? "image/jpeg"
+  if (!ALLOWED_PHOTO_TYPES.has(contentType)) {
+    await upstream.body.cancel()
+    return new Response(null, { status: 502 })
+  }
   const contentLength = Number(upstream.headers.get("content-length"))
   if (Number.isFinite(contentLength) && contentLength > MAX_PHOTO_BYTES) {
     await upstream.body.cancel()
     return new Response(null, { status: 502 })
   }
-  return new Response(upstream.body, {
+  const bytes = await readBoundedBody(upstream.body)
+  if (!bytes) return new Response(null, { status: 502 })
+  return new Response(bytes, {
     status: upstream.status,
     headers: {
-      "content-type": upstream.headers.get("content-type") ?? "image/jpeg",
-      // Private so shared devices and CDNs never cache another user's avatar.
-      "cache-control": "private, max-age=3600, immutable",
+      "content-type": contentType,
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
     },
   })
 }

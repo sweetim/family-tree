@@ -9,7 +9,6 @@ import {
   isValidSyncId,
   isValidSyncPushRequest,
   isValidTimestamp,
-  MAX_CLIENT_FUTURE_MILLISECONDS,
   MAX_SYNC_ID_LENGTH,
   MAX_SYNC_PHOTO_LENGTH,
   MAX_SYNC_RECORDS_PER_COLLECTION,
@@ -81,22 +80,15 @@ describe("sync validation", () => {
     expect(isValidIsoDate("2024-2-9")).toBe(false)
   })
 
-  test("bounds client timestamps to reasonable clock skew", () => {
+  test("accepts valid client metadata timestamps without using clock ordering", () => {
     expect(isReasonableClientTimestamp(TIMESTAMP, NOW)).toBe(true)
     expect(
       isReasonableClientTimestamp(
-        new Date(NOW.getTime() + MAX_CLIENT_FUTURE_MILLISECONDS).toISOString(),
+        new Date(NOW.getTime() + 24 * 60 * 60 * 1000).toISOString(),
         NOW,
       ),
     ).toBe(true)
-    expect(
-      isReasonableClientTimestamp(
-        new Date(
-          NOW.getTime() + MAX_CLIENT_FUTURE_MILLISECONDS + 1,
-        ).toISOString(),
-        NOW,
-      ),
-    ).toBe(false)
+    expect(isReasonableClientTimestamp("not-a-date", NOW)).toBe(false)
   })
 
   test("validates every collection and exact discriminated wire shape", () => {
@@ -213,7 +205,32 @@ describe("sync validation", () => {
     expect(isValidSyncPushRequest(missingCollection, NOW)).toBe(false)
   })
 
-  test("rejects malformed IDs, duplicate identities, and future wire timestamps", () => {
+  test("accepts positive server revisions and rejects invalid revisions", () => {
+    expect(
+      isValidSyncPushRequest(
+        payloadWith("persons", {
+          id: "person",
+          name: "Person",
+          revision: 2,
+          updatedAt: TIMESTAMP,
+        }),
+        NOW,
+      ),
+    ).toBe(true)
+    expect(
+      isValidSyncPushRequest(
+        payloadWith("persons", {
+          id: "person",
+          name: "Person",
+          revision: 0,
+          updatedAt: TIMESTAMP,
+        }),
+        NOW,
+      ),
+    ).toBe(false)
+  })
+
+  test("rejects malformed IDs and duplicate identities", () => {
     const malformedId = emptyPayload()
     malformedId.treeMembers = [
       {
@@ -237,18 +254,6 @@ describe("sync validation", () => {
       { id: "person", name: "Second", updatedAt: TIMESTAMP },
     ]
     expect(isValidSyncPushRequest(duplicate, NOW)).toBe(false)
-
-    const future = emptyPayload()
-    future.persons = [
-      {
-        id: "person",
-        name: "Future",
-        updatedAt: new Date(
-          NOW.getTime() + MAX_CLIENT_FUTURE_MILLISECONDS + 1,
-        ).toISOString(),
-      },
-    ]
-    expect(isValidSyncPushRequest(future, NOW)).toBe(false)
 
     const nonCanonicalUnion = emptyPayload()
     nonCanonicalUnion.unions = [

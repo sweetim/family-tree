@@ -9,23 +9,14 @@ import {
   Panel,
   ReactFlow,
 } from "@xyflow/react"
-import {
-  Check,
-  Link2,
-  Menu,
-  PanelLeftOpen,
-  Pencil,
-  X,
-} from "lucide-react"
+import { Check, Link2, Menu, PanelLeftOpen, Pencil, X } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
 import { PersonNode } from "@/components/PersonNode"
+import { useToast } from "@/components/Toast"
 import { UnionNode } from "@/components/UnionNode"
-import {
-  buildFlow,
-  type FlowEdge,
-  type FlowNode,
-} from "@/lib/layout"
+import { useSession } from "@/lib/auth-client"
+import { buildFlow, type FlowEdge, type FlowNode } from "@/lib/layout"
 import {
   type LinkKind,
   type TreeActions,
@@ -49,7 +40,9 @@ export function TreeView({
   openPersonId?: string
 }) {
   const family = useFamily(tree.id)
+  const { data: session } = useSession()
   const confirm = useConfirm()
+  const toast = useToast()
   const { settings } = useViewSettings()
   // People used for rendering. "Show all families" merges every accessible
   // tree on this canvas; otherwise this equals family.people.
@@ -305,6 +298,16 @@ export function TreeView({
   }) => {
     const persons = toDelete.filter((n) => n.type === "person")
     if (persons.length === 0) return false
+    if (
+      persons.some(
+        (node) =>
+          node.data.person.ownerId
+          && node.data.person.ownerId !== session?.user.id,
+      )
+    ) {
+      toast("Only the person owner can delete them from every tree.", "error")
+      return false
+    }
     const names = persons.map((n) => n.data.person.name).join(", ")
     return await confirm({
       title: "Delete people",

@@ -32,14 +32,17 @@ function iso(value: Date | string): string {
 
 function tombstone(
   id: string,
+  revision: number,
   updatedAt: Date | string,
   deletedAt: Date | string,
 ): TombstoneWire {
-  return { id, updatedAt: iso(updatedAt), deletedAt: iso(deletedAt) }
+  return { id, revision, updatedAt: iso(updatedAt), deletedAt: iso(deletedAt) }
 }
 
 export function personToWire(row: typeof persons.$inferSelect): PersonWire {
-  if (row.deletedAt) return tombstone(row.id, row.updatedAt, row.deletedAt)
+  if (row.deletedAt) {
+    return tombstone(row.id, row.revision, row.updatedAt, row.deletedAt)
+  }
   return {
     id: row.id,
     name: row.name,
@@ -48,6 +51,7 @@ export function personToWire(row: typeof persons.$inferSelect): PersonWire {
     gender: (row.gender as Gender | null) ?? undefined,
     location: row.location ?? undefined,
     hasPhoto: Boolean(row.photo),
+    revision: row.revision,
     updatedAt: iso(row.updatedAt),
     ownerId: row.ownerId,
   }
@@ -55,14 +59,17 @@ export function personToWire(row: typeof persons.$inferSelect): PersonWire {
 
 export function treeToWire(
   row: typeof trees.$inferSelect,
-  role: Role,
+  role?: Role,
   ownerEmail?: string | null,
 ): TreeWire {
-  if (row.deletedAt) return tombstone(row.id, row.updatedAt, row.deletedAt)
+  if (row.deletedAt) {
+    return tombstone(row.id, row.revision, row.updatedAt, row.deletedAt)
+  }
   return {
     id: row.id,
     name: row.name,
     createdAt: iso(row.createdAt),
+    revision: row.revision,
     updatedAt: iso(row.updatedAt),
     ownerId: row.ownerId,
     ownerEmail,
@@ -77,6 +84,7 @@ export function treeMemberToWire(
     return {
       treeId: row.treeId,
       personId: row.personId,
+      revision: row.revision,
       updatedAt: iso(row.updatedAt),
       deletedAt: iso(row.deletedAt),
     }
@@ -85,17 +93,21 @@ export function treeMemberToWire(
     treeId: row.treeId,
     personId: row.personId,
     createdAt: iso(row.createdAt),
+    revision: row.revision,
     updatedAt: iso(row.updatedAt),
   }
 }
 
 export function unionToWire(row: typeof unions.$inferSelect): UnionWire {
-  if (row.deletedAt) return tombstone(row.id, row.updatedAt, row.deletedAt)
+  if (row.deletedAt) {
+    return tombstone(row.id, row.revision, row.updatedAt, row.deletedAt)
+  }
   return {
     id: row.id,
     firstPersonId: row.firstPersonId,
     secondPersonId: row.secondPersonId,
     createdAt: iso(row.createdAt),
+    revision: row.revision,
     updatedAt: iso(row.updatedAt),
   }
 }
@@ -103,13 +115,16 @@ export function unionToWire(row: typeof unions.$inferSelect): UnionWire {
 export function unionEventToWire(
   row: typeof unionEvents.$inferSelect,
 ): UnionEventWire {
-  if (row.deletedAt) return tombstone(row.id, row.updatedAt, row.deletedAt)
+  if (row.deletedAt) {
+    return tombstone(row.id, row.revision, row.updatedAt, row.deletedAt)
+  }
   return {
     id: row.id,
     unionId: row.unionId,
     type: row.type as UnionEventType,
     eventDate: row.eventDate ?? undefined,
     createdAt: iso(row.createdAt),
+    revision: row.revision,
     updatedAt: iso(row.updatedAt),
   }
 }
@@ -121,6 +136,7 @@ export function treeUnionToWire(
     return {
       treeId: row.treeId,
       unionId: row.unionId,
+      revision: row.revision,
       updatedAt: iso(row.updatedAt),
       deletedAt: iso(row.deletedAt),
     }
@@ -129,6 +145,7 @@ export function treeUnionToWire(
     treeId: row.treeId,
     unionId: row.unionId,
     createdAt: iso(row.createdAt),
+    revision: row.revision,
     updatedAt: iso(row.updatedAt),
   }
 }
@@ -136,13 +153,16 @@ export function treeUnionToWire(
 export function parentRelationshipToWire(
   row: typeof parentChildRelationships.$inferSelect,
 ): ParentChildRelationshipWire {
-  if (row.deletedAt) return tombstone(row.id, row.updatedAt, row.deletedAt)
+  if (row.deletedAt) {
+    return tombstone(row.id, row.revision, row.updatedAt, row.deletedAt)
+  }
   return {
     id: row.id,
     parentPersonId: row.parentPersonId,
     childPersonId: row.childPersonId,
     type: row.type as ParentChildRelationshipType,
     createdAt: iso(row.createdAt),
+    revision: row.revision,
     updatedAt: iso(row.updatedAt),
   }
 }
@@ -154,6 +174,7 @@ export function treeParentRelationshipToWire(
     return {
       treeId: row.treeId,
       parentChildRelationshipId: row.parentChildRelationshipId,
+      revision: row.revision,
       updatedAt: iso(row.updatedAt),
       deletedAt: iso(row.deletedAt),
     }
@@ -162,6 +183,7 @@ export function treeParentRelationshipToWire(
     treeId: row.treeId,
     parentChildRelationshipId: row.parentChildRelationshipId,
     createdAt: iso(row.createdAt),
+    revision: row.revision,
     updatedAt: iso(row.updatedAt),
   }
 }

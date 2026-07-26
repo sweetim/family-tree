@@ -1,113 +1,111 @@
 # API Reference
 
-Next.js App Router handlers delegate to `src/server/handlers/`. Authentication
-uses same-origin Better Auth session cookies.
-
-## `/api/auth/*`
-
-`GET` and `POST` are handled by Better Auth through
-`src/app/api/auth/[...all]/route.ts`. See
-[auth-and-acl.md](./auth-and-acl.md).
-
-## `/api/sync`
-
-Both methods require a session. Wire types are defined in
+Next.js App Router handlers use same-origin Better Auth session cookies. API v2
+separates bounded queries from idempotent mutations. Wire types are defined in
 `src/sync/types.ts`.
 
-### Normalized record set
+## Authentication
 
-Every own-data pull and push has exactly these arrays:
+`GET` and `POST /api/auth/*` are handled by Better Auth. Every family-data
+endpoint requires a session and returns `401` when unauthenticated.
 
-- `persons`
-- `trees`
-- `treeMembers`
-- `unions`
-- `unionEvents`
-- `treeUnions`
-- `parentChildRelationships`
-- `treeParentChildRelationships`
+## Tree manifest
 
-Active records carry their entity fields plus timestamps. Deleted records are
-tombstones keyed by entity id or the association's two ids.
+`GET /api/v2/trees?cursor=<opaque>&limit=<1-100>` returns accessible tree
+metadata, role, member count, row revision, and sync version. It never loads
+people or relationships. Results use stable keyset pagination.
 
-### `GET /api/sync`
+## Tree reads
 
-Query: optional `since=<ISO timestamp>`; omission means epoch. Invalid values
-or values more than five minutes in the future return `400`.
+`GET /api/v2/trees/[treeId]/snapshot` returns one selected tree and its active
+normalized graph. It also returns an opaque change cursor pinned to the tree's
+current sync version. Other accessible trees are not included.
 
-Response: `SyncPullResponse` with `own`, `shared`, and `serverTime`.
+`GET /api/v2/trees/[treeId]/graph?focusPersonId=<id>&radius=<0-6>` returns at
+most 300 people in a relationship neighborhood around one member. The response
+sets `partial: true` and identifies boundary people. Person deep links use this
+bounded query; the main tree canvas uses the selected-tree snapshot.
 
-- `own` contains updated owned tree/person records and normalized records for
-  active owned trees. Active dependencies needed for projection are repeated;
-  changed tombstones remain deltas.
-- Each `shared` item contains the tree, role, owner email, and a complete active
-  snapshot of all seven non-tree collections for that tree. It intentionally
-  excludes former dependencies and tombstones.
-- `serverTime` is the server cutoff used for the response. Own queries exclude
-  records newer than that cutoff so a later cursor cannot skip them.
+`GET /api/v2/people/search?query=<text>` searches accessible identities without
+loading their trees and returns at most eight results.
 
-### `POST /api/sync`
+## Changes
 
-Request: `SyncPushRequest`, the exact eight-array record set above.
+`GET /api/v2/changes?treeId=<id>&cursor=<opaque>&limit=<1-100>` returns ordered
+normalized change batches after the supplied cursor. The work and payload scale
+with committed changes rather than tree size. Responses contain `cursor` and
+`hasMore`; clients continue until `hasMore` is false.
 
-Response:
+Change rows and mutation receipts are retained for 30 days. A cursor older than
+retained history receives `410 { resetRequired: true }`; the client then fetches
+one fresh tree snapshot. A revoked tree returns `404`, prompting a manifest
+refresh.
+
+## Mutations
+
+`POST /api/v2/mutations` accepts one logical normalized mutation:
 
 ```ts
 {
+  protocolVersion: 2
+  deviceId: string
+  mutationId: string
+  records: SyncPushRequest
+}
+```
+
+Every synchronized row carries a server-owned positive integer `revision`.
+Existing updates and tombstones must send the revision last observed from the
+server. New records omit it. Client timestamps are metadata only and never
+decide write ordering.
+
+The server serializes duplicate mutation IDs, checks ACL and graph invariants,
+and applies the complete logical mutation in one interactive PostgreSQL
+transaction. If any record conflicts, the transaction rolls back and returns
+`409` with `status: "conflict"`; no prefix is committed. A retry of a committed
+mutation returns its stored result with `status: "alreadyApplied"`.
+
+```ts
+{
+  mutationId: string
+  status: "applied" | "alreadyApplied" | "conflict"
   applied: SyncAppliedIds
   skipped: SyncAppliedIds
+  aliases?: {
+    parentChildRelationships: Record<string, {
+      id: string
+      revision: number
+      type: ParentChildRelationshipType
+    }>
+  }
   serverTime: string
 }
 ```
 
-Payload validation requires exact object keys, valid ids/types/dates,
-reasonable timestamps, canonical union ordering, and unique keys within each
-collection. Invalid payloads return `400`. Valid but stale, unauthorized, or
-constraint-violating records are reported in `skipped`.
+Canonical parent ID substitutions and association revisions are returned in
+`aliases`, allowing the client to remap facts, associations, and queued work
+without waiting for a reload.
 
-All successful inserts, updates, revivals, and tombstones set `updated_at` (and
-server-created deletion time) from PostgreSQL `CURRENT_TIMESTAMP`. Client
-`updatedAt` is a conditional last-write-wins token and must be newer than the
-stored timestamp; it is never persisted as the authoritative update clock.
-Client timestamps more than five minutes in the future are rejected.
+Payloads are limited to 5 MiB, 2,000 records per collection, and 5,000 records
+overall. IDs, text, dates, photos, enums, exact keys, and duplicate collection
+keys are validated before database or Blob work.
 
-#### Record behavior
+## Shares
 
-| Collection | Rules |
-|---|---|
-| `persons` | New rows are owned by the caller. Accessible editors/owners may update identity. Only the person-row owner may delete, which atomically tombstones the person and all memberships, unions/events, parent facts, and tree associations involving it. |
-| `trees` | New rows are owned by the caller. Only the tree owner may rename or delete an existing tree. |
-| `treeMembers` | Requires a writable tree and active person. New/revived membership also requires write access to the person. A member cannot be removed while an active relationship in that tree still references them. |
-| `unions` | Creation requires active endpoints together in a writable tree. Endpoints are distinct, canonical, and immutable. Existing facts can be touched through a writable associated tree or ownership of both people. Clients cannot tombstone union facts. |
-| `unionEvents` | Requires a writable union, valid event type, and optional exact ISO date. `unionId` is immutable. Clients cannot tombstone events. |
-| `treeUnions` | Requires a writable tree, active union, and both endpoints as active tree members. Deletion detaches only that tree. |
-| `parentChildRelationships` | Creation requires both active endpoints together in a writable tree. Endpoints are immutable; type may change. Self-links, a third active global parent, and global ancestry cycles are rejected. Clients cannot tombstone these facts. |
-| `treeParentChildRelationships` | Requires a writable tree, active fact, and both endpoints as active tree members. Deletion detaches only that tree. |
+`GET`, `POST`, and `DELETE /api/trees/[treeId]/shares` are owner-only. Requests
+use bounded JSON parsing, normalized email addresses, deterministic ordering,
+and strict roles. Pending shares are reconciled during manifest loading, which
+also closes the share/user-creation race.
 
-New global facts that fail to gain any requested tree association are removed
-and reported as skipped, avoiding inaccessible orphan facts.
+## Photos
 
-## `/api/trees/[treeId]`
+`GET /api/person-photo/[personId]` authorizes every request and returns
+`private, no-store` image responses with content-type allowlisting, byte limits,
+and `nosniff`. Blob URLs are never exposed in sync DTOs.
 
-`DELETE` requires the tree owner. It atomically tombstones the tree and its
-memberships, union associations, and parent/child associations using the server
-clock. The client removes the tree only after a successful response.
+## Legacy compatibility
 
-Unauthenticated requests return `401`, invalid ids return `400`, and missing or
-non-owned trees return `404`.
-
-## `/api/trees/[treeId]/shares`
-
-All methods are tree-owner-only. Unauthenticated requests return `401`; other
-roles return `403`.
-
-| Method | Input | Result |
-|---|---|---|
-| `GET` | none | `{ shares }`, where each row has `email`, nullable `userId`, role, creation time, and `pending`. |
-| `POST` | `{ email, role: "viewer" | "editor" }` | Adds the share or updates its role. Existing users bind immediately; unknown users remain pending. |
-| `DELETE` | `?email=<email>` | Revokes that email's share. |
-
-## Pages
-
-Page routes are `/`, `/tree/[treeId]`, and
-`/tree/[treeId]/p/[personId]`. See [architecture.md](./architecture.md).
+`GET /api/sync` and `DELETE /api/trees/[treeId]` remain temporarily available
+for read/delete compatibility. `POST /api/sync` returns `426`; writes must use
+API v2 so revisions, atomicity, idempotency, and change records cannot be
+bypassed.

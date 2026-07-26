@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { DirtyState, GlobalState } from "./store"
 import { update } from "./store/state"
-import type {
-  SyncAppliedIds,
-  SyncPullResponse,
-  SyncRecordSet,
-} from "./sync/types"
+import type { SyncPullResponse, SyncRecordSet } from "./sync/types"
 import { projectTree } from "./types"
 
 const timestamp = "2024-01-01T00:00:00.000Z"
@@ -133,19 +129,6 @@ function fullPull(
     },
     shared,
     serverTime: timestamp,
-  }
-}
-
-function emptyAppliedIds(): SyncAppliedIds {
-  return {
-    persons: [],
-    trees: [],
-    treeMembers: [],
-    unions: [],
-    unionEvents: [],
-    treeUnions: [],
-    parentChildRelationships: [],
-    treeParentChildRelationships: [],
   }
 }
 
@@ -376,11 +359,13 @@ describe("normalized relationship mutations", () => {
     // Divorce is terminal, so the couple leaves spouseIds...
     expect(projectTree(next.persons, next, "a").tim?.spouseIds).toEqual([])
     // ...but stays editable through unionStatus, and the child is unaffected.
-    expect(projectTree(next.persons, next, "a").tim?.unionStatus?.yumi).toEqual({
-      type: "divorced",
-      marriageDate: "2020-01-01",
-      date: "2024-05-01",
-    })
+    expect(projectTree(next.persons, next, "a").tim?.unionStatus?.yumi).toEqual(
+      {
+        type: "divorced",
+        marriageDate: "2020-01-01",
+        date: "2024-05-01",
+      },
+    )
     expect(projectTree(next.persons, next, "a").kid?.parents).toEqual([
       { id: "tim", adopted: undefined, type: "biological" },
     ])
@@ -434,9 +419,9 @@ describe("normalized relationship mutations", () => {
         (event) => event.type === "reconciled",
       ),
     ).toBe(true)
-    expect(projectTree(reconciled.persons, reconciled, "a").tim?.spouseIds).toEqual([
-      "yumi",
-    ])
+    expect(
+      projectTree(reconciled.persons, reconciled, "a").tim?.spouseIds,
+    ).toEqual(["yumi"])
     expect(
       projectTree(reconciled.persons, reconciled, "a").tim?.unionStatus?.yumi
         ?.type,
@@ -901,6 +886,116 @@ describe("remote merge", () => {
     expect(store.getSnapshot().index).toEqual([])
   })
 
+  test("lazy manifest refresh preserves a pending tree rename", async () => {
+    const store = await freshStore()
+    store.applyFullPull(
+      fullPull({
+        trees: [
+          {
+            id: "tree",
+            name: "Original",
+            ownerId: "owner",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            revision: 1,
+          },
+        ],
+      }),
+    )
+    const response = deferred<Response>()
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => response.promise) as unknown as typeof fetch
+    try {
+      update((previous) => ({
+        ...previous,
+        index: previous.index.map((tree) =>
+          tree.id === "tree" ? { ...tree, name: "Pending" } : tree,
+        ),
+      }))
+      await Promise.resolve()
+      store.applyTreeManifest([
+        {
+          id: "tree",
+          name: "Remote",
+          ownerId: "owner",
+          role: "owner",
+          memberCount: 1,
+          syncVersion: 2,
+          createdAt: timestamp,
+          updatedAt: "2025-01-01T00:00:00.000Z",
+          revision: 2,
+        },
+      ])
+      expect(store.getSnapshot().index[0]?.name).toBe("Pending")
+      expect(store.snapshotDirty().trees.has("tree")).toBe(true)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test("partial graph snapshots merge without pruning omitted records", async () => {
+    const store = await freshStore()
+    store.applyRemote({
+      trees: [
+        {
+          id: "tree",
+          name: "Tree",
+          ownerId: "owner",
+          role: "owner",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          revision: 1,
+        },
+      ],
+      persons: [
+        { id: "visible", name: "Visible", updatedAt: timestamp, revision: 1 },
+        { id: "outside", name: "Outside", updatedAt: timestamp, revision: 1 },
+      ],
+      treeMembers: [
+        {
+          treeId: "tree",
+          personId: "visible",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          revision: 1,
+        },
+        {
+          treeId: "tree",
+          personId: "outside",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          revision: 1,
+        },
+      ],
+    })
+    store.applyTreeSnapshot({
+      tree: {
+        id: "tree",
+        name: "Tree",
+        ownerId: "owner",
+        role: "owner",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        revision: 1,
+      },
+      records: {
+        persons: [],
+        treeMembers: [],
+        unions: [],
+        unionEvents: [],
+        treeUnions: [],
+        parentChildRelationships: [],
+        treeParentChildRelationships: [],
+      },
+      syncVersion: 1,
+      cursor: "cursor",
+      partial: true,
+    })
+
+    expect(store.countMembers("tree")).toBe(2)
+    expect(store.getSnapshot().index[0]?.loaded).toBe(false)
+  })
+
   test("authoritative pulls clear old clocks for active records and clock omissions", async () => {
     const store = await freshStore()
     store.applyRemote({
@@ -965,6 +1060,7 @@ describe("remote merge", () => {
             id: "a",
             name: "A",
             createdAt: timestamp,
+            revision: 1,
             updatedAt: timestamp,
             ownerId: "owner",
           },
@@ -990,6 +1086,7 @@ describe("remote merge", () => {
       expect(store.getSnapshot().persons.tim).toBeTruthy()
 
       update((previous) => store.deletePersonRecords(previous, "tim"))
+      await Promise.resolve()
       expect(store.getSnapshot().persons.tim).toBeUndefined()
       expect([...store.snapshotDirty().persons.keys()]).toEqual(["tim"])
 
@@ -1005,6 +1102,52 @@ describe("remote merge", () => {
       expect([...store.snapshotDirty().treeMembers.keys()]).toContain(
         store.treeMemberKey("a", "tim"),
       )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test("a pending upsert survives reconciliation and adopts the server revision", async () => {
+    const store = await freshStore()
+    const serverPull = (revision: number, name: string) =>
+      fullPull({
+        persons: [
+          {
+            id: "tim",
+            name,
+            revision,
+            updatedAt: `2024-01-0${revision}T00:00:00.000Z`,
+          },
+        ],
+      })
+    store.applyFullPull(serverPull(1, "Server"))
+
+    const pushResponse = deferred<Response>()
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      pushResponse.promise) as unknown as typeof fetch
+    try {
+      update((previous) => ({
+        ...previous,
+        persons: {
+          ...previous.persons,
+          tim: {
+            id: "tim",
+            name: "Local",
+            revision: previous.persons.tim?.revision,
+            updatedAt: previous.persons.tim?.updatedAt,
+          },
+        },
+      }))
+      await Promise.resolve()
+      store.applyFullPull(serverPull(2, "Remote"))
+
+      expect(store.getSnapshot().persons.tim?.name).toBe("Local")
+      expect(store.getSnapshot().persons.tim?.revision).toBe(2)
+      expect(store.snapshotDirty().persons.get("tim")).toMatchObject({
+        action: "upsert",
+        baseRevision: 1,
+      })
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -1055,7 +1198,11 @@ describe("dirty tracking and push wires", () => {
   test("builds normalized tombstones and includes every collection", async () => {
     const store = await freshStore()
     const dirty: DirtyState = store.snapshotDirty()
-    dirty.trees.set("a", { action: "delete", revision: 1 })
+    dirty.trees.set("a", {
+      action: "delete",
+      revision: 1,
+      baseRevision: 7,
+    })
     dirty.treeMembers.set(store.treeMemberKey("a", "tim"), {
       action: "delete",
       revision: 2,
@@ -1076,6 +1223,7 @@ describe("dirty tracking and push wires", () => {
     )
     expect(request.trees[0]).toEqual({
       id: "a",
+      revision: 7,
       updatedAt: "2025-07-25T00:00:00.000Z",
       deletedAt: "2025-07-25T00:00:00.000Z",
     })
@@ -1113,6 +1261,25 @@ describe("dirty tracking and push wires", () => {
 
     const batch = store.takeDirtyBatch(dirty, 2)
     expect([...batch.persons.keys()]).toEqual(["first", "second"])
+    expect(batch.trees.size).toBe(0)
+  })
+
+  test("does not combine separate logical operations in one batch", async () => {
+    const store = await freshStore()
+    const dirty = store.snapshotDirty()
+    dirty.persons.set("first", {
+      action: "upsert",
+      revision: 1,
+      operationId: "operation-a",
+    })
+    dirty.trees.set("tree", {
+      action: "upsert",
+      revision: 2,
+      operationId: "operation-b",
+    })
+
+    const batch = store.takeDirtyBatch(dirty, 10)
+    expect([...batch.persons.keys()]).toEqual(["first"])
     expect(batch.trees.size).toBe(0)
   })
 
@@ -1171,6 +1338,7 @@ describe("dirty tracking and push wires", () => {
             id: "a",
             name: "A",
             createdAt: timestamp,
+            revision: 1,
             updatedAt: timestamp,
             ownerId: "owner",
           },
@@ -1188,9 +1356,13 @@ describe("dirty tracking and push wires", () => {
     const response = deferred<Response>()
     const originalFetch = globalThis.fetch
     globalThis.fetch = (async (input, init) => {
-      expect(input).toBe("/api/trees/a")
-      expect(init?.method).toBe("DELETE")
+      expect(input).toBe("/api/v2/mutations")
+      expect(init?.method).toBe("POST")
       expect(init?.credentials).toBe("include")
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        protocolVersion: 2,
+        records: { trees: [{ id: "a", revision: 1 }] },
+      })
       return response.promise
     }) as typeof fetch
 
@@ -1222,6 +1394,7 @@ describe("dirty tracking and push wires", () => {
             id: "a",
             name: "A",
             createdAt: timestamp,
+            revision: 1,
             updatedAt: timestamp,
             ownerId: "owner",
           },

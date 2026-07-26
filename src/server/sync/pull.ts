@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, lte, or } from "drizzle-orm"
+import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm"
 import type { DB } from "../../db"
 import { getDB } from "../../db"
 import {
@@ -41,6 +41,22 @@ type SharedTreeMetadata = {
   tree: typeof trees.$inferSelect
   role: "viewer" | "editor"
   ownerEmail: string | null
+}
+
+const personSyncSelection = {
+  id: persons.id,
+  ownerId: persons.ownerId,
+  name: persons.name,
+  dob: persons.dob,
+  dod: persons.dod,
+  gender: persons.gender,
+  location: persons.location,
+  photo: sql<
+    string | null
+  >`CASE WHEN ${persons.photo} IS NULL THEN NULL ELSE 'stored' END`,
+  revision: persons.revision,
+  updatedAt: persons.updatedAt,
+  deletedAt: persons.deletedAt,
 }
 
 function emptyTreeRecords(): TreeRecords {
@@ -138,7 +154,7 @@ async function loadOwnedRecords(
       personIds.length === 0
         ? []
         : db
-            .select()
+            .select(personSyncSelection)
             .from(persons)
             .where(
               and(
@@ -196,7 +212,7 @@ async function loadOwnedRecords(
   }
 }
 
-async function loadSharedRecordsByTree(
+export async function loadActiveRecordsByTree(
   db: DB,
   treeIds: string[],
 ): Promise<Map<string, TreeRecords>> {
@@ -239,7 +255,7 @@ async function loadSharedRecordsByTree(
       personIds.length === 0
         ? []
         : db
-            .select()
+            .select(personSyncSelection)
             .from(persons)
             .where(
               and(inArray(persons.id, personIds), isNull(persons.deletedAt)),
@@ -336,6 +352,100 @@ async function loadSharedRecordsByTree(
   return recordsByTree
 }
 
+export async function loadActiveRecordsForPeople(
+  db: DB,
+  treeId: string,
+  personIds: string[],
+): Promise<TreeRecords> {
+  if (personIds.length === 0) return emptyTreeRecords()
+  const [personRows, memberRows, unionAssociationRows, parentAssociationRows] =
+    await Promise.all([
+      db
+        .select(personSyncSelection)
+        .from(persons)
+        .where(and(inArray(persons.id, personIds), isNull(persons.deletedAt))),
+      db
+        .select()
+        .from(treeMembers)
+        .where(
+          and(
+            eq(treeMembers.treeId, treeId),
+            inArray(treeMembers.personId, personIds),
+            isNull(treeMembers.deletedAt),
+          ),
+        ),
+      db
+        .select({ association: treeUnions })
+        .from(treeUnions)
+        .innerJoin(unions, eq(unions.id, treeUnions.unionId))
+        .where(
+          and(
+            eq(treeUnions.treeId, treeId),
+            isNull(treeUnions.deletedAt),
+            isNull(unions.deletedAt),
+            inArray(unions.firstPersonId, personIds),
+            inArray(unions.secondPersonId, personIds),
+          ),
+        ),
+      db
+        .select({ association: treeParentChildRelationships })
+        .from(treeParentChildRelationships)
+        .innerJoin(
+          parentChildRelationships,
+          eq(
+            parentChildRelationships.id,
+            treeParentChildRelationships.parentChildRelationshipId,
+          ),
+        )
+        .where(
+          and(
+            eq(treeParentChildRelationships.treeId, treeId),
+            isNull(treeParentChildRelationships.deletedAt),
+            isNull(parentChildRelationships.deletedAt),
+            inArray(parentChildRelationships.parentPersonId, personIds),
+            inArray(parentChildRelationships.childPersonId, personIds),
+          ),
+        ),
+    ])
+  const treeUnionRows = unionAssociationRows.map((row) => row.association)
+  const treeParentRows = parentAssociationRows.map((row) => row.association)
+  const unionIds = treeUnionRows.map((row) => row.unionId)
+  const parentIds = treeParentRows.map((row) => row.parentChildRelationshipId)
+  const [unionRows, eventRows, parentRows] = await Promise.all([
+    unionIds.length > 0
+      ? db.select().from(unions).where(inArray(unions.id, unionIds))
+      : [],
+    unionIds.length > 0
+      ? db
+          .select()
+          .from(unionEvents)
+          .where(
+            and(
+              inArray(unionEvents.unionId, unionIds),
+              isNull(unionEvents.deletedAt),
+            ),
+          )
+      : [],
+    parentIds.length > 0
+      ? db
+          .select()
+          .from(parentChildRelationships)
+          .where(inArray(parentChildRelationships.id, parentIds))
+      : [],
+  ])
+  return {
+    persons: personRows.map(personToWire),
+    treeMembers: memberRows.map(treeMemberToWire),
+    unions: unionRows.map(unionToWire),
+    unionEvents: eventRows.map(unionEventToWire),
+    treeUnions: treeUnionRows.map(treeUnionToWire),
+    parentChildRelationships: parentRows.map(parentRelationshipToWire),
+    treeParentChildRelationships: treeParentRows.map(
+      treeParentRelationshipToWire,
+    ),
+  }
+}
+
 /** GET /api/sync?since=<iso> with query count independent of tree count. */
 export async function getSync(request: Request): Promise<Response> {
   const sinceParam = new URL(request.url).searchParams.get("since")
@@ -353,7 +463,7 @@ export async function getSync(request: Request): Promise<Response> {
     await Promise.all([
       db.select().from(trees).where(eq(trees.ownerId, me.id)),
       db
-        .select()
+        .select(personSyncSelection)
         .from(persons)
         .where(
           and(
@@ -368,6 +478,8 @@ export async function getSync(request: Request): Promise<Response> {
           ownerId: trees.ownerId,
           name: trees.name,
           createdAt: trees.createdAt,
+          revision: trees.revision,
+          syncVersion: trees.syncVersion,
           updatedAt: trees.updatedAt,
           deletedAt: trees.deletedAt,
           role: treeShares.role,
@@ -396,6 +508,8 @@ export async function getSync(request: Request): Promise<Response> {
         ownerId: row.ownerId,
         name: row.name,
         createdAt: row.createdAt,
+        revision: row.revision,
+        syncVersion: row.syncVersion,
         updatedAt: row.updatedAt,
         deletedAt: row.deletedAt,
       },
@@ -407,7 +521,7 @@ export async function getSync(request: Request): Promise<Response> {
   const sharedTreeIds = [...sharedMetadataByTree.keys()]
   const [ownedRecords, sharedRecordsByTree] = await Promise.all([
     loadOwnedRecords(db, ownedTreeIds, since, cutoff),
-    loadSharedRecordsByTree(db, sharedTreeIds),
+    loadActiveRecordsByTree(db, sharedTreeIds),
   ])
   const own: SyncRecordSet = {
     ...ownedRecords,

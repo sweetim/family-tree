@@ -2,7 +2,6 @@ import type { SyncPushRequest } from "../sync/types"
 
 export type SyncCollectionName = keyof SyncPushRequest
 
-export const MAX_CLIENT_FUTURE_MILLISECONDS = 5 * 60 * 1000
 export const MAX_SYNC_ID_LENGTH = 512
 export const MAX_SYNC_TEXT_LENGTH = 10_000
 export const MAX_SYNC_PHOTO_LENGTH = 1024 * 1024
@@ -68,6 +67,13 @@ function isValidText(
   )
 }
 
+function isOptionalRevision(value: unknown): boolean {
+  return (
+    value === undefined
+    || (Number.isSafeInteger(value) && (value as number) > 0)
+  )
+}
+
 export function isValidSyncId(value: unknown): value is string {
   return (
     typeof value === "string"
@@ -86,12 +92,9 @@ export function activeDependencyIds<T extends { deletedAt: Date | null }>(
 
 export function isReasonableClientTimestamp(
   value: unknown,
-  now: Date,
+  _now: Date,
 ): value is string {
-  if (!isValidTimestamp(value)) return false
-  return (
-    new Date(value).getTime() <= now.getTime() + MAX_CLIENT_FUTURE_MILLISECONDS
-  )
+  return isValidTimestamp(value)
 }
 
 function isValidGenericTombstone(
@@ -99,10 +102,11 @@ function isValidGenericTombstone(
   now: Date,
 ): boolean {
   return (
-    hasExactKeys(value, ["id", "updatedAt", "deletedAt"])
+    hasExactKeys(value, ["id", "updatedAt", "deletedAt"], ["revision"])
     && isValidSyncId(value.id)
     && isReasonableClientTimestamp(value.updatedAt, now)
     && isReasonableClientTimestamp(value.deletedAt, now)
+    && isOptionalRevision(value.revision)
   )
 }
 
@@ -113,11 +117,16 @@ function isValidAssociationTombstone(
   now: Date,
 ): boolean {
   return (
-    hasExactKeys(value, [firstId, secondId, "updatedAt", "deletedAt"])
+    hasExactKeys(
+      value,
+      [firstId, secondId, "updatedAt", "deletedAt"],
+      ["revision"],
+    )
     && isValidSyncId(value[firstId])
     && isValidSyncId(value[secondId])
     && isReasonableClientTimestamp(value.updatedAt, now)
     && isReasonableClientTimestamp(value.deletedAt, now)
+    && isOptionalRevision(value.revision)
   )
 }
 
@@ -138,7 +147,7 @@ function isValidPersonWire(value: unknown, now: Date): boolean {
     hasExactKeys(
       value,
       ["id", "name", "updatedAt"],
-      ["dob", "dod", "gender", "location", "photo", "ownerId"],
+      ["dob", "dod", "gender", "location", "photo", "ownerId", "revision"],
     )
     && isValidSyncId(value.id)
     && isValidText(value.name)
@@ -149,6 +158,7 @@ function isValidPersonWire(value: unknown, now: Date): boolean {
     && isOptionalPhoto(value.photo)
     && (value.ownerId === undefined || isValidSyncId(value.ownerId))
     && isReasonableClientTimestamp(value.updatedAt, now)
+    && isOptionalRevision(value.revision)
   )
 }
 
@@ -161,7 +171,7 @@ function isValidTreeWire(value: unknown, now: Date): boolean {
     hasExactKeys(
       value,
       ["id", "name", "createdAt", "updatedAt"],
-      ["ownerId", "ownerEmail", "role"],
+      ["ownerId", "ownerEmail", "role", "revision"],
     )
     && isValidSyncId(value.id)
     && isValidText(value.name)
@@ -174,6 +184,7 @@ function isValidTreeWire(value: unknown, now: Date): boolean {
       || value.ownerEmail === null
       || typeof value.ownerEmail === "string")
     && (value.role === undefined || TREE_ROLES.has(value.role as string))
+    && isOptionalRevision(value.revision)
   )
 }
 
@@ -183,11 +194,16 @@ function isValidTreeMemberWire(value: unknown, now: Date): boolean {
     return isValidAssociationTombstone(value, "treeId", "personId", now)
   }
   return (
-    hasExactKeys(value, ["treeId", "personId", "createdAt", "updatedAt"])
+    hasExactKeys(
+      value,
+      ["treeId", "personId", "createdAt", "updatedAt"],
+      ["revision"],
+    )
     && isValidSyncId(value.treeId)
     && isValidSyncId(value.personId)
     && isReasonableClientTimestamp(value.createdAt, now)
     && isReasonableClientTimestamp(value.updatedAt, now)
+    && isOptionalRevision(value.revision)
   )
 }
 
@@ -197,19 +213,18 @@ function isValidUnionWire(value: unknown, now: Date): boolean {
     return isValidGenericTombstone(value, now)
   }
   return (
-    hasExactKeys(value, [
-      "id",
-      "firstPersonId",
-      "secondPersonId",
-      "createdAt",
-      "updatedAt",
-    ])
+    hasExactKeys(
+      value,
+      ["id", "firstPersonId", "secondPersonId", "createdAt", "updatedAt"],
+      ["revision"],
+    )
     && isValidSyncId(value.id)
     && isValidSyncId(value.firstPersonId)
     && isValidSyncId(value.secondPersonId)
     && isCanonicalUnion(value.firstPersonId, value.secondPersonId)
     && isReasonableClientTimestamp(value.createdAt, now)
     && isReasonableClientTimestamp(value.updatedAt, now)
+    && isOptionalRevision(value.revision)
   )
 }
 
@@ -222,7 +237,7 @@ function isValidUnionEventWire(value: unknown, now: Date): boolean {
     hasExactKeys(
       value,
       ["id", "unionId", "type", "createdAt", "updatedAt"],
-      ["eventDate"],
+      ["eventDate", "revision"],
     )
     && isValidSyncId(value.id)
     && isValidSyncId(value.unionId)
@@ -230,6 +245,7 @@ function isValidUnionEventWire(value: unknown, now: Date): boolean {
     && (value.eventDate === undefined || isValidIsoDate(value.eventDate))
     && isReasonableClientTimestamp(value.createdAt, now)
     && isReasonableClientTimestamp(value.updatedAt, now)
+    && isOptionalRevision(value.revision)
   )
 }
 
@@ -239,11 +255,16 @@ function isValidTreeUnionWire(value: unknown, now: Date): boolean {
     return isValidAssociationTombstone(value, "treeId", "unionId", now)
   }
   return (
-    hasExactKeys(value, ["treeId", "unionId", "createdAt", "updatedAt"])
+    hasExactKeys(
+      value,
+      ["treeId", "unionId", "createdAt", "updatedAt"],
+      ["revision"],
+    )
     && isValidSyncId(value.treeId)
     && isValidSyncId(value.unionId)
     && isReasonableClientTimestamp(value.createdAt, now)
     && isReasonableClientTimestamp(value.updatedAt, now)
+    && isOptionalRevision(value.revision)
   )
 }
 
@@ -253,14 +274,18 @@ function isValidParentRelationshipWire(value: unknown, now: Date): boolean {
     return isValidGenericTombstone(value, now)
   }
   return (
-    hasExactKeys(value, [
-      "id",
-      "parentPersonId",
-      "childPersonId",
-      "type",
-      "createdAt",
-      "updatedAt",
-    ])
+    hasExactKeys(
+      value,
+      [
+        "id",
+        "parentPersonId",
+        "childPersonId",
+        "type",
+        "createdAt",
+        "updatedAt",
+      ],
+      ["revision"],
+    )
     && isValidSyncId(value.id)
     && isValidSyncId(value.parentPersonId)
     && isValidSyncId(value.childPersonId)
@@ -268,6 +293,7 @@ function isValidParentRelationshipWire(value: unknown, now: Date): boolean {
     && PARENT_RELATIONSHIP_TYPES.has(value.type as string)
     && isReasonableClientTimestamp(value.createdAt, now)
     && isReasonableClientTimestamp(value.updatedAt, now)
+    && isOptionalRevision(value.revision)
   )
 }
 
@@ -282,16 +308,16 @@ function isValidTreeParentRelationshipWire(value: unknown, now: Date): boolean {
     )
   }
   return (
-    hasExactKeys(value, [
-      "treeId",
-      "parentChildRelationshipId",
-      "createdAt",
-      "updatedAt",
-    ])
+    hasExactKeys(
+      value,
+      ["treeId", "parentChildRelationshipId", "createdAt", "updatedAt"],
+      ["revision"],
+    )
     && isValidSyncId(value.treeId)
     && isValidSyncId(value.parentChildRelationshipId)
     && isReasonableClientTimestamp(value.createdAt, now)
     && isReasonableClientTimestamp(value.updatedAt, now)
+    && isOptionalRevision(value.revision)
   )
 }
 

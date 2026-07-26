@@ -22,6 +22,27 @@
       "when": 1784979060000,
       "tag": "0002_rapid_revanche",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785036335743,
+      "tag": "0003_futuristic_yellow_claw",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785037347563,
+      "tag": "0004_spotty_quasar",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785043136853,
+      "tag": "0005_lying_nightshade",
+      "breakpoints": true
     }
   ]
 }

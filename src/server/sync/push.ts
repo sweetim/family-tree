@@ -2,16 +2,25 @@ import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm"
 import type { DB } from "../../db"
 import { getDB } from "../../db/index"
 import {
+  mutationReceipts,
   parentChildRelationships,
   persons,
+  syncChanges,
   treeMembers,
   treeParentChildRelationships,
+  treeShares,
   trees,
   treeUnions,
   unionEvents,
   unions,
 } from "../../db/schema"
-import type { SyncAppliedIds, SyncPushResponse } from "../../sync/types"
+import type {
+  SyncAppliedIds,
+  SyncMutationResponse,
+  SyncPushRequest,
+  SyncPushResponse,
+  SyncRecordSet,
+} from "../../sync/types"
 import type {
   Gender,
   ParentChildRelationshipType,
@@ -34,6 +43,16 @@ import {
   isValidSyncId,
   isValidSyncPushRequest,
 } from "../sync-validation"
+import {
+  parentRelationshipToWire,
+  personToWire,
+  treeMemberToWire,
+  treeParentRelationshipToWire,
+  treeToWire,
+  treeUnionToWire,
+  unionEventToWire,
+  unionToWire,
+} from "./wire"
 
 type SyncCollection = keyof SyncAppliedIds
 type RoleForTree = (treeId: string) => Promise<Role | null>
@@ -72,6 +91,27 @@ function emptyAppliedIds(): SyncAppliedIds {
   }
 }
 
+function requestIds(body: SyncPushRequest): SyncAppliedIds {
+  return {
+    persons: body.persons.map((wire) => wire.id),
+    trees: body.trees.map((wire) => wire.id),
+    treeMembers: body.treeMembers.map((wire) =>
+      associationKey(wire.treeId, wire.personId),
+    ),
+    unions: body.unions.map((wire) => wire.id),
+    unionEvents: body.unionEvents.map((wire) => wire.id),
+    treeUnions: body.treeUnions.map((wire) =>
+      associationKey(wire.treeId, wire.unionId),
+    ),
+    parentChildRelationships: body.parentChildRelationships.map(
+      (wire) => wire.id,
+    ),
+    treeParentChildRelationships: body.treeParentChildRelationships.map(
+      (wire) => associationKey(wire.treeId, wire.parentChildRelationshipId),
+    ),
+  }
+}
+
 function classify(
   applied: SyncAppliedIds,
   skipped: SyncAppliedIds,
@@ -90,6 +130,257 @@ function wireTimestamp(wire: { updatedAt: string }): Date | null {
 function wireCreatedAt(wire: { createdAt: string }): Date | null {
   const value = new Date(wire.createdAt)
   return Number.isFinite(value.getTime()) ? value : null
+}
+
+function wireRevision(wire: { revision?: number }): number | null {
+  return Number.isSafeInteger(wire.revision) && (wire.revision ?? 0) > 0
+    ? (wire.revision as number)
+    : null
+}
+
+function hasClassifiedRecords(ids: SyncAppliedIds): boolean {
+  return Object.values(ids).some((records) => records.length > 0)
+}
+
+function isValidMutationId(value: string | null): value is string {
+  return Boolean(value && isValidSyncId(value))
+}
+
+type ConflictResponse = SyncMutationResponse
+
+function emptyRecordSet(): SyncRecordSet {
+  return {
+    persons: [],
+    trees: [],
+    treeMembers: [],
+    unions: [],
+    unionEvents: [],
+    treeUnions: [],
+    parentChildRelationships: [],
+    treeParentChildRelationships: [],
+  }
+}
+
+async function collectMutationChanges(
+  db: DB,
+  body: SyncPushRequest,
+  parentAliases: ReadonlyMap<
+    string,
+    {
+      id: string
+      revision: number
+      type: ParentChildRelationshipType
+    }
+  >,
+): Promise<Map<string, SyncRecordSet>> {
+  const personIds = new Set([
+    ...body.persons.map((wire) => wire.id),
+    ...body.treeMembers.map((wire) => wire.personId),
+  ])
+  const deletedPersonIds = body.persons
+    .filter((wire) => "deletedAt" in wire)
+    .map((wire) => wire.id)
+  const deletedPersonIdSet = new Set(deletedPersonIds)
+  const explicitMemberKeys = new Set(
+    body.treeMembers.map((wire) => associationKey(wire.treeId, wire.personId)),
+  )
+  const explicitTreeUnionKeys = new Set(
+    body.treeUnions.map((wire) => associationKey(wire.treeId, wire.unionId)),
+  )
+  const explicitTreeParentKeys = new Set(
+    body.treeParentChildRelationships.map((wire) =>
+      associationKey(
+        wire.treeId,
+        parentAliases.get(wire.parentChildRelationshipId)?.id
+          ?? wire.parentChildRelationshipId,
+      ),
+    ),
+  )
+  const unionIds = new Set([
+    ...body.unions.map((wire) => wire.id),
+    ...body.unionEvents.flatMap((wire) =>
+      "unionId" in wire ? [wire.unionId] : [],
+    ),
+    ...body.treeUnions.map((wire) => wire.unionId),
+  ])
+  const parentIds = new Set([
+    ...body.parentChildRelationships.map((wire) => wire.id),
+    ...body.treeParentChildRelationships.map(
+      (wire) => wire.parentChildRelationshipId,
+    ),
+  ])
+  for (const alias of parentAliases.values()) parentIds.add(alias.id)
+
+  if (deletedPersonIds.length > 0) {
+    const [affectedUnions, affectedParents] = await Promise.all([
+      db
+        .select({ id: unions.id })
+        .from(unions)
+        .where(
+          or(
+            inArray(unions.firstPersonId, deletedPersonIds),
+            inArray(unions.secondPersonId, deletedPersonIds),
+          ),
+        ),
+      db
+        .select({ id: parentChildRelationships.id })
+        .from(parentChildRelationships)
+        .where(
+          or(
+            inArray(parentChildRelationships.parentPersonId, deletedPersonIds),
+            inArray(parentChildRelationships.childPersonId, deletedPersonIds),
+          ),
+        ),
+    ])
+    for (const row of affectedUnions) unionIds.add(row.id)
+    for (const row of affectedParents) parentIds.add(row.id)
+  }
+
+  const personIdList = [...personIds]
+  const unionIdList = [...unionIds]
+  const parentIdList = [...parentIds]
+  const changedTreeIds = [...new Set(body.trees.map((wire) => wire.id))]
+  const [
+    personRows,
+    treeRows,
+    memberRows,
+    unionRows,
+    eventRows,
+    treeUnionRows,
+    parentRows,
+    treeParentRows,
+  ] = await Promise.all([
+    personIdList.length > 0
+      ? db.select().from(persons).where(inArray(persons.id, personIdList))
+      : [],
+    changedTreeIds.length > 0
+      ? db.select().from(trees).where(inArray(trees.id, changedTreeIds))
+      : [],
+    personIdList.length > 0
+      ? db
+          .select()
+          .from(treeMembers)
+          .where(inArray(treeMembers.personId, personIdList))
+      : [],
+    unionIdList.length > 0
+      ? db.select().from(unions).where(inArray(unions.id, unionIdList))
+      : [],
+    unionIdList.length > 0
+      ? db
+          .select()
+          .from(unionEvents)
+          .where(inArray(unionEvents.unionId, unionIdList))
+      : [],
+    unionIdList.length > 0
+      ? db
+          .select()
+          .from(treeUnions)
+          .where(inArray(treeUnions.unionId, unionIdList))
+      : [],
+    parentIdList.length > 0
+      ? db
+          .select()
+          .from(parentChildRelationships)
+          .where(inArray(parentChildRelationships.id, parentIdList))
+      : [],
+    parentIdList.length > 0
+      ? db
+          .select()
+          .from(treeParentChildRelationships)
+          .where(
+            inArray(
+              treeParentChildRelationships.parentChildRelationshipId,
+              parentIdList,
+            ),
+          )
+      : [],
+  ])
+
+  const changesByTree = new Map<string, SyncRecordSet>()
+  const peopleById = new Map(personRows.map((row) => [row.id, row]))
+  const unionsById = new Map(unionRows.map((row) => [row.id, row]))
+  const eventsByUnion = new Map<string, typeof eventRows>()
+  for (const event of eventRows) {
+    const events = eventsByUnion.get(event.unionId) ?? []
+    events.push(event)
+    eventsByUnion.set(event.unionId, events)
+  }
+  const parentsById = new Map(parentRows.map((row) => [row.id, row]))
+  const recordsFor = (treeId: string): SyncRecordSet => {
+    const existing = changesByTree.get(treeId)
+    if (existing) return existing
+    const created = emptyRecordSet()
+    changesByTree.set(treeId, created)
+    return created
+  }
+  for (const row of treeRows) recordsFor(row.id).trees.push(treeToWire(row))
+  for (const row of memberRows) {
+    const explicit = explicitMemberKeys.has(
+      associationKey(row.treeId, row.personId),
+    )
+    if (row.deletedAt && !explicit && !deletedPersonIdSet.has(row.personId)) {
+      continue
+    }
+    const records = recordsFor(row.treeId)
+    if (explicit || deletedPersonIdSet.has(row.personId)) {
+      records.treeMembers.push(treeMemberToWire(row))
+    }
+    const person = peopleById.get(row.personId)
+    if (
+      person
+      && (!row.deletedAt || deletedPersonIdSet.has(row.personId))
+      && !records.persons.some((wire) => wire.id === person.id)
+    ) {
+      records.persons.push(personToWire(person))
+    }
+  }
+  for (const row of treeUnionRows) {
+    const explicit = explicitTreeUnionKeys.has(
+      associationKey(row.treeId, row.unionId),
+    )
+    if (row.deletedAt && !explicit && deletedPersonIds.length === 0) continue
+    const records = recordsFor(row.treeId)
+    if (explicit || deletedPersonIds.length > 0) {
+      records.treeUnions.push(treeUnionToWire(row))
+    }
+    const union =
+      !row.deletedAt || deletedPersonIds.length > 0
+        ? unionsById.get(row.unionId)
+        : undefined
+    if (union && !records.unions.some((wire) => wire.id === union.id)) {
+      records.unions.push(unionToWire(union))
+      records.unionEvents.push(
+        ...(eventsByUnion.get(union.id) ?? []).map(unionEventToWire),
+      )
+    }
+  }
+  for (const row of treeParentRows) {
+    const explicit = explicitTreeParentKeys.has(
+      associationKey(row.treeId, row.parentChildRelationshipId),
+    )
+    if (row.deletedAt && !explicit && deletedPersonIds.length === 0) continue
+    const records = recordsFor(row.treeId)
+    if (explicit || deletedPersonIds.length > 0) {
+      records.treeParentChildRelationships.push(
+        treeParentRelationshipToWire(row),
+      )
+    }
+    const relationship =
+      !row.deletedAt || deletedPersonIds.length > 0
+        ? parentsById.get(row.parentChildRelationshipId)
+        : undefined
+    if (
+      relationship
+      && !records.parentChildRelationships.some(
+        (wire) => wire.id === relationship.id,
+      )
+    ) {
+      records.parentChildRelationships.push(
+        parentRelationshipToWire(relationship),
+      )
+    }
+  }
+  return changesByTree
 }
 
 function validId(value: string): boolean {
@@ -163,11 +454,7 @@ async function rolesForTrees(
   treeIds: string[],
   roleForTree: RoleForTree,
 ): Promise<Array<Role | null>> {
-  const roles: Array<Role | null> = []
-  for (const treeId of new Set(treeIds)) {
-    roles.push(await roleForTree(treeId))
-  }
-  return roles
+  return Promise.all([...new Set(treeIds)].map(roleForTree))
 }
 
 async function rolesForUnion(
@@ -318,36 +605,28 @@ async function personIsReferencedInTree(
   return referencedRelationships.length > 0
 }
 
-function moveAppliedToSkipped(
-  applied: SyncAppliedIds,
-  skipped: SyncAppliedIds,
-  collection: SyncCollection,
-  id: string,
-): void {
-  const index = applied[collection].indexOf(id)
-  if (index >= 0) applied[collection].splice(index, 1)
-  if (!skipped[collection].includes(id)) skipped[collection].push(id)
-}
-
 /** One PostgreSQL statement makes person-owner deletion globally atomic. */
 async function tombstonePersonCascade(
   db: DB,
   userId: string,
   personId: string,
-  clientUpdatedAt: Date,
+  expectedRevision: number,
+  serverTime: Date,
+  photosToDeleteAfterCommit: Set<string>,
 ): Promise<boolean> {
   const result = await db.execute(sql<{ id: string; photo: string | null }>`
     WITH     server_clock AS MATERIALIZED (
-      SELECT ${clientUpdatedAt}::timestamptz AS value
+      SELECT ${serverTime}::timestamptz AS value
     ),
     target_person AS MATERIALIZED (
       UPDATE ${persons}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${persons.id} = ${personId}
         AND ${persons.ownerId} = ${userId}
         AND ${persons.deletedAt} IS NULL
-        AND ${persons.updatedAt} < ${clientUpdatedAt}
+        AND ${persons.revision} = ${expectedRevision}
       RETURNING ${persons.id} AS id, ${persons.photo} AS photo
     ),
     affected_unions AS MATERIALIZED (
@@ -371,7 +650,8 @@ async function tombstonePersonCascade(
     tombstoned_memberships AS (
       UPDATE ${treeMembers}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${treeMembers.personId} IN (SELECT id FROM target_person)
         AND ${treeMembers.deletedAt} IS NULL
       RETURNING ${treeMembers.treeId}
@@ -379,7 +659,8 @@ async function tombstonePersonCascade(
     tombstoned_tree_unions AS (
       UPDATE ${treeUnions}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${treeUnions.unionId} IN (SELECT id FROM affected_unions)
         AND ${treeUnions.deletedAt} IS NULL
       RETURNING ${treeUnions.treeId}
@@ -387,7 +668,8 @@ async function tombstonePersonCascade(
     tombstoned_tree_parent_relationships AS (
       UPDATE ${treeParentChildRelationships}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${treeParentChildRelationships.parentChildRelationshipId} IN (
         SELECT id FROM affected_parent_relationships
       )
@@ -397,7 +679,8 @@ async function tombstonePersonCascade(
     tombstoned_union_events AS (
       UPDATE ${unionEvents}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${unionEvents.unionId} IN (SELECT id FROM affected_unions)
         AND ${unionEvents.deletedAt} IS NULL
       RETURNING ${unionEvents.id}
@@ -405,7 +688,8 @@ async function tombstonePersonCascade(
     tombstoned_unions AS (
       UPDATE ${unions}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${unions.id} IN (SELECT id FROM affected_unions)
         AND ${unions.deletedAt} IS NULL
       RETURNING ${unions.id}
@@ -413,7 +697,8 @@ async function tombstonePersonCascade(
     tombstoned_parent_relationships AS (
       UPDATE ${parentChildRelationships}
       SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock)
+          "updated_at" = (SELECT value FROM server_clock),
+          "revision" = "revision" + 1
       WHERE ${parentChildRelationships.id} IN (
         SELECT id FROM affected_parent_relationships
       )
@@ -424,44 +709,8 @@ async function tombstonePersonCascade(
   `)
   const previousPhoto = result.rows[0]?.photo as string | null | undefined
   if (previousPhoto && !isPhotoDataUrl(previousPhoto)) {
-    await deletePhoto(previousPhoto)
+    photosToDeleteAfterCommit.add(previousPhoto)
   }
-  return result.rows.length > 0
-}
-
-async function deleteUnionIfOrphaned(
-  db: DB,
-  unionId: string,
-): Promise<boolean> {
-  const result = await db.execute(sql<{ id: string }>`
-    DELETE FROM ${unions}
-    WHERE ${unions.id} = ${unionId}
-      AND NOT EXISTS (
-        SELECT 1
-        FROM ${treeUnions}
-        WHERE ${treeUnions.unionId} = ${unionId}
-          AND ${treeUnions.deletedAt} IS NULL
-      )
-    RETURNING ${unions.id} AS id
-  `)
-  return result.rows.length > 0
-}
-
-async function deleteParentRelationshipIfOrphaned(
-  db: DB,
-  relationshipId: string,
-): Promise<boolean> {
-  const result = await db.execute(sql<{ id: string }>`
-    DELETE FROM ${parentChildRelationships}
-    WHERE ${parentChildRelationships.id} = ${relationshipId}
-      AND NOT EXISTS (
-        SELECT 1
-        FROM ${treeParentChildRelationships}
-        WHERE ${treeParentChildRelationships.parentChildRelationshipId} = ${relationshipId}
-          AND ${treeParentChildRelationships.deletedAt} IS NULL
-      )
-    RETURNING ${parentChildRelationships.id} AS id
-  `)
   return result.rows.length > 0
 }
 
@@ -484,380 +733,557 @@ export async function postSync(request: Request): Promise<Response> {
   }
 
   const body = parsedBody
-  const db = getDB()
-  const treeRoleCache = new Map<string, Promise<Role | null>>()
-  const personRoleCache = new Map<string, Promise<Role | null>>()
-  const roleForTree: RoleForTree = async (treeId) => {
-    const cached = treeRoleCache.get(treeId)
-    if (cached) return cached
-    const role = await treeRole(db, me.id, treeId)
-    if (role === "owner") treeRoleCache.set(treeId, Promise.resolve(role))
-    return role
+  const mutationIdHeader = request.headers.get("x-sync-mutation-id")
+  const mutationId = isValidMutationId(mutationIdHeader)
+    ? mutationIdHeader
+    : null
+  if (mutationIdHeader && !mutationId) {
+    return Response.json({ error: "invalid mutation id" }, { status: 400 })
   }
-  const roleForPerson = async (personId: string): Promise<Role | null> => {
-    const cached = personRoleCache.get(personId)
-    if (cached) return cached
-    const role = await personRole(db, me.id, personId)
-    if (role === "owner") personRoleCache.set(personId, Promise.resolve(role))
-    return role
-  }
-  const activePersonCache = new Map<string, boolean>()
-  const activePeopleExistForRequest: ActivePeopleExist = async (personIds) => {
-    const uniqueIds = [...new Set(personIds)]
-    if (uniqueIds.some((id) => !validId(id))) return false
-    const unknownIds = uniqueIds.filter((id) => !activePersonCache.has(id))
-    if (unknownIds.length > 0) {
-      const rows = await db
-        .select({ id: persons.id })
-        .from(persons)
-        .where(and(inArray(persons.id, unknownIds), isNull(persons.deletedAt)))
-      const activeIds = new Set(rows.map((row) => row.id))
-      for (const id of unknownIds) activePersonCache.set(id, activeIds.has(id))
-    }
-    return uniqueIds.every((id) => activePersonCache.get(id) === true)
-  }
-  const referencedTreeIds = [
-    ...new Set([
-      ...body.trees.map((wire) => wire.id),
-      ...body.treeMembers.map((wire) => wire.treeId),
-      ...body.treeUnions.map((wire) => wire.treeId),
-      ...body.treeParentChildRelationships.map((wire) => wire.treeId),
-    ]),
-  ]
-  if (referencedTreeIds.length > 0) {
-    const roleRows = await db
-      .select({
-        treeId: trees.id,
-        ownerId: trees.ownerId,
-        deletedAt: trees.deletedAt,
-      })
-      .from(trees)
-      .where(inArray(trees.id, referencedTreeIds))
-    for (const row of roleRows) {
-      if (!row.deletedAt && row.ownerId === me.id) {
-        treeRoleCache.set(row.treeId, Promise.resolve("owner"))
-      }
-    }
-  }
-  const referencedPersonIds = [
-    ...new Set([
-      ...body.persons.map((wire) => wire.id),
-      ...body.treeMembers.map((wire) => wire.personId),
-      ...body.unions.flatMap((wire) =>
-        "deletedAt" in wire ? [] : [wire.firstPersonId, wire.secondPersonId],
-      ),
-      ...body.parentChildRelationships.flatMap((wire) =>
-        "deletedAt" in wire ? [] : [wire.parentPersonId, wire.childPersonId],
-      ),
-    ]),
-  ]
-  if (referencedPersonIds.length > 0) {
-    const personRows = await db
-      .select({
-        id: persons.id,
-        ownerId: persons.ownerId,
-        deletedAt: persons.deletedAt,
-      })
-      .from(persons)
-      .where(inArray(persons.id, referencedPersonIds))
-    for (const row of personRows) {
-      if (!row.deletedAt && row.ownerId === me.id) {
-        personRoleCache.set(row.id, Promise.resolve("owner"))
-      }
-    }
-  }
-  const applied = emptyAppliedIds()
-  const skipped = emptyAppliedIds()
+  const rootDb = getDB()
+  let conflictResponse: ConflictResponse | undefined
+  let committedResponse: Response | undefined
+  const uploadedPhotos = new Set<string>()
+  const photosToDeleteAfterCommit = new Set<string>()
 
-  const forbiddenGlobalDeletes = [
-    ["unions", body.unions],
-    ["unionEvents", body.unionEvents],
-    ["parentChildRelationships", body.parentChildRelationships],
-  ] as const
-  for (const [collection, wires] of forbiddenGlobalDeletes) {
-    if (clientCanTombstone(collection)) continue
-    for (const wire of wires) {
-      if ("deletedAt" in wire) {
-        classify(applied, skipped, collection, wire.id, false)
-      }
-    }
-  }
-
-  // Remove tree-scoped relationship associations before memberships.
-  for (const wire of body.treeUnions) {
-    if (!("deletedAt" in wire)) continue
-    const key = associationKey(wire.treeId, wire.unionId)
-    const updatedAt = wireTimestamp(wire)
-    if (
-      !validId(wire.treeId)
-      || !validId(wire.unionId)
-      || !updatedAt
-      || !canWrite(await roleForTree(wire.treeId))
-    ) {
-      classify(applied, skipped, "treeUnions", key, false)
-      continue
-    }
-    const rows = await db
-      .update(treeUnions)
-      .set({ deletedAt: updatedAt, updatedAt: updatedAt })
-      .where(
-        and(
-          eq(treeUnions.treeId, wire.treeId),
-          eq(treeUnions.unionId, wire.unionId),
-          lt(treeUnions.updatedAt, updatedAt),
-        ),
-      )
-      .returning({ treeId: treeUnions.treeId })
-    classify(applied, skipped, "treeUnions", key, rows.length > 0)
-  }
-  for (const wire of body.treeParentChildRelationships) {
-    if (!("deletedAt" in wire)) continue
-    const key = associationKey(wire.treeId, wire.parentChildRelationshipId)
-    const updatedAt = wireTimestamp(wire)
-    if (
-      !validId(wire.treeId)
-      || !validId(wire.parentChildRelationshipId)
-      || !updatedAt
-      || !canWrite(await roleForTree(wire.treeId))
-    ) {
-      classify(applied, skipped, "treeParentChildRelationships", key, false)
-      continue
-    }
-    const rows = await db
-      .update(treeParentChildRelationships)
-      .set({ deletedAt: updatedAt, updatedAt: updatedAt })
-      .where(
-        and(
-          eq(treeParentChildRelationships.treeId, wire.treeId),
-          eq(
-            treeParentChildRelationships.parentChildRelationshipId,
-            wire.parentChildRelationshipId,
+  try {
+    const transactionResponse = await rootDb.transaction(async (db) => {
+      if (mutationId) {
+        await db.execute(sql`
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${`${me.id}:${mutationId}`}, 0)
+          )
+        `)
+        const receipt = await db.query.mutationReceipts.findFirst({
+          where: and(
+            eq(mutationReceipts.userId, me.id),
+            eq(mutationReceipts.mutationId, mutationId),
           ),
-          lt(treeParentChildRelationships.updatedAt, updatedAt),
-        ),
-      )
-      .returning({ treeId: treeParentChildRelationships.treeId })
-    classify(
-      applied,
-      skipped,
-      "treeParentChildRelationships",
-      key,
-      rows.length > 0,
-    )
-  }
-
-  for (const wire of body.treeMembers) {
-    if (!("deletedAt" in wire)) continue
-    const key = associationKey(wire.treeId, wire.personId)
-    const updatedAt = wireTimestamp(wire)
-    if (
-      !validId(wire.treeId)
-      || !validId(wire.personId)
-      || !updatedAt
-      || !canWrite(await roleForTree(wire.treeId))
-      || (await personIsReferencedInTree(db, wire.treeId, wire.personId))
-    ) {
-      classify(applied, skipped, "treeMembers", key, false)
-      continue
-    }
-    const rows = await db
-      .update(treeMembers)
-      .set({ deletedAt: updatedAt, updatedAt: updatedAt })
-      .where(
-        and(
-          eq(treeMembers.treeId, wire.treeId),
-          eq(treeMembers.personId, wire.personId),
-          lt(treeMembers.updatedAt, updatedAt),
-        ),
-      )
-      .returning({ treeId: treeMembers.treeId })
-    if (rows.length > 0) personRoleCache.delete(wire.personId)
-    classify(applied, skipped, "treeMembers", key, rows.length > 0)
-  }
-
-  for (const wire of body.persons) {
-    if (!("deletedAt" in wire)) continue
-    const updatedAt = wireTimestamp(wire)
-    if (!updatedAt) {
-      classify(applied, skipped, "persons", wire.id, false)
-      continue
-    }
-    const wasDeleted = await tombstonePersonCascade(
-      db,
-      me.id,
-      wire.id,
-      updatedAt,
-    )
-    if (wasDeleted) personRoleCache.set(wire.id, Promise.resolve(null))
-    classify(applied, skipped, "persons", wire.id, wasDeleted)
-  }
-
-  for (const wire of body.trees) {
-    if (!("deletedAt" in wire)) continue
-    const updatedAt = wireTimestamp(wire)
-    if (!updatedAt) {
-      classify(applied, skipped, "trees", wire.id, false)
-      continue
-    }
-    const rows = await db
-      .update(trees)
-      .set({ deletedAt: updatedAt, updatedAt: updatedAt })
-      .where(
-        and(
-          eq(trees.id, wire.id),
-          eq(trees.ownerId, me.id),
-          lt(trees.updatedAt, updatedAt),
-        ),
-      )
-      .returning({ id: trees.id })
-    if (rows.length > 0) {
-      treeRoleCache.set(wire.id, Promise.resolve(null))
-      personRoleCache.clear()
-    }
-    classify(applied, skipped, "trees", wire.id, rows.length > 0)
-  }
-
-  // Upserts run in foreign-key order: roots, memberships, global facts, links.
-  for (const wire of body.trees) {
-    if ("deletedAt" in wire) continue
-    const updatedAt = wireTimestamp(wire)
-    const createdAt = wireCreatedAt(wire)
-    if (
-      !validId(wire.id)
-      || typeof wire.name !== "string"
-      || !updatedAt
-      || !createdAt
-    ) {
-      classify(applied, skipped, "trees", wire.id, false)
-      continue
-    }
-    const existing = await db.query.trees.findFirst({
-      where: eq(trees.id, wire.id),
-    })
-    if (!existing) {
-      const rows = await db
-        .insert(trees)
-        .values({
-          id: wire.id,
-          ownerId: me.id,
-          name: wire.name,
-          createdAt,
-          updatedAt: updatedAt,
         })
-        .onConflictDoNothing()
-        .returning({ id: trees.id })
-      if (rows.length > 0) {
-        treeRoleCache.set(wire.id, Promise.resolve("owner"))
+        if (receipt) {
+          return Response.json(
+            {
+              ...(receipt.response as SyncMutationResponse),
+              status: "alreadyApplied",
+            } satisfies SyncMutationResponse,
+            { headers: { "cache-control": "private, no-store" } },
+          )
+        }
       }
-      classify(applied, skipped, "trees", wire.id, rows.length > 0)
-      continue
-    }
-    if (existing.ownerId !== me.id || existing.deletedAt) {
-      classify(applied, skipped, "trees", wire.id, false)
-      continue
-    }
-    const rows = await db
-      .update(trees)
-      .set({ name: wire.name, updatedAt: updatedAt })
-      .where(
-        and(
-          eq(trees.id, wire.id),
-          eq(trees.ownerId, me.id),
-          isNull(trees.deletedAt),
-          lt(trees.updatedAt, updatedAt),
-        ),
+      const serverTime = new Date()
+      const treeRoleCache = new Map<string, Promise<Role | null>>()
+      const personRoleCache = new Map<string, Promise<Role | null>>()
+      const roleForTree: RoleForTree = async (treeId) => {
+        const cached = treeRoleCache.get(treeId)
+        if (cached) return cached
+        const role = await treeRole(db, me.id, treeId)
+        treeRoleCache.set(treeId, Promise.resolve(role))
+        return role
+      }
+      const roleForPerson = async (personId: string): Promise<Role | null> => {
+        const cached = personRoleCache.get(personId)
+        if (cached) return cached
+        const role = await personRole(db, me.id, personId)
+        personRoleCache.set(personId, Promise.resolve(role))
+        return role
+      }
+      const activePersonCache = new Map<string, boolean>()
+      const activePeopleExistForRequest: ActivePeopleExist = async (
+        personIds,
+      ) => {
+        const uniqueIds = [...new Set(personIds)]
+        if (uniqueIds.some((id) => !validId(id))) return false
+        const unknownIds = uniqueIds.filter((id) => !activePersonCache.has(id))
+        if (unknownIds.length > 0) {
+          const rows = await db
+            .select({ id: persons.id })
+            .from(persons)
+            .where(
+              and(inArray(persons.id, unknownIds), isNull(persons.deletedAt)),
+            )
+          const activeIds = new Set(rows.map((row) => row.id))
+          for (const id of unknownIds)
+            activePersonCache.set(id, activeIds.has(id))
+        }
+        return uniqueIds.every((id) => activePersonCache.get(id) === true)
+      }
+      const referencedTreeIds = [
+        ...new Set([
+          ...body.trees.map((wire) => wire.id),
+          ...body.treeMembers.map((wire) => wire.treeId),
+          ...body.treeUnions.map((wire) => wire.treeId),
+          ...body.treeParentChildRelationships.map((wire) => wire.treeId),
+        ]),
+      ]
+      if (referencedTreeIds.length > 0) {
+        const roleRows = await db
+          .select({
+            treeId: trees.id,
+            ownerId: trees.ownerId,
+            deletedAt: trees.deletedAt,
+          })
+          .from(trees)
+          .where(inArray(trees.id, referencedTreeIds))
+        for (const row of roleRows) {
+          if (!row.deletedAt && row.ownerId === me.id) {
+            treeRoleCache.set(row.treeId, Promise.resolve("owner"))
+          }
+        }
+      }
+      const referencedPersonIds = [
+        ...new Set([
+          ...body.persons.map((wire) => wire.id),
+          ...body.treeMembers.map((wire) => wire.personId),
+          ...body.unions.flatMap((wire) =>
+            "deletedAt" in wire
+              ? []
+              : [wire.firstPersonId, wire.secondPersonId],
+          ),
+          ...body.parentChildRelationships.flatMap((wire) =>
+            "deletedAt" in wire
+              ? []
+              : [wire.parentPersonId, wire.childPersonId],
+          ),
+        ]),
+      ]
+      const ownedPersonIds = new Set<string>()
+      if (referencedPersonIds.length > 0) {
+        const personRows = await db
+          .select({
+            id: persons.id,
+            ownerId: persons.ownerId,
+            deletedAt: persons.deletedAt,
+          })
+          .from(persons)
+          .where(inArray(persons.id, referencedPersonIds))
+        for (const row of personRows) {
+          if (!row.deletedAt && row.ownerId === me.id) {
+            ownedPersonIds.add(row.id)
+            personRoleCache.set(row.id, Promise.resolve("owner"))
+          }
+        }
+      }
+      const ownedPersonDeleteIds = new Set(
+        body.persons
+          .filter((wire) => "deletedAt" in wire && ownedPersonIds.has(wire.id))
+          .map((wire) => wire.id),
       )
-      .returning({ id: trees.id })
-    if (rows.length > 0) {
-      treeRoleCache.set(wire.id, Promise.resolve("owner"))
-    }
-    classify(applied, skipped, "trees", wire.id, rows.length > 0)
-  }
+      const cascadeUnionIds = new Set<string>()
+      const cascadeParentIds = new Set<string>()
+      if (ownedPersonDeleteIds.size > 0) {
+        const ids = [...ownedPersonDeleteIds]
+        const [affectedUnions, affectedParents] = await Promise.all([
+          db
+            .select({ id: unions.id })
+            .from(unions)
+            .where(
+              or(
+                inArray(unions.firstPersonId, ids),
+                inArray(unions.secondPersonId, ids),
+              ),
+            ),
+          db
+            .select({ id: parentChildRelationships.id })
+            .from(parentChildRelationships)
+            .where(
+              or(
+                inArray(parentChildRelationships.parentPersonId, ids),
+                inArray(parentChildRelationships.childPersonId, ids),
+              ),
+            ),
+        ])
+        for (const row of affectedUnions) cascadeUnionIds.add(row.id)
+        for (const row of affectedParents) cascadeParentIds.add(row.id)
+      }
+      const applied = emptyAppliedIds()
+      const skipped = emptyAppliedIds()
+      const personReferenceCache = new Map<string, Promise<boolean>>()
+      const personIsReferenced = (
+        treeId: string,
+        personId: string,
+      ): Promise<boolean> => {
+        const key = associationKey(treeId, personId)
+        const cached = personReferenceCache.get(key)
+        if (cached) return cached
+        const result = personIsReferencedInTree(db, treeId, personId)
+        personReferenceCache.set(key, result)
+        return result
+      }
 
-  for (const wire of body.persons) {
-    if ("deletedAt" in wire) continue
-    const updatedAt = wireTimestamp(wire)
-    if (
-      !validId(wire.id)
-      || typeof wire.name !== "string"
-      || !isOptionalString(wire.dob)
-      || !isOptionalString(wire.dod)
-      || (wire.gender !== undefined && !GENDERS.has(wire.gender))
-      || !isOptionalString(wire.location)
-      || !isOptionalPhoto(wire.photo)
-      || !updatedAt
-    ) {
-      classify(applied, skipped, "persons", wire.id, false)
-      continue
-    }
-    const existing = await db.query.persons.findFirst({
-      where: eq(persons.id, wire.id),
-    })
-    if (!existing) {
-      if (wire.photo && !isPhotoDataUrl(wire.photo)) {
-        classify(applied, skipped, "persons", wire.id, false)
-        continue
+      const forbiddenGlobalDeletes = [
+        ["unions", body.unions],
+        ["unionEvents", body.unionEvents],
+        ["parentChildRelationships", body.parentChildRelationships],
+      ] as const
+      for (const [collection, wires] of forbiddenGlobalDeletes) {
+        if (clientCanTombstone(collection)) continue
+        for (const wire of wires) {
+          if ("deletedAt" in wire) {
+            classify(applied, skipped, collection, wire.id, false)
+          }
+        }
       }
-      let photo: string | null
-      try {
-        photo = await normalizePhoto(me.id, wire.photo)
-      } catch {
-        classify(applied, skipped, "persons", wire.id, false)
-        continue
+
+      // Remove tree-scoped relationship associations before memberships.
+      for (const wire of body.treeUnions) {
+        if (!("deletedAt" in wire)) continue
+        const key = associationKey(wire.treeId, wire.unionId)
+        if (cascadeUnionIds.has(wire.unionId)) {
+          classify(applied, skipped, "treeUnions", key, true)
+          continue
+        }
+        const updatedAt = wireTimestamp(wire)
+        const revision = wireRevision(wire)
+        if (
+          !validId(wire.treeId)
+          || !validId(wire.unionId)
+          || !updatedAt
+          || !revision
+          || !canWrite(await roleForTree(wire.treeId))
+        ) {
+          classify(applied, skipped, "treeUnions", key, false)
+          continue
+        }
+        const rows = await db
+          .update(treeUnions)
+          .set({
+            deletedAt: serverTime,
+            updatedAt: serverTime,
+            revision: sql`${treeUnions.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(treeUnions.treeId, wire.treeId),
+              eq(treeUnions.unionId, wire.unionId),
+              eq(treeUnions.revision, revision),
+            ),
+          )
+          .returning({ treeId: treeUnions.treeId })
+        classify(applied, skipped, "treeUnions", key, rows.length > 0)
       }
-      const rows = await db
-        .insert(persons)
-        .values({
-          id: wire.id,
-          ownerId: me.id,
-          name: wire.name,
-          dob: wire.dob ?? null,
-          dod: wire.dod ?? null,
-          gender: wire.gender ?? null,
-          location: wire.location ?? null,
-          photo,
-          updatedAt: updatedAt,
+      for (const wire of body.treeParentChildRelationships) {
+        if (!("deletedAt" in wire)) continue
+        const key = associationKey(wire.treeId, wire.parentChildRelationshipId)
+        if (cascadeParentIds.has(wire.parentChildRelationshipId)) {
+          classify(applied, skipped, "treeParentChildRelationships", key, true)
+          continue
+        }
+        const updatedAt = wireTimestamp(wire)
+        const revision = wireRevision(wire)
+        if (
+          !validId(wire.treeId)
+          || !validId(wire.parentChildRelationshipId)
+          || !updatedAt
+          || !revision
+          || !canWrite(await roleForTree(wire.treeId))
+        ) {
+          classify(applied, skipped, "treeParentChildRelationships", key, false)
+          continue
+        }
+        const rows = await db
+          .update(treeParentChildRelationships)
+          .set({
+            deletedAt: serverTime,
+            updatedAt: serverTime,
+            revision: sql`${treeParentChildRelationships.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(treeParentChildRelationships.treeId, wire.treeId),
+              eq(
+                treeParentChildRelationships.parentChildRelationshipId,
+                wire.parentChildRelationshipId,
+              ),
+              eq(treeParentChildRelationships.revision, revision),
+            ),
+          )
+          .returning({ treeId: treeParentChildRelationships.treeId })
+        classify(
+          applied,
+          skipped,
+          "treeParentChildRelationships",
+          key,
+          rows.length > 0,
+        )
+      }
+
+      for (const wire of body.treeMembers) {
+        if (!("deletedAt" in wire)) continue
+        const key = associationKey(wire.treeId, wire.personId)
+        if (ownedPersonDeleteIds.has(wire.personId)) {
+          classify(applied, skipped, "treeMembers", key, true)
+          continue
+        }
+        const updatedAt = wireTimestamp(wire)
+        const revision = wireRevision(wire)
+        if (
+          !validId(wire.treeId)
+          || !validId(wire.personId)
+          || !updatedAt
+          || !revision
+          || !canWrite(await roleForTree(wire.treeId))
+          || (await personIsReferenced(wire.treeId, wire.personId))
+        ) {
+          classify(applied, skipped, "treeMembers", key, false)
+          continue
+        }
+        const rows = await db
+          .update(treeMembers)
+          .set({
+            deletedAt: serverTime,
+            updatedAt: serverTime,
+            revision: sql`${treeMembers.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(treeMembers.treeId, wire.treeId),
+              eq(treeMembers.personId, wire.personId),
+              eq(treeMembers.revision, revision),
+            ),
+          )
+          .returning({ treeId: treeMembers.treeId })
+        if (rows.length > 0) personRoleCache.delete(wire.personId)
+        classify(applied, skipped, "treeMembers", key, rows.length > 0)
+      }
+
+      for (const wire of body.persons) {
+        if (!("deletedAt" in wire)) continue
+        const updatedAt = wireTimestamp(wire)
+        const revision = wireRevision(wire)
+        if (!updatedAt || !revision) {
+          classify(applied, skipped, "persons", wire.id, false)
+          continue
+        }
+        const wasDeleted = await tombstonePersonCascade(
+          db,
+          me.id,
+          wire.id,
+          revision,
+          serverTime,
+          photosToDeleteAfterCommit,
+        )
+        if (wasDeleted) personRoleCache.set(wire.id, Promise.resolve(null))
+        classify(applied, skipped, "persons", wire.id, wasDeleted)
+      }
+
+      for (const wire of body.trees) {
+        if (!("deletedAt" in wire)) continue
+        const updatedAt = wireTimestamp(wire)
+        const revision = wireRevision(wire)
+        if (!updatedAt || !revision) {
+          classify(applied, skipped, "trees", wire.id, false)
+          continue
+        }
+        const rows = await db
+          .update(trees)
+          .set({
+            deletedAt: serverTime,
+            updatedAt: serverTime,
+            revision: sql`${trees.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(trees.id, wire.id),
+              eq(trees.ownerId, me.id),
+              eq(trees.revision, revision),
+            ),
+          )
+          .returning({ id: trees.id })
+        if (rows.length > 0) {
+          await Promise.all([
+            db
+              .update(treeMembers)
+              .set({
+                deletedAt: serverTime,
+                updatedAt: serverTime,
+                revision: sql`${treeMembers.revision} + 1`,
+              })
+              .where(
+                and(
+                  eq(treeMembers.treeId, wire.id),
+                  isNull(treeMembers.deletedAt),
+                ),
+              ),
+            db
+              .update(treeUnions)
+              .set({
+                deletedAt: serverTime,
+                updatedAt: serverTime,
+                revision: sql`${treeUnions.revision} + 1`,
+              })
+              .where(
+                and(
+                  eq(treeUnions.treeId, wire.id),
+                  isNull(treeUnions.deletedAt),
+                ),
+              ),
+            db
+              .update(treeParentChildRelationships)
+              .set({
+                deletedAt: serverTime,
+                updatedAt: serverTime,
+                revision: sql`${treeParentChildRelationships.revision} + 1`,
+              })
+              .where(
+                and(
+                  eq(treeParentChildRelationships.treeId, wire.id),
+                  isNull(treeParentChildRelationships.deletedAt),
+                ),
+              ),
+            db.delete(treeShares).where(eq(treeShares.treeId, wire.id)),
+          ])
+          treeRoleCache.set(wire.id, Promise.resolve(null))
+          personRoleCache.clear()
+        }
+        classify(applied, skipped, "trees", wire.id, rows.length > 0)
+      }
+
+      // Upserts run in foreign-key order: roots, memberships, global facts, links.
+      for (const wire of body.trees) {
+        if ("deletedAt" in wire) continue
+        const updatedAt = wireTimestamp(wire)
+        const createdAt = wireCreatedAt(wire)
+        if (
+          !validId(wire.id)
+          || typeof wire.name !== "string"
+          || !updatedAt
+          || !createdAt
+        ) {
+          classify(applied, skipped, "trees", wire.id, false)
+          continue
+        }
+        const existing = await db.query.trees.findFirst({
+          where: eq(trees.id, wire.id),
         })
-        .onConflictDoNothing()
-        .returning({ id: persons.id })
-      if (rows.length === 0 && photo) await deletePhoto(photo)
-      if (rows.length > 0) {
-        personRoleCache.set(wire.id, Promise.resolve("owner"))
+        if (!existing) {
+          const rows = await db
+            .insert(trees)
+            .values({
+              id: wire.id,
+              ownerId: me.id,
+              name: wire.name,
+              createdAt,
+              updatedAt: serverTime,
+            })
+            .onConflictDoNothing()
+            .returning({ id: trees.id })
+          if (rows.length > 0) {
+            treeRoleCache.set(wire.id, Promise.resolve("owner"))
+          }
+          classify(applied, skipped, "trees", wire.id, rows.length > 0)
+          continue
+        }
+        if (existing.ownerId !== me.id || existing.deletedAt) {
+          classify(applied, skipped, "trees", wire.id, false)
+          continue
+        }
+        const rows = await db
+          .update(trees)
+          .set({
+            name: wire.name,
+            updatedAt: serverTime,
+            revision: sql`${trees.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(trees.id, wire.id),
+              eq(trees.ownerId, me.id),
+              isNull(trees.deletedAt),
+              eq(trees.revision, wire.revision ?? 0),
+            ),
+          )
+          .returning({ id: trees.id })
+        if (rows.length > 0) {
+          treeRoleCache.set(wire.id, Promise.resolve("owner"))
+        }
+        classify(applied, skipped, "trees", wire.id, rows.length > 0)
       }
-      classify(applied, skipped, "persons", wire.id, rows.length > 0)
-      continue
-    }
-    if (
-      existing.deletedAt
-      || existing.updatedAt >= updatedAt
-      || !canWrite(await roleForPerson(wire.id))
-      || (wire.photo !== undefined
-        && wire.photo !== null
-        && !isPhotoDataUrl(wire.photo)
-        && wire.photo !== existing.photo)
-    ) {
-      classify(applied, skipped, "persons", wire.id, false)
-      continue
-    }
-    let photo: string | null
-    try {
-      photo = await normalizePhotoUpdate(
-        existing.ownerId,
-        existing.photo,
-        wire.photo,
-      )
-    } catch {
-      classify(applied, skipped, "persons", wire.id, false)
-      continue
-    }
-    const result = await db.execute(
-      sql<{ id: string; previousPhoto: string | null }>`
+
+      for (const wire of body.persons) {
+        if ("deletedAt" in wire) continue
+        const updatedAt = wireTimestamp(wire)
+        if (
+          !validId(wire.id)
+          || typeof wire.name !== "string"
+          || !isOptionalString(wire.dob)
+          || !isOptionalString(wire.dod)
+          || (wire.gender !== undefined && !GENDERS.has(wire.gender))
+          || !isOptionalString(wire.location)
+          || !isOptionalPhoto(wire.photo)
+          || !updatedAt
+        ) {
+          classify(applied, skipped, "persons", wire.id, false)
+          continue
+        }
+        const existing = await db.query.persons.findFirst({
+          where: eq(persons.id, wire.id),
+        })
+        if (!existing) {
+          if (wire.photo && !isPhotoDataUrl(wire.photo)) {
+            classify(applied, skipped, "persons", wire.id, false)
+            continue
+          }
+          let photo: string | null
+          try {
+            photo = await normalizePhoto(me.id, wire.photo)
+          } catch {
+            classify(applied, skipped, "persons", wire.id, false)
+            continue
+          }
+          const rows = await db
+            .insert(persons)
+            .values({
+              id: wire.id,
+              ownerId: me.id,
+              name: wire.name,
+              dob: wire.dob ?? null,
+              dod: wire.dod ?? null,
+              gender: wire.gender ?? null,
+              location: wire.location ?? null,
+              photo,
+              updatedAt: serverTime,
+            })
+            .onConflictDoNothing()
+            .returning({ id: persons.id })
+          if (rows.length === 0 && photo) await deletePhoto(photo)
+          if (rows.length > 0) {
+            if (photo && !isPhotoDataUrl(photo)) uploadedPhotos.add(photo)
+            personRoleCache.set(wire.id, Promise.resolve("owner"))
+          }
+          classify(applied, skipped, "persons", wire.id, rows.length > 0)
+          continue
+        }
+        if (
+          existing.deletedAt
+          || existing.revision !== wire.revision
+          || !canWrite(await roleForPerson(wire.id))
+          || (wire.photo !== undefined
+            && wire.photo !== null
+            && !isPhotoDataUrl(wire.photo)
+            && wire.photo !== existing.photo)
+        ) {
+          classify(applied, skipped, "persons", wire.id, false)
+          continue
+        }
+        let photo: string | null
+        try {
+          photo = await normalizePhotoUpdate(
+            existing.ownerId,
+            existing.photo,
+            wire.photo,
+          )
+        } catch {
+          classify(applied, skipped, "persons", wire.id, false)
+          continue
+        }
+        const result = await db.execute(
+          sql<{ id: string; previousPhoto: string | null }>`
         WITH target_person AS MATERIALIZED (
           SELECT ${persons.id} AS id, ${persons.photo} AS photo
           FROM ${persons}
           WHERE ${persons.id} = ${wire.id}
             AND ${persons.deletedAt} IS NULL
-            AND ${persons.updatedAt} < ${updatedAt}
+            AND ${persons.revision} = ${wire.revision ?? 0}
           FOR UPDATE
         ),
         updated_person AS (
@@ -868,7 +1294,8 @@ export async function postSync(request: Request): Promise<Response> {
               "gender" = ${wire.gender ?? null},
               "location" = ${wire.location ?? null},
               "photo" = ${photo},
-              "updated_at" = ${updatedAt}
+              "updated_at" = ${serverTime},
+              "revision" = "revision" + 1
           WHERE ${persons.id} IN (SELECT id FROM target_person)
           RETURNING ${persons.id} AS id
         )
@@ -877,544 +1304,683 @@ export async function postSync(request: Request): Promise<Response> {
         FROM updated_person
         INNER JOIN target_person ON target_person.id = updated_person.id
       `,
-    )
-    const updated = result.rows.length > 0
-    if (!updated && photo && isPhotoDataUrl(wire.photo)) {
-      await deletePhoto(photo)
-    }
-    const previousPhoto = result.rows[0]?.previousPhoto as
-      | string
-      | null
-      | undefined
-    if (
-      previousPhoto
-      && photo !== previousPhoto
-      && !isPhotoDataUrl(previousPhoto)
-    ) {
-      await deletePhoto(previousPhoto)
-    }
-    classify(applied, skipped, "persons", wire.id, updated)
-  }
-
-  await activePeopleExistForRequest([
-    ...body.treeMembers.flatMap((wire) =>
-      "deletedAt" in wire ? [] : [wire.personId],
-    ),
-    ...body.unions.flatMap((wire) =>
-      "deletedAt" in wire ? [] : [wire.firstPersonId, wire.secondPersonId],
-    ),
-    ...body.parentChildRelationships.flatMap((wire) =>
-      "deletedAt" in wire ? [] : [wire.parentPersonId, wire.childPersonId],
-    ),
-  ])
-
-  for (const wire of body.treeMembers) {
-    if ("deletedAt" in wire) continue
-    const key = associationKey(wire.treeId, wire.personId)
-    const updatedAt = wireTimestamp(wire)
-    const createdAt = wireCreatedAt(wire)
-    if (
-      !validId(wire.treeId)
-      || !validId(wire.personId)
-      || !updatedAt
-      || !createdAt
-      || !canWrite(await roleForTree(wire.treeId))
-      || !(await activePeopleExistForRequest([wire.personId]))
-    ) {
-      classify(applied, skipped, "treeMembers", key, false)
-      continue
-    }
-    const existing = await db.query.treeMembers.findFirst({
-      where: and(
-        eq(treeMembers.treeId, wire.treeId),
-        eq(treeMembers.personId, wire.personId),
-      ),
-    })
-    if (
-      (!existing || existing.deletedAt)
-      && !canWrite(await roleForPerson(wire.personId))
-    ) {
-      classify(applied, skipped, "treeMembers", key, false)
-      continue
-    }
-    const rows = await db
-      .insert(treeMembers)
-      .values({
-        treeId: wire.treeId,
-        personId: wire.personId,
-        createdAt,
-        updatedAt: updatedAt,
-      })
-      .onConflictDoUpdate({
-        target: [treeMembers.treeId, treeMembers.personId],
-        set: { deletedAt: null, updatedAt: updatedAt },
-        setWhere: lt(treeMembers.updatedAt, updatedAt),
-      })
-      .returning({ treeId: treeMembers.treeId })
-    if (rows.length > 0) personRoleCache.delete(wire.personId)
-    classify(applied, skipped, "treeMembers", key, rows.length > 0)
-  }
-
-  const createdUnionIds = new Set<string>()
-  for (const wire of body.unions) {
-    if ("deletedAt" in wire) continue
-    const updatedAt = wireTimestamp(wire)
-    const createdAt = wireCreatedAt(wire)
-    if (
-      !validId(wire.id)
-      || !validId(wire.firstPersonId)
-      || !validId(wire.secondPersonId)
-      || !isCanonicalUnion(wire.firstPersonId, wire.secondPersonId)
-      || !updatedAt
-      || !createdAt
-      || !(await activePeopleExistForRequest([
-        wire.firstPersonId,
-        wire.secondPersonId,
-      ]))
-    ) {
-      classify(applied, skipped, "unions", wire.id, false)
-      continue
-    }
-    const existing = await db.query.unions.findFirst({
-      where: eq(unions.id, wire.id),
-    })
-    if (!existing) {
-      if (
-        !(await hasWritableTreeContaining(
-          db,
-          [wire.firstPersonId, wire.secondPersonId],
-          roleForTree,
-        ))
-      ) {
-        classify(applied, skipped, "unions", wire.id, false)
-        continue
+        )
+        const updated = result.rows.length > 0
+        if (!updated && photo && isPhotoDataUrl(wire.photo)) {
+          await deletePhoto(photo)
+        }
+        const previousPhoto = result.rows[0]?.previousPhoto as
+          | string
+          | null
+          | undefined
+        if (
+          previousPhoto
+          && photo !== previousPhoto
+          && !isPhotoDataUrl(previousPhoto)
+        ) {
+          photosToDeleteAfterCommit.add(previousPhoto)
+        }
+        if (
+          updated
+          && photo
+          && photo !== previousPhoto
+          && !isPhotoDataUrl(photo)
+        ) {
+          uploadedPhotos.add(photo)
+        }
+        classify(applied, skipped, "persons", wire.id, updated)
       }
-      const rows = await db
-        .insert(unions)
-        .values({
-          id: wire.id,
-          firstPersonId: wire.firstPersonId,
-          secondPersonId: wire.secondPersonId,
-          createdAt,
-          updatedAt: updatedAt,
-        })
-        .onConflictDoNothing()
-        .returning({ id: unions.id })
-      if (rows.length > 0) createdUnionIds.add(wire.id)
-      classify(applied, skipped, "unions", wire.id, rows.length > 0)
-      continue
-    }
-    if (
-      existing.deletedAt
-      || existing.firstPersonId !== wire.firstPersonId
-      || existing.secondPersonId !== wire.secondPersonId
-      || !(await canWriteExistingUnion(db, me.id, existing, roleForTree))
-    ) {
-      classify(applied, skipped, "unions", wire.id, false)
-      continue
-    }
-    const rows = await db
-      .update(unions)
-      .set({ updatedAt: updatedAt })
-      .where(
-        and(
-          eq(unions.id, wire.id),
-          eq(unions.firstPersonId, wire.firstPersonId),
-          eq(unions.secondPersonId, wire.secondPersonId),
-          isNull(unions.deletedAt),
-          lt(unions.updatedAt, updatedAt),
+
+      await activePeopleExistForRequest([
+        ...body.treeMembers.flatMap((wire) =>
+          "deletedAt" in wire ? [] : [wire.personId],
         ),
-      )
-      .returning({ id: unions.id })
-    classify(applied, skipped, "unions", wire.id, rows.length > 0)
-  }
+        ...body.unions.flatMap((wire) =>
+          "deletedAt" in wire ? [] : [wire.firstPersonId, wire.secondPersonId],
+        ),
+        ...body.parentChildRelationships.flatMap((wire) =>
+          "deletedAt" in wire ? [] : [wire.parentPersonId, wire.childPersonId],
+        ),
+      ])
 
-  const createdParentRelationshipIds = new Set<string>()
-  // Client-generated relationship ids that collided with a pre-existing active
-  // canonical row for the same (parent, child) pair, mapped to that canonical
-  // id so downstream association wires attach to the canonical relationship.
-  const parentRelationshipIdAlias = new Map<string, string>()
-  // Canonical relationship ids adopted (not created) in this push. Treated like
-  // created ids for association ACL gating, but excluded from orphan cleanup so
-  // a pre-existing canonical row is never deleted as a side effect.
-  const adoptedParentRelationshipIds = new Set<string>()
-  for (const wire of body.parentChildRelationships) {
-    if ("deletedAt" in wire) continue
-    const updatedAt = wireTimestamp(wire)
-    const createdAt = wireCreatedAt(wire)
-    if (
-      !validId(wire.id)
-      || !validId(wire.parentPersonId)
-      || !validId(wire.childPersonId)
-      || wire.parentPersonId === wire.childPersonId
-      || !PARENT_RELATIONSHIP_TYPES.has(wire.type)
-      || !updatedAt
-      || !createdAt
-      || !(await activePeopleExistForRequest([
-        wire.parentPersonId,
-        wire.childPersonId,
-      ]))
-    ) {
-      classify(applied, skipped, "parentChildRelationships", wire.id, false)
-      continue
-    }
-    const existing = await db.query.parentChildRelationships.findFirst({
-      where: eq(parentChildRelationships.id, wire.id),
-    })
-    if (!existing) {
-      if (
-        !(await hasWritableTreeContaining(
-          db,
-          [wire.parentPersonId, wire.childPersonId],
-          roleForTree,
-        ))
-      ) {
-        classify(applied, skipped, "parentChildRelationships", wire.id, false)
-        continue
-      }
-      let inserted = false
-      try {
-        const rows = await db
-          .insert(parentChildRelationships)
-          .values({
-            id: wire.id,
-            parentPersonId: wire.parentPersonId,
-            childPersonId: wire.childPersonId,
-            type: wire.type,
-            createdAt,
-            updatedAt: updatedAt,
-          })
-          .onConflictDoNothing()
-          .returning({ id: parentChildRelationships.id })
-        inserted = rows.length > 0
-      } catch (error) {
-        if (!isParentGraphConstraintError(error)) throw error
-      }
-      if (inserted) {
-        createdParentRelationshipIds.add(wire.id)
-      } else {
-        // The insert was dropped by a conflict on the active (parent, child)
-        // partial unique index: a canonical active row for this pair already
-        // exists under a different id (typically an orphan left behind by a
-        // prior remove-parent). Adopt that canonical row so the link can
-        // attach and the orphan gets re-associated, rather than reporting the
-        // wire as skipped (which would wipe the optimistic link).
-        const canonical = await db.query.parentChildRelationships.findFirst({
+      for (const wire of body.treeMembers) {
+        if ("deletedAt" in wire) continue
+        const key = associationKey(wire.treeId, wire.personId)
+        const updatedAt = wireTimestamp(wire)
+        const createdAt = wireCreatedAt(wire)
+        if (
+          !validId(wire.treeId)
+          || !validId(wire.personId)
+          || !updatedAt
+          || !createdAt
+          || !canWrite(await roleForTree(wire.treeId))
+          || !(await activePeopleExistForRequest([wire.personId]))
+        ) {
+          classify(applied, skipped, "treeMembers", key, false)
+          continue
+        }
+        const existing = await db.query.treeMembers.findFirst({
           where: and(
-            eq(parentChildRelationships.parentPersonId, wire.parentPersonId),
-            eq(parentChildRelationships.childPersonId, wire.childPersonId),
+            eq(treeMembers.treeId, wire.treeId),
+            eq(treeMembers.personId, wire.personId),
+          ),
+        })
+        if (
+          (!existing || existing.deletedAt)
+          && !canWrite(await roleForPerson(wire.personId))
+        ) {
+          classify(applied, skipped, "treeMembers", key, false)
+          continue
+        }
+        const rows = await db
+          .insert(treeMembers)
+          .values({
+            treeId: wire.treeId,
+            personId: wire.personId,
+            createdAt,
+            updatedAt: serverTime,
+          })
+          .onConflictDoUpdate({
+            target: [treeMembers.treeId, treeMembers.personId],
+            set: {
+              deletedAt: null,
+              updatedAt: serverTime,
+              revision: sql`${treeMembers.revision} + 1`,
+            },
+            setWhere: eq(treeMembers.revision, wire.revision ?? 0),
+          })
+          .returning({ treeId: treeMembers.treeId })
+        if (rows.length > 0) personRoleCache.delete(wire.personId)
+        classify(applied, skipped, "treeMembers", key, rows.length > 0)
+      }
+
+      const createdUnionIds = new Set<string>()
+      for (const wire of body.unions) {
+        if ("deletedAt" in wire) continue
+        const updatedAt = wireTimestamp(wire)
+        const createdAt = wireCreatedAt(wire)
+        if (
+          !validId(wire.id)
+          || !validId(wire.firstPersonId)
+          || !validId(wire.secondPersonId)
+          || !isCanonicalUnion(wire.firstPersonId, wire.secondPersonId)
+          || !updatedAt
+          || !createdAt
+          || !(await activePeopleExistForRequest([
+            wire.firstPersonId,
+            wire.secondPersonId,
+          ]))
+        ) {
+          classify(applied, skipped, "unions", wire.id, false)
+          continue
+        }
+        const existing = await db.query.unions.findFirst({
+          where: eq(unions.id, wire.id),
+        })
+        if (!existing) {
+          if (
+            !(await hasWritableTreeContaining(
+              db,
+              [wire.firstPersonId, wire.secondPersonId],
+              roleForTree,
+            ))
+          ) {
+            classify(applied, skipped, "unions", wire.id, false)
+            continue
+          }
+          const rows = await db
+            .insert(unions)
+            .values({
+              id: wire.id,
+              firstPersonId: wire.firstPersonId,
+              secondPersonId: wire.secondPersonId,
+              createdAt,
+              updatedAt: serverTime,
+            })
+            .onConflictDoNothing()
+            .returning({ id: unions.id })
+          if (rows.length > 0) createdUnionIds.add(wire.id)
+          classify(applied, skipped, "unions", wire.id, rows.length > 0)
+          continue
+        }
+        if (
+          existing.deletedAt
+          || existing.firstPersonId !== wire.firstPersonId
+          || existing.secondPersonId !== wire.secondPersonId
+          || !(await canWriteExistingUnion(db, me.id, existing, roleForTree))
+        ) {
+          classify(applied, skipped, "unions", wire.id, false)
+          continue
+        }
+        const rows = await db
+          .update(unions)
+          .set({
+            updatedAt: serverTime,
+            revision: sql`${unions.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(unions.id, wire.id),
+              eq(unions.firstPersonId, wire.firstPersonId),
+              eq(unions.secondPersonId, wire.secondPersonId),
+              isNull(unions.deletedAt),
+              eq(unions.revision, wire.revision ?? 0),
+            ),
+          )
+          .returning({ id: unions.id })
+        classify(applied, skipped, "unions", wire.id, rows.length > 0)
+      }
+
+      const createdParentRelationshipIds = new Set<string>()
+      // Client-generated relationship ids that collided with a pre-existing active
+      // canonical row for the same (parent, child) pair, mapped to that canonical
+      // id so downstream association wires attach to the canonical relationship.
+      const parentRelationshipIdAlias = new Map<
+        string,
+        {
+          id: string
+          revision: number
+          type: ParentChildRelationshipType
+        }
+      >()
+      // Canonical relationship ids adopted (not created) in this push. Treated like
+      // created ids for association ACL gating, but excluded from orphan cleanup so
+      // a pre-existing canonical row is never deleted as a side effect.
+      const adoptedParentRelationshipIds = new Set<string>()
+      const parentAssociationAliases = new Map<
+        string,
+        { parentChildRelationshipId: string; revision: number }
+      >()
+      for (const wire of body.parentChildRelationships) {
+        if ("deletedAt" in wire) continue
+        const updatedAt = wireTimestamp(wire)
+        const createdAt = wireCreatedAt(wire)
+        if (
+          !validId(wire.id)
+          || !validId(wire.parentPersonId)
+          || !validId(wire.childPersonId)
+          || wire.parentPersonId === wire.childPersonId
+          || !PARENT_RELATIONSHIP_TYPES.has(wire.type)
+          || !updatedAt
+          || !createdAt
+          || !(await activePeopleExistForRequest([
+            wire.parentPersonId,
+            wire.childPersonId,
+          ]))
+        ) {
+          classify(applied, skipped, "parentChildRelationships", wire.id, false)
+          continue
+        }
+        const existing = await db.query.parentChildRelationships.findFirst({
+          where: eq(parentChildRelationships.id, wire.id),
+        })
+        if (!existing) {
+          if (
+            !(await hasWritableTreeContaining(
+              db,
+              [wire.parentPersonId, wire.childPersonId],
+              roleForTree,
+            ))
+          ) {
+            classify(
+              applied,
+              skipped,
+              "parentChildRelationships",
+              wire.id,
+              false,
+            )
+            continue
+          }
+          let inserted = false
+          try {
+            const rows = await db
+              .insert(parentChildRelationships)
+              .values({
+                id: wire.id,
+                parentPersonId: wire.parentPersonId,
+                childPersonId: wire.childPersonId,
+                type: wire.type,
+                createdAt,
+                updatedAt: serverTime,
+              })
+              .onConflictDoNothing()
+              .returning({ id: parentChildRelationships.id })
+            inserted = rows.length > 0
+          } catch (error) {
+            if (!isParentGraphConstraintError(error)) throw error
+          }
+          if (inserted) {
+            createdParentRelationshipIds.add(wire.id)
+          } else {
+            // The insert was dropped by a conflict on the active (parent, child)
+            // partial unique index: a canonical active row for this pair already
+            // exists under a different id (typically an orphan left behind by a
+            // prior remove-parent). Adopt that canonical row so the link can
+            // attach and the orphan gets re-associated, rather than reporting the
+            // wire as skipped (which would wipe the optimistic link).
+            const canonical = await db.query.parentChildRelationships.findFirst(
+              {
+                where: and(
+                  eq(
+                    parentChildRelationships.parentPersonId,
+                    wire.parentPersonId,
+                  ),
+                  eq(
+                    parentChildRelationships.childPersonId,
+                    wire.childPersonId,
+                  ),
+                  isNull(parentChildRelationships.deletedAt),
+                ),
+              },
+            )
+            if (canonical) {
+              // A client that did not know this canonical row has no base
+              // revision with which to change its global type. Re-associate the
+              // existing fact and preserve its authoritative type.
+              parentRelationshipIdAlias.set(wire.id, {
+                id: canonical.id,
+                revision: canonical.revision,
+                type: canonical.type as ParentChildRelationshipType,
+              })
+              adoptedParentRelationshipIds.add(canonical.id)
+              inserted = true
+            }
+          }
+          classify(
+            applied,
+            skipped,
+            "parentChildRelationships",
+            wire.id,
+            inserted,
+          )
+          continue
+        }
+        if (
+          existing.deletedAt
+          || existing.parentPersonId !== wire.parentPersonId
+          || existing.childPersonId !== wire.childPersonId
+          || !(await canWriteExistingParentRelationship(
+            db,
+            me.id,
+            existing,
+            roleForTree,
+          ))
+        ) {
+          classify(applied, skipped, "parentChildRelationships", wire.id, false)
+          continue
+        }
+        const rows = await db
+          .update(parentChildRelationships)
+          .set({
+            type: wire.type,
+            updatedAt: serverTime,
+            revision: sql`${parentChildRelationships.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(parentChildRelationships.id, wire.id),
+              eq(parentChildRelationships.parentPersonId, wire.parentPersonId),
+              eq(parentChildRelationships.childPersonId, wire.childPersonId),
+              isNull(parentChildRelationships.deletedAt),
+              eq(parentChildRelationships.revision, wire.revision ?? 0),
+            ),
+          )
+          .returning({ id: parentChildRelationships.id })
+        classify(
+          applied,
+          skipped,
+          "parentChildRelationships",
+          wire.id,
+          rows.length > 0,
+        )
+      }
+
+      for (const wire of body.unionEvents) {
+        if ("deletedAt" in wire) continue
+        const updatedAt = wireTimestamp(wire)
+        const createdAt = wireCreatedAt(wire)
+        if (
+          !validId(wire.id)
+          || !validId(wire.unionId)
+          || !UNION_EVENT_TYPES.has(wire.type)
+          || (wire.eventDate !== undefined && !isValidIsoDate(wire.eventDate))
+          || !updatedAt
+          || !createdAt
+        ) {
+          classify(applied, skipped, "unionEvents", wire.id, false)
+          continue
+        }
+        const union = await db.query.unions.findFirst({
+          where: and(eq(unions.id, wire.unionId), isNull(unions.deletedAt)),
+        })
+        if (!union) {
+          classify(applied, skipped, "unionEvents", wire.id, false)
+          continue
+        }
+        const existing = await db.query.unionEvents.findFirst({
+          where: eq(unionEvents.id, wire.id),
+        })
+        if (!existing) {
+          if (
+            !createdUnionIds.has(union.id)
+            && !(await canWriteExistingUnion(db, me.id, union, roleForTree))
+          ) {
+            classify(applied, skipped, "unionEvents", wire.id, false)
+            continue
+          }
+          const rows = await db
+            .insert(unionEvents)
+            .values({
+              id: wire.id,
+              unionId: wire.unionId,
+              type: wire.type,
+              eventDate: wire.eventDate ?? null,
+              createdAt,
+              updatedAt: serverTime,
+            })
+            .onConflictDoNothing()
+            .returning({ id: unionEvents.id })
+          classify(applied, skipped, "unionEvents", wire.id, rows.length > 0)
+          continue
+        }
+        if (
+          existing.deletedAt
+          || existing.unionId !== wire.unionId
+          || !(await canWriteExistingUnion(db, me.id, union, roleForTree))
+        ) {
+          classify(applied, skipped, "unionEvents", wire.id, false)
+          continue
+        }
+        const rows = await db
+          .update(unionEvents)
+          .set({
+            type: wire.type,
+            eventDate: wire.eventDate ?? null,
+            updatedAt: serverTime,
+            revision: sql`${unionEvents.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(unionEvents.id, wire.id),
+              eq(unionEvents.unionId, wire.unionId),
+              isNull(unionEvents.deletedAt),
+              eq(unionEvents.revision, wire.revision ?? 0),
+            ),
+          )
+          .returning({ id: unionEvents.id })
+        classify(applied, skipped, "unionEvents", wire.id, rows.length > 0)
+      }
+
+      for (const wire of body.treeUnions) {
+        if ("deletedAt" in wire) continue
+        const key = associationKey(wire.treeId, wire.unionId)
+        const updatedAt = wireTimestamp(wire)
+        const createdAt = wireCreatedAt(wire)
+        if (
+          !validId(wire.treeId)
+          || !validId(wire.unionId)
+          || !updatedAt
+          || !createdAt
+          || !canWrite(await roleForTree(wire.treeId))
+        ) {
+          classify(applied, skipped, "treeUnions", key, false)
+          continue
+        }
+        const union = await db.query.unions.findFirst({
+          where: and(eq(unions.id, wire.unionId), isNull(unions.deletedAt)),
+        })
+        if (
+          !union
+          || !(await activeTreeHasMembers(
+            db,
+            wire.treeId,
+            [union.firstPersonId, union.secondPersonId],
+            activePeopleExistForRequest,
+          ))
+        ) {
+          classify(applied, skipped, "treeUnions", key, false)
+          continue
+        }
+        const existing = await db.query.treeUnions.findFirst({
+          where: and(
+            eq(treeUnions.treeId, wire.treeId),
+            eq(treeUnions.unionId, wire.unionId),
+          ),
+        })
+        if (
+          !existing
+          && !createdUnionIds.has(union.id)
+          && !(await canWriteExistingUnion(db, me.id, union, roleForTree))
+        ) {
+          classify(applied, skipped, "treeUnions", key, false)
+          continue
+        }
+        const rows = await db
+          .insert(treeUnions)
+          .values({
+            treeId: wire.treeId,
+            unionId: wire.unionId,
+            createdAt,
+            updatedAt: serverTime,
+          })
+          .onConflictDoUpdate({
+            target: [treeUnions.treeId, treeUnions.unionId],
+            set: {
+              deletedAt: null,
+              updatedAt: serverTime,
+              revision: sql`${treeUnions.revision} + 1`,
+            },
+            setWhere: eq(treeUnions.revision, wire.revision ?? 0),
+          })
+          .returning({ treeId: treeUnions.treeId })
+        classify(applied, skipped, "treeUnions", key, rows.length > 0)
+      }
+
+      for (const wire of body.treeParentChildRelationships) {
+        if ("deletedAt" in wire) continue
+        // The client may have generated a fresh relationship id that collided with
+        // a pre-existing canonical row; resolve to that canonical id so the
+        // association attaches to the real relationship. The dirty key reported
+        // back to the client still uses its original id.
+        const relationshipId =
+          parentRelationshipIdAlias.get(wire.parentChildRelationshipId)?.id
+          ?? wire.parentChildRelationshipId
+        const key = associationKey(wire.treeId, wire.parentChildRelationshipId)
+        const updatedAt = wireTimestamp(wire)
+        const createdAt = wireCreatedAt(wire)
+        if (
+          !validId(wire.treeId)
+          || !validId(wire.parentChildRelationshipId)
+          || !updatedAt
+          || !createdAt
+          || !canWrite(await roleForTree(wire.treeId))
+        ) {
+          classify(applied, skipped, "treeParentChildRelationships", key, false)
+          continue
+        }
+        const relationship = await db.query.parentChildRelationships.findFirst({
+          where: and(
+            eq(parentChildRelationships.id, relationshipId),
             isNull(parentChildRelationships.deletedAt),
           ),
         })
-        if (canonical) {
-          parentRelationshipIdAlias.set(wire.id, canonical.id)
-          adoptedParentRelationshipIds.add(canonical.id)
-          inserted = true
+        if (
+          !relationship
+          || !(await activeTreeHasMembers(
+            db,
+            wire.treeId,
+            [relationship.parentPersonId, relationship.childPersonId],
+            activePeopleExistForRequest,
+          ))
+        ) {
+          classify(applied, skipped, "treeParentChildRelationships", key, false)
+          continue
         }
-      }
-      classify(applied, skipped, "parentChildRelationships", wire.id, inserted)
-      continue
-    }
-    if (
-      existing.deletedAt
-      || existing.parentPersonId !== wire.parentPersonId
-      || existing.childPersonId !== wire.childPersonId
-      || !(await canWriteExistingParentRelationship(
-        db,
-        me.id,
-        existing,
-        roleForTree,
-      ))
-    ) {
-      classify(applied, skipped, "parentChildRelationships", wire.id, false)
-      continue
-    }
-    const rows = await db
-      .update(parentChildRelationships)
-      .set({ type: wire.type, updatedAt: updatedAt })
-      .where(
-        and(
-          eq(parentChildRelationships.id, wire.id),
-          eq(parentChildRelationships.parentPersonId, wire.parentPersonId),
-          eq(parentChildRelationships.childPersonId, wire.childPersonId),
-          isNull(parentChildRelationships.deletedAt),
-          lt(parentChildRelationships.updatedAt, updatedAt),
-        ),
-      )
-      .returning({ id: parentChildRelationships.id })
-    classify(
-      applied,
-      skipped,
-      "parentChildRelationships",
-      wire.id,
-      rows.length > 0,
-    )
-  }
-
-  const createdEventIdsByUnion = new Map<string, string[]>()
-  for (const wire of body.unionEvents) {
-    if ("deletedAt" in wire) continue
-    const updatedAt = wireTimestamp(wire)
-    const createdAt = wireCreatedAt(wire)
-    if (
-      !validId(wire.id)
-      || !validId(wire.unionId)
-      || !UNION_EVENT_TYPES.has(wire.type)
-      || (wire.eventDate !== undefined && !isValidIsoDate(wire.eventDate))
-      || !updatedAt
-      || !createdAt
-    ) {
-      classify(applied, skipped, "unionEvents", wire.id, false)
-      continue
-    }
-    const union = await db.query.unions.findFirst({
-      where: and(eq(unions.id, wire.unionId), isNull(unions.deletedAt)),
-    })
-    if (!union) {
-      classify(applied, skipped, "unionEvents", wire.id, false)
-      continue
-    }
-    const existing = await db.query.unionEvents.findFirst({
-      where: eq(unionEvents.id, wire.id),
-    })
-    if (!existing) {
-      if (
-        !createdUnionIds.has(union.id)
-        && !(await canWriteExistingUnion(db, me.id, union, roleForTree))
-      ) {
-        classify(applied, skipped, "unionEvents", wire.id, false)
-        continue
-      }
-      const rows = await db
-        .insert(unionEvents)
-        .values({
-          id: wire.id,
-          unionId: wire.unionId,
-          type: wire.type,
-          eventDate: wire.eventDate ?? null,
-          createdAt,
-          updatedAt: updatedAt,
+        const existing = await db.query.treeParentChildRelationships.findFirst({
+          where: and(
+            eq(treeParentChildRelationships.treeId, wire.treeId),
+            eq(
+              treeParentChildRelationships.parentChildRelationshipId,
+              relationshipId,
+            ),
+          ),
         })
-        .onConflictDoNothing()
-        .returning({ id: unionEvents.id })
-      if (rows.length > 0) {
-        const eventIds = createdEventIdsByUnion.get(wire.unionId) ?? []
-        eventIds.push(wire.id)
-        createdEventIdsByUnion.set(wire.unionId, eventIds)
+        if (
+          !existing
+          && !createdParentRelationshipIds.has(relationship.id)
+          && !adoptedParentRelationshipIds.has(relationship.id)
+          && !(await canWriteExistingParentRelationship(
+            db,
+            me.id,
+            relationship,
+            roleForTree,
+          ))
+        ) {
+          classify(applied, skipped, "treeParentChildRelationships", key, false)
+          continue
+        }
+        const rows = await db
+          .insert(treeParentChildRelationships)
+          .values({
+            treeId: wire.treeId,
+            parentChildRelationshipId: relationshipId,
+            createdAt,
+            updatedAt: serverTime,
+          })
+          .onConflictDoUpdate({
+            target: [
+              treeParentChildRelationships.treeId,
+              treeParentChildRelationships.parentChildRelationshipId,
+            ],
+            set: {
+              deletedAt: null,
+              updatedAt: serverTime,
+              revision: sql`${treeParentChildRelationships.revision} + 1`,
+            },
+            setWhere: eq(
+              treeParentChildRelationships.revision,
+              parentRelationshipIdAlias.has(wire.parentChildRelationshipId)
+                ? (existing?.revision ?? 0)
+                : (wire.revision ?? 0),
+            ),
+          })
+          .returning({
+            treeId: treeParentChildRelationships.treeId,
+            revision: treeParentChildRelationships.revision,
+          })
+        if (
+          rows[0]
+          && parentRelationshipIdAlias.has(wire.parentChildRelationshipId)
+        ) {
+          parentAssociationAliases.set(key, {
+            parentChildRelationshipId: relationshipId,
+            revision: rows[0].revision,
+          })
+        }
+        classify(
+          applied,
+          skipped,
+          "treeParentChildRelationships",
+          key,
+          rows.length > 0,
+        )
       }
-      classify(applied, skipped, "unionEvents", wire.id, rows.length > 0)
-      continue
-    }
-    if (
-      existing.deletedAt
-      || existing.unionId !== wire.unionId
-      || !(await canWriteExistingUnion(db, me.id, union, roleForTree))
-    ) {
-      classify(applied, skipped, "unionEvents", wire.id, false)
-      continue
-    }
-    const rows = await db
-      .update(unionEvents)
-      .set({
-        type: wire.type,
-        eventDate: wire.eventDate ?? null,
-        updatedAt: updatedAt,
-      })
-      .where(
-        and(
-          eq(unionEvents.id, wire.id),
-          eq(unionEvents.unionId, wire.unionId),
-          isNull(unionEvents.deletedAt),
-          lt(unionEvents.updatedAt, updatedAt),
-        ),
-      )
-      .returning({ id: unionEvents.id })
-    classify(applied, skipped, "unionEvents", wire.id, rows.length > 0)
-  }
 
-  const associatedUnionIds = new Set<string>()
-  for (const wire of body.treeUnions) {
-    if ("deletedAt" in wire) continue
-    const key = associationKey(wire.treeId, wire.unionId)
-    const updatedAt = wireTimestamp(wire)
-    const createdAt = wireCreatedAt(wire)
-    if (
-      !validId(wire.treeId)
-      || !validId(wire.unionId)
-      || !updatedAt
-      || !createdAt
-      || !canWrite(await roleForTree(wire.treeId))
-    ) {
-      classify(applied, skipped, "treeUnions", key, false)
-      continue
-    }
-    const union = await db.query.unions.findFirst({
-      where: and(eq(unions.id, wire.unionId), isNull(unions.deletedAt)),
-    })
-    if (
-      !union
-      || !(await activeTreeHasMembers(
-        db,
-        wire.treeId,
-        [union.firstPersonId, union.secondPersonId],
-        activePeopleExistForRequest,
-      ))
-    ) {
-      classify(applied, skipped, "treeUnions", key, false)
-      continue
-    }
-    const existing = await db.query.treeUnions.findFirst({
-      where: and(
-        eq(treeUnions.treeId, wire.treeId),
-        eq(treeUnions.unionId, wire.unionId),
-      ),
-    })
-    if (
-      !existing
-      && !createdUnionIds.has(union.id)
-      && !(await canWriteExistingUnion(db, me.id, union, roleForTree))
-    ) {
-      classify(applied, skipped, "treeUnions", key, false)
-      continue
-    }
-    const rows = await db
-      .insert(treeUnions)
-      .values({
-        treeId: wire.treeId,
-        unionId: wire.unionId,
-        createdAt,
-        updatedAt: updatedAt,
+      if (mutationId && !hasClassifiedRecords(skipped)) {
+        const changesByTree = await collectMutationChanges(
+          db,
+          body,
+          parentRelationshipIdAlias,
+        )
+        for (const [treeId, records] of [...changesByTree].sort(
+          ([first], [second]) => first.localeCompare(second),
+        )) {
+          const versionRows = await db
+            .update(trees)
+            .set({ syncVersion: sql`${trees.syncVersion} + 1` })
+            .where(eq(trees.id, treeId))
+            .returning({ version: trees.syncVersion })
+          const version = versionRows[0]?.version
+          if (version === undefined) continue
+          await db.insert(syncChanges).values({
+            treeId,
+            version,
+            mutationId,
+            records,
+          })
+        }
+        const retentionCutoff = new Date(
+          serverTime.getTime() - 30 * 24 * 60 * 60 * 1000,
+        )
+        await Promise.all([
+          db
+            .delete(syncChanges)
+            .where(lt(syncChanges.createdAt, retentionCutoff)),
+          db
+            .delete(mutationReceipts)
+            .where(lt(mutationReceipts.createdAt, retentionCutoff)),
+        ])
+      }
+      const response: SyncPushResponse = {
+        applied,
+        skipped,
+        ...(parentRelationshipIdAlias.size > 0
+          ? {
+              aliases: {
+                parentChildRelationships: Object.fromEntries(
+                  parentRelationshipIdAlias,
+                ),
+                ...(parentAssociationAliases.size > 0
+                  ? {
+                      treeParentChildRelationships: Object.fromEntries(
+                        parentAssociationAliases,
+                      ),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+        serverTime: serverTime.toISOString(),
+      }
+      if (mutationId && hasClassifiedRecords(skipped)) {
+        conflictResponse = {
+          applied: emptyAppliedIds(),
+          skipped: requestIds(body),
+          serverTime: response.serverTime,
+          mutationId,
+          status: "conflict",
+        }
+        db.rollback()
+      }
+      const responseBody: SyncPushResponse | SyncMutationResponse = mutationId
+        ? { ...response, mutationId, status: "applied" }
+        : response
+      if (mutationId) {
+        await db.insert(mutationReceipts).values({
+          userId: me.id,
+          mutationId,
+          response: responseBody,
+        })
+      }
+      return Response.json(responseBody, {
+        headers: { "cache-control": "private, no-store" },
       })
-      .onConflictDoUpdate({
-        target: [treeUnions.treeId, treeUnions.unionId],
-        set: { deletedAt: null, updatedAt: updatedAt },
-        setWhere: lt(treeUnions.updatedAt, updatedAt),
-      })
-      .returning({ treeId: treeUnions.treeId })
-    if (rows.length > 0) associatedUnionIds.add(wire.unionId)
-    classify(applied, skipped, "treeUnions", key, rows.length > 0)
-  }
-
-  const associatedParentRelationshipIds = new Set<string>()
-  for (const wire of body.treeParentChildRelationships) {
-    if ("deletedAt" in wire) continue
-    // The client may have generated a fresh relationship id that collided with
-    // a pre-existing canonical row; resolve to that canonical id so the
-    // association attaches to the real relationship. The dirty key reported
-    // back to the client still uses its original id.
-    const relationshipId =
-      parentRelationshipIdAlias.get(wire.parentChildRelationshipId)
-      ?? wire.parentChildRelationshipId
-    const key = associationKey(wire.treeId, wire.parentChildRelationshipId)
-    const updatedAt = wireTimestamp(wire)
-    const createdAt = wireCreatedAt(wire)
-    if (
-      !validId(wire.treeId)
-      || !validId(wire.parentChildRelationshipId)
-      || !updatedAt
-      || !createdAt
-      || !canWrite(await roleForTree(wire.treeId))
-    ) {
-      classify(applied, skipped, "treeParentChildRelationships", key, false)
-      continue
-    }
-    const relationship = await db.query.parentChildRelationships.findFirst({
-      where: and(
-        eq(parentChildRelationships.id, relationshipId),
-        isNull(parentChildRelationships.deletedAt),
-      ),
     })
-    if (
-      !relationship
-      || !(await activeTreeHasMembers(
-        db,
-        wire.treeId,
-        [relationship.parentPersonId, relationship.childPersonId],
-        activePeopleExistForRequest,
-      ))
-    ) {
-      classify(applied, skipped, "treeParentChildRelationships", key, false)
-      continue
+    committedResponse = transactionResponse
+    await Promise.all([...photosToDeleteAfterCommit].map(deletePhoto))
+    return transactionResponse
+  } catch (error) {
+    if (committedResponse) {
+      console.error("failed to delete replaced photos", error)
+      return committedResponse
     }
-    const existing = await db.query.treeParentChildRelationships.findFirst({
-      where: and(
-        eq(treeParentChildRelationships.treeId, wire.treeId),
-        eq(
-          treeParentChildRelationships.parentChildRelationshipId,
-          relationshipId,
-        ),
-      ),
-    })
-    if (
-      !existing
-      && !createdParentRelationshipIds.has(relationship.id)
-      && !adoptedParentRelationshipIds.has(relationship.id)
-      && !(await canWriteExistingParentRelationship(
-        db,
-        me.id,
-        relationship,
-        roleForTree,
-      ))
-    ) {
-      classify(applied, skipped, "treeParentChildRelationships", key, false)
-      continue
-    }
-    const rows = await db
-      .insert(treeParentChildRelationships)
-      .values({
-        treeId: wire.treeId,
-        parentChildRelationshipId: relationshipId,
-        createdAt,
-        updatedAt: updatedAt,
+    await Promise.all([...uploadedPhotos].map(deletePhoto))
+    if (conflictResponse) {
+      return Response.json(conflictResponse, {
+        status: 409,
+        headers: { "cache-control": "private, no-store" },
       })
-      .onConflictDoUpdate({
-        target: [
-          treeParentChildRelationships.treeId,
-          treeParentChildRelationships.parentChildRelationshipId,
-        ],
-        set: { deletedAt: null, updatedAt: updatedAt },
-        setWhere: lt(treeParentChildRelationships.updatedAt, updatedAt),
-      })
-      .returning({ treeId: treeParentChildRelationships.treeId })
-    if (rows.length > 0) {
-      associatedParentRelationshipIds.add(relationship.id)
     }
-    classify(
-      applied,
-      skipped,
-      "treeParentChildRelationships",
-      key,
-      rows.length > 0,
-    )
+    throw error
   }
-
-  for (const unionId of createdUnionIds) {
-    if (associatedUnionIds.has(unionId)) continue
-    if (!(await deleteUnionIfOrphaned(db, unionId))) continue
-    moveAppliedToSkipped(applied, skipped, "unions", unionId)
-    for (const eventId of createdEventIdsByUnion.get(unionId) ?? []) {
-      moveAppliedToSkipped(applied, skipped, "unionEvents", eventId)
-    }
-  }
-  for (const relationshipId of createdParentRelationshipIds) {
-    if (associatedParentRelationshipIds.has(relationshipId)) continue
-    if (!(await deleteParentRelationshipIfOrphaned(db, relationshipId))) {
-      continue
-    }
-    moveAppliedToSkipped(
-      applied,
-      skipped,
-      "parentChildRelationships",
-      relationshipId,
-    )
-  }
-
-  const response: SyncPushResponse = {
-    applied,
-    skipped,
-    serverTime: new Date().toISOString(),
-  }
-  return Response.json(response, {
-    headers: { "cache-control": "private, no-store" },
-  })
 }

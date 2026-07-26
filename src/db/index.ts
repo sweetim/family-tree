@@ -1,12 +1,12 @@
-import { neon } from "@neondatabase/serverless"
-import { drizzle } from "drizzle-orm/neon-http"
+import { Pool } from "@neondatabase/serverless"
+import { drizzle } from "drizzle-orm/neon-serverless"
 import * as schema from "./schema"
 
 /**
- * Lazily-created DB client. The neon HTTP driver opens one fetch-backed SQL
- * connection per query, so a module-level singleton is fine on Vercel
- * functions and on the Bun dev server. Importing this file does not connect;
- * nothing happens until the first query runs.
+ * Lazily-created transaction-capable DB client. Mutations need an interactive
+ * transaction because authorization, graph validation, and writes must commit
+ * together. The small pool keeps each serverless instance bounded while a Blob
+ * upload is staged for a photo mutation.
  */
 function createClient() {
   const url = process.env.DATABASE_URL
@@ -15,8 +15,8 @@ function createClient() {
       "DATABASE_URL is not set. Provision Neon (Vercel Marketplace) and add it to .env.local / Vercel env vars.",
     )
   }
-  const sql = neon(url)
-  return drizzle({ client: sql, schema })
+  const pool = new Pool({ connectionString: url, max: 5 })
+  return drizzle({ client: pool, schema })
 }
 
 let cached: ReturnType<typeof createClient> | null = null
@@ -26,5 +26,7 @@ export function getDB() {
   return cached
 }
 
-export type DB = ReturnType<typeof createClient>
+type RootDB = ReturnType<typeof createClient>
+type TransactionDB = Parameters<Parameters<RootDB["transaction"]>[0]>[0]
+export type DB = RootDB | TransactionDB
 export { schema }

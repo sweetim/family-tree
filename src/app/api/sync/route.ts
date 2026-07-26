@@ -1,5 +1,9 @@
-import { getSync, postSync } from "@/server/handlers/sync"
+import { getSync } from "@/server/handlers/sync"
 
-/** `/api/sync` — GET pulls deltas, POST pushes batched upserts. */
+/** Legacy pull compatibility. Mutations require revisions and idempotency. */
 export const GET = (request: Request) => getSync(request)
-export const POST = (request: Request) => postSync(request)
+export const POST = () =>
+  Response.json(
+    { error: "legacy sync writes retired; use /api/v2/mutations" },
+    { status: 426 },
+  )

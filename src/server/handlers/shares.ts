@@ -1,10 +1,12 @@
-import { and, eq } from "drizzle-orm"
+import { and, asc, eq } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { treeShares, user } from "../../db/schema"
 import { treeRole } from "../acl"
+import { readJsonBody } from "../request"
 import { requireSession } from "../session"
+import { isValidSyncId } from "../sync-validation"
 
-interface ShareRow {
+type ShareRow = {
   email: string
   userId: string | null
   role: "viewer" | "editor"
@@ -13,6 +15,9 @@ interface ShareRow {
 }
 
 async function requireOwner(request: Request, treeId: string) {
+  if (!isValidSyncId(treeId)) {
+    return { status: 400, error: "invalid tree id" } as const
+  }
   const me = await requireSession(request)
   if (!me) return { status: 401, error: "unauthorized" } as const
   const db = getDB()
@@ -35,6 +40,7 @@ export async function listShares(
     .select()
     .from(treeShares)
     .where(eq(treeShares.treeId, treeId))
+    .orderBy(asc(treeShares.email))
 
   const out: ShareRow[] = rows.map((r) => ({
     email: r.email,
@@ -57,16 +63,30 @@ export async function addShare(
   const owner = await requireOwner(request, treeId)
   if ("error" in owner)
     return Response.json({ error: owner.error }, { status: owner.status })
-  const { db } = owner
+  const { db, me } = owner
 
-  const body = (await request.json()) as {
-    email?: string
-    role?: "viewer" | "editor"
+  const parsed = await readJsonBody(request, 16 * 1024)
+  if (!parsed.ok || !parsed.value || typeof parsed.value !== "object") {
+    return Response.json({ error: "invalid share payload" }, { status: 400 })
+  }
+  const body = parsed.value as Record<string, unknown>
+  if (
+    Object.keys(body).some((key) => key !== "email" && key !== "role")
+    || typeof body.email !== "string"
+  ) {
+    return Response.json({ error: "invalid share payload" }, { status: 400 })
   }
   const email = body.email?.trim().toLowerCase()
   const role = body.role
-  if (!email?.includes("@")) {
+  if (
+    !email
+    || email.length > 320
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  ) {
     return Response.json({ error: "valid email required" }, { status: 400 })
+  }
+  if (email === me.email.toLowerCase()) {
+    return Response.json({ error: "owner already has access" }, { status: 400 })
   }
   if (role !== "viewer" && role !== "editor") {
     return Response.json(

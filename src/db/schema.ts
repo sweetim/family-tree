@@ -1,9 +1,12 @@
 import { relations, sql } from "drizzle-orm"
 import {
+  bigint,
   boolean,
   check,
   date,
   index,
+  integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -31,22 +34,29 @@ export const user = pgTable("user", {
     .defaultNow(),
 })
 
-export const session = pgTable("session", {
-  id: text("id").primaryKey(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  token: text("token").notNull().unique(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-})
+export const session = pgTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    token: text("token").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    index("session_user_id_idx").on(table.userId),
+    index("session_expires_at_idx").on(table.expiresAt),
+  ],
+)
 
 export const account = pgTable("account", {
   id: text("id").primaryKey(),
@@ -104,6 +114,7 @@ export const persons = pgTable(
     gender: text("gender"),
     location: text("location"),
     photo: text("photo"),
+    revision: integer("revision").notNull().default(1),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -111,6 +122,10 @@ export const persons = pgTable(
   },
   (table) => [
     index("persons_owner_id_updated_at_idx").on(table.ownerId, table.updatedAt),
+    index("persons_name_trgm_idx").using(
+      "gin",
+      sql`lower(${table.name}) gin_trgm_ops`,
+    ),
     check(
       "persons_gender_check",
       sql`${table.gender} IS NULL OR ${table.gender} IN ('male', 'female', 'other')`,
@@ -126,6 +141,10 @@ export const trees = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    revision: integer("revision").notNull().default(1),
+    syncVersion: bigint("sync_version", { mode: "number" })
+      .notNull()
+      .default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -134,7 +153,14 @@ export const trees = pgTable(
       .defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (table) => [index("trees_owner_id_idx").on(table.ownerId)],
+  (table) => [
+    index("trees_owner_id_idx").on(table.ownerId),
+    index("trees_owner_created_id_idx").on(
+      table.ownerId,
+      table.createdAt,
+      table.id,
+    ),
+  ],
 )
 
 export const shareRole = pgEnum("share_role", ["viewer", "editor"])
@@ -190,6 +216,7 @@ export const treeMembers = pgTable(
     personId: text("person_id")
       .notNull()
       .references(() => persons.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -218,6 +245,7 @@ export const unions = pgTable(
     secondPersonId: text("second_person_id")
       .notNull()
       .references(() => persons.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -253,6 +281,7 @@ export const unionEvents = pgTable(
       .references(() => unions.id, { onDelete: "cascade" }),
     type: unionEventType("type").notNull(),
     eventDate: date("event_date"),
+    revision: integer("revision").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -279,6 +308,7 @@ export const treeUnions = pgTable(
     unionId: text("union_id")
       .notNull()
       .references(() => unions.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -305,6 +335,7 @@ export const parentChildRelationships = pgTable(
       .notNull()
       .references(() => persons.id, { onDelete: "cascade" }),
     type: parentChildRelationshipType("type").notNull(),
+    revision: integer("revision").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -326,6 +357,12 @@ export const parentChildRelationships = pgTable(
       table.childPersonId,
       table.parentPersonId,
     ),
+    index("parent_child_relationships_active_parent_child_idx")
+      .on(table.parentPersonId, table.childPersonId)
+      .where(sql`${table.deletedAt} IS NULL`),
+    index("parent_child_relationships_active_child_parent_idx")
+      .on(table.childPersonId, table.parentPersonId)
+      .where(sql`${table.deletedAt} IS NULL`),
     uniqueIndex("parent_child_relationships_active_parent_child_unique")
       .on(table.parentPersonId, table.childPersonId)
       .where(sql`${table.deletedAt} IS NULL`),
@@ -342,6 +379,7 @@ export const treeParentChildRelationships = pgTable(
     parentChildRelationshipId: text("parent_child_relationship_id")
       .notNull()
       .references(() => parentChildRelationships.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -359,6 +397,43 @@ export const treeParentChildRelationships = pgTable(
       table.treeId,
     ),
     index("tree_parent_child_relationships_updated_at_idx").on(table.updatedAt),
+  ],
+)
+
+export const syncChanges = pgTable(
+  "sync_changes",
+  {
+    treeId: text("tree_id")
+      .notNull()
+      .references(() => trees.id, { onDelete: "cascade" }),
+    version: bigint("version", { mode: "number" }).notNull(),
+    mutationId: text("mutation_id").notNull(),
+    records: jsonb("records").notNull().$type<unknown>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.treeId, table.version] }),
+    index("sync_changes_created_at_idx").on(table.createdAt),
+  ],
+)
+
+export const mutationReceipts = pgTable(
+  "mutation_receipts",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    mutationId: text("mutation_id").notNull(),
+    response: jsonb("response").notNull().$type<unknown>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.mutationId] }),
+    index("mutation_receipts_created_at_idx").on(table.createdAt),
   ],
 )
 

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
 import {
   descendantsOf,
   type FamilyData,
@@ -27,15 +27,11 @@ import {
   setParentAdoptedRecords,
 } from "./parent-child"
 import { mergePersonRecords, reconcileTreeData } from "./reconcile"
+import type { TreeSeed } from "./seed"
 import {
-  ensureUnion,
-  linkSpouseRecords,
-  markDivorcedRecords,
-  unlinkSpouseRecords,
-  updateSpouseDateRecords,
-} from "./unions"
-import { type TreeSeed } from "./seed"
-import {
+  applyTreeSnapshot,
+  deleteTreeOnServer,
+  fetchTreeSnapshot,
   getGraph,
   getSnapshot,
   makeDraft,
@@ -44,6 +40,13 @@ import {
   type TreeMeta,
   update,
 } from "./state"
+import {
+  ensureUnion,
+  linkSpouseRecords,
+  markDivorcedRecords,
+  unlinkSpouseRecords,
+  updateSpouseDateRecords,
+} from "./unions"
 
 export function useTreeIndex() {
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
@@ -77,11 +80,7 @@ export function useTreeIndex() {
 }
 
 export async function deleteTreeById(id: string): Promise<void> {
-  const response = await fetch(`/api/trees/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    credentials: "include",
-  })
-  if (!response.ok) throw new Error(`delete failed: ${response.status}`)
+  await deleteTreeOnServer(id)
 
   update(
     (previous) => {
@@ -134,7 +133,10 @@ export function createTreeWithRootMember(
 }
 
 export function countMembers(treeId: string): number {
-  return Object.values(getSnapshot().treeMembers).filter(
+  const snapshot = getSnapshot()
+  const tree = snapshot.index.find((candidate) => candidate.id === treeId)
+  if (!tree?.loaded && tree?.memberCount !== undefined) return tree.memberCount
+  return Object.values(snapshot.treeMembers).filter(
     (member) => member.treeId === treeId,
   ).length
 }
@@ -151,6 +153,21 @@ export function useMembersOf(
   treeId: string | undefined,
 ): { id: string; name: string }[] {
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const loaded = treeId
+    ? graph.index.find((tree) => tree.id === treeId)?.loaded
+    : true
+  useEffect(() => {
+    if (!treeId || loaded) return
+    let cancelled = false
+    void fetchTreeSnapshot(treeId)
+      .then((snapshot) => {
+        if (!cancelled) applyTreeSnapshot(snapshot)
+      })
+      .catch((error: unknown) => console.error(error))
+    return () => {
+      cancelled = true
+    }
+  }, [loaded, treeId])
   return useMemo(() => {
     if (!treeId) return []
     return Object.values(graph.treeMembers)

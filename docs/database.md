@@ -1,17 +1,17 @@
 # Database
 
-Persistence uses Drizzle ORM on Neon Postgres through the serverless HTTP
-driver. The current schema is defined in `src/db/schema.ts`; the lazy client is
+Persistence uses Drizzle ORM on Neon Postgres through the transaction-capable
+serverless Pool driver. The current schema is defined in `src/db/schema.ts`; the lazy client is
 in `src/db/index.ts`.
 
 ## Client setup
 
-- `createClient()` reads `DATABASE_URL`, creates the Neon HTTP driver, and wraps
-  it with Drizzle and the schema.
+- `createClient()` reads `DATABASE_URL`, creates a small bounded Neon Pool, and
+  wraps it with Drizzle and the schema.
 - `getDB()` creates a module-level singleton on the first query. Importing the
   module does not connect, so anonymous pages can boot without a database.
-- Each query uses the fetch-backed driver; this suits Bun development and
-  serverless functions.
+- Interactive transactions keep ACL checks, graph validation, writes, change
+  logs, and mutation receipts atomic.
 
 ## Tables
 
@@ -31,11 +31,13 @@ Application data is normalized:
 | `tree_unions` | Tree-local association between a tree and a shared union. |
 | `parent_child_relationships` | Shared parent/child fact and relationship type. Endpoint ids are immutable and distinct. |
 | `tree_parent_child_relationships` | Tree-local association between a tree and a shared parent/child fact. |
+| `sync_changes` | Per-tree versioned change batches retained for cursor pulls. |
+| `mutation_receipts` | Durable idempotency results keyed by user and mutation ID. |
 
 `union_event_type` supports `relationship_started`, `engaged`, `married`,
 `civil_union`, `domestic_partnership`, `separated`, `reconciled`, `divorced`,
-`annulled`, and `relationship_ended`. The Core UI currently creates marriage
-facts and edits their date; the broader enum preserves the history model.
+`annulled`, and `relationship_ended`. The UI creates marriage, divorce, and
+reconciliation events and edits their dates.
 
 `parent_child_relationship_type` supports `biological`, `adoptive`, `foster`,
 `guardian`, and `step`. The Core UI currently toggles biological/adoptive.
@@ -51,7 +53,7 @@ tree-local associations. Unlinking a spouse, removing a parent, or removing a
 person from a tree tombstones only that tree's associations. It does not delete
 the shared fact or detach another tree.
 
-All normalized records except `tree_shares` have update timestamps and, where
+All normalized records except `tree_shares` have server revisions, update timestamps and, where
 sync deletion is supported, tombstones. Foreign keys use hard cascades for
 referential cleanup, while normal sync deletion is soft. A person-owner delete
 is the exception at the protocol level: one atomic server statement tombstones
@@ -70,6 +72,12 @@ The committed migration sequence is intentionally one-time:
    indexes, and drops the legacy relationship column.
 3. `0002_rapid_revanche.sql` adds ownership and share access-path indexes used
    by set-based sync pulls and pending-share binding.
+4. `0003_futuristic_yellow_claw.sql` adds row revisions, tree sync versions,
+   change batches, and idempotency receipts.
+5. `0004_spotty_quasar.sql` adds active graph, search, session, and manifest
+   indexes.
+6. `0005_lying_nightshade.sql` enables trigram search and replaces the initial
+   name index with a substring-search GIN index.
 
 The preflight is strict and aborts the transaction instead of guessing. It
 rejects malformed or unsupported records, dangling/nonmember endpoints,
