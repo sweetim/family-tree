@@ -4,6 +4,7 @@ import { AccountMenu } from "@/components/AccountMenu"
 import type { FamilyStore, TreeMeta } from "@/store"
 import { AddForm } from "./AddForm"
 import { ChoosePanel } from "./ChoosePanel"
+import { CreateFamilyPanel } from "./CreateFamilyPanel"
 import { EditForm } from "./EditForm"
 import { LinkChildPanel } from "./LinkChildPanel"
 import { LinkParentPanel } from "./LinkParentPanel"
@@ -56,6 +57,8 @@ export function Sidebar({
     state.mode === "linkSpouse" ? family.people[state.personId] : undefined
   const linkChildPerson =
     state.mode === "linkChild" ? family.people[state.personId] : undefined
+  const createFamilyPerson =
+    state.mode === "createFamily" ? family.people[state.personId] : undefined
   const choosePerson =
     state.mode === "choose" ? family.people[state.sourceId] : undefined
 
@@ -128,6 +131,7 @@ export function Sidebar({
             sourceId={state.sourceId}
             sourceName={choosePerson.name}
             rel={state.rel}
+            createFamily={state.createFamily}
             onClose={onClose}
           />
         ) : state.mode === "linkParent" && linkParentPerson && editable ? (
@@ -153,6 +157,13 @@ export function Sidebar({
             treeId={treeId}
             allTrees={allTrees}
             person={linkChildPerson}
+            onClose={onClose}
+          />
+        ) : state.mode === "createFamily" && createFamilyPerson && editable ? (
+          <CreateFamilyPanel
+            family={family}
+            person={createFamilyPerson}
+            treeName={treeName}
             onClose={onClose}
           />
         ) : editingPerson && editable ? (

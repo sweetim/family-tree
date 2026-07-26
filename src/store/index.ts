@@ -47,6 +47,7 @@ export { mergePersonRecords } from "./reconcile"
 
 export {
   countMembers,
+  createTreeWithRootMember,
   deleteTreeById,
   useFamily,
   useFamilyAll,

@@ -59,7 +59,7 @@ const CARD_BORDER: Record<string, string> = {
 }
 
 export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
-  const { person, linkState } = data
+  const { person, linkState, marriedIn } = data
   const { openChoose, readOnly } = useTreeActions()
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
@@ -192,11 +192,16 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 className={addBtn}
                 onClick={(e) => {
                   e.stopPropagation()
-                  openChoose("parent", person.id, {
-                    kind: "parent",
-                    childId: person.id,
-                    marryExisting: true,
-                  })
+                  openChoose(
+                    "parent",
+                    person.id,
+                    {
+                      kind: "parent",
+                      childId: person.id,
+                      marryExisting: true,
+                    },
+                    { createFamily: marriedIn },
+                  )
                 }}
               >
                 <Plus className="h-4 w-4" />

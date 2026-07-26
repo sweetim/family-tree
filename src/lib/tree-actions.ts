@@ -7,7 +7,15 @@ export interface TreeActions {
   /** Open the sidebar's "add member" form with a preset relationship. */
   openAdd: (rel: Relationship) => void
   /** Open the sidebar chooser that asks the user to add a new person or connect an existing one. */
-  openChoose: (kind: LinkKind, sourceId: string, rel: Relationship) => void
+  openChoose: (
+    kind: LinkKind,
+    sourceId: string,
+    rel: Relationship,
+    options?: { createFamily?: boolean },
+  ) => void
+  /** Open the sidebar form that creates a brand-new family tree for a
+   *  married-in person's parents, then navigates to it on save. */
+  openCreateFamily: (personId: string) => void
   /** Return from an add/connect panel back to the chooser, cancelling any active click-to-connect. */
   backToChoose: (kind: LinkKind, sourceId: string, rel: Relationship) => void
   /** Start click-to-connect: the next eligible card clicked becomes source's spouse/parent/child. */

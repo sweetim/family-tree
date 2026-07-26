@@ -22,12 +22,16 @@ export type SidebarState =
       kind: LinkKind
       sourceId: string
       rel: Relationship
+      /** When set, the chooser offers "Create new family" (for a married-in
+       *  person's parents) instead of the usual "Add new". */
+      createFamily?: boolean
     }
   | { mode: "edit"; personId: string }
   | { mode: "marriage"; a: string; b: string }
   | { mode: "linkParent"; personId: string }
   | { mode: "linkSpouse"; personId: string }
   | { mode: "linkChild"; personId: string }
+  | { mode: "createFamily"; personId: string }
   | { mode: "settings" }
 
 export type Fields = {

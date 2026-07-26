@@ -167,8 +167,19 @@ export function TreeView({
         setSidebar({ mode: "add", rel })
         setDrawerOpen(true)
       },
-      openChoose: (kind, sourceId, rel) => {
-        setSidebar({ mode: "choose", kind, sourceId, rel })
+      openChoose: (kind, sourceId, rel, options) => {
+        setSidebar({
+          mode: "choose",
+          kind,
+          sourceId,
+          rel,
+          createFamily: options?.createFamily,
+        })
+        setDrawerOpen(true)
+        setSidebarHidden(false)
+      },
+      openCreateFamily: (personId) => {
+        setSidebar({ mode: "createFamily", personId })
         setDrawerOpen(true)
         setSidebarHidden(false)
       },

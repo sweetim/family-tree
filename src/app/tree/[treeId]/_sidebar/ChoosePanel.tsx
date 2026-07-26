@@ -14,15 +14,17 @@ export function ChoosePanel({
   sourceId,
   sourceName,
   rel,
+  createFamily,
   onClose,
 }: {
   kind: LinkKind
   sourceId: string
   sourceName: string
   rel: Relationship
+  createFamily?: boolean
   onClose: () => void
 }) {
-  const { openAdd, startLink } = useTreeActions()
+  const { openAdd, openCreateFamily, startLink } = useTreeActions()
   const role = ROLE_LABEL[kind]
 
   return (
@@ -47,7 +49,9 @@ export function ChoosePanel({
       <div className="space-y-2.5">
         <button
           type="button"
-          onClick={() => openAdd(rel)}
+          onClick={() =>
+            createFamily ? openCreateFamily(sourceId) : openAdd(rel)
+          }
           className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:border-cobalt-300 hover:bg-cobalt-50/40 active:scale-[0.98]"
         >
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cobalt-600 text-white transition-colors group-hover:bg-cobalt-700">
@@ -55,10 +59,12 @@ export function ChoosePanel({
           </span>
           <span className="min-w-0">
             <span className="block text-sm font-semibold text-slate-800">
-              Add new {role}
+              {createFamily ? "Create new family" : `Add new ${role}`}
             </span>
             <span className="block text-xs text-slate-500">
-              Create a new person and link them
+              {createFamily
+                ? "Start a separate family tree for their parents"
+                : "Create a new person and link them"}
             </span>
           </span>
         </button>
@@ -76,7 +82,7 @@ export function ChoosePanel({
               Connect existing {role}
             </span>
             <span className="block text-xs text-slate-500">
-              Link a person already in the tree
+              Link a person already in the tree or another family
             </span>
           </span>
         </button>

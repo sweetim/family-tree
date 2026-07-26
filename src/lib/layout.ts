@@ -1,5 +1,5 @@
 import type { Edge, Node, SmoothStepPathOptions } from "@xyflow/react"
-import { type FamilyData, type Person } from "../types"
+import { type FamilyData, isMarriedInSpouse, type Person } from "../types"
 
 const NODE_WIDTH = 176
 const NODE_HEIGHT = 220
@@ -38,6 +38,7 @@ export type PersonNodeType = Node<
   {
     person: Person
     linkState?: LinkState
+    marriedIn?: boolean
   },
   "person"
 >
@@ -413,6 +414,7 @@ export function buildFlow(
       selected: p.id === selectedId,
       data: {
         person: p,
+        marriedIn: isMarriedInSpouse(people, p.id),
         linkState: linking
           ? p.id === linking.sourceId
             ? "source"

@@ -108,6 +108,31 @@ export async function deleteTreeById(id: string): Promise<void> {
 
 export type TreeIndexStore = ReturnType<typeof useTreeIndex>
 
+/**
+ * Create a brand-new tree and seed it with a single root member in one atomic
+ * update. Returns the new tree id and the new person id so the caller can link
+ * relatives (e.g. via `linkParentAcrossTrees`). Mirrors `useTreeIndex.createTree`
+ * + a "root" `addPerson`, but works for a tree id that only exists mid-update.
+ */
+export function createTreeWithRootMember(
+  name: string,
+  input: PersonInput,
+): { treeId: string; personId: string } {
+  const treeId = newId()
+  const personId = newId()
+  update((previous) => {
+    const draft = makeDraft(previous)
+    draft.index = [
+      ...previous.index,
+      { id: treeId, name, createdAt: new Date().toISOString() },
+    ]
+    draft.persons[personId] = { id: personId, ...input }
+    addMember(draft, treeId, personId)
+    return draft
+  })
+  return { treeId, personId }
+}
+
 export function countMembers(treeId: string): number {
   return Object.values(getSnapshot().treeMembers).filter(
     (member) => member.treeId === treeId,

@@ -422,3 +422,20 @@ export function ancestorsOf(people: FamilyData, id: string): Set<string> {
   }
   return seen
 }
+
+/**
+ * A "married-in" spouse: someone who joined this tree through marriage and
+ * brought no ancestry of their own into it. They have no parents here, but at
+ * least one of their in-tree spouses has parents here — i.e. they married into
+ * an existing bloodline. The top/founding couple (both without parents) is
+ * intentionally excluded, so the top of a tree can still be extended upward.
+ */
+export function isMarriedInSpouse(people: FamilyData, id: string): boolean {
+  const person = people[id]
+  if (!person) return false
+  if (person.parents.some((link) => people[link.id])) return false
+  return person.spouseIds.some((spouseId) => {
+    const spouse = people[spouseId]
+    return !!spouse && spouse.parents.some((link) => people[link.id])
+  })
+}
