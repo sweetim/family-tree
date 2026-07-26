@@ -1,5 +1,6 @@
 import {
   canonicalPersonPair,
+  isTerminalUnionEvent,
   type Union,
   type UnionEvent,
   unionIsCurrent,
@@ -17,6 +18,20 @@ function unionEventsFor(graph: GlobalState, unionId: string): UnionEvent[] {
   return Object.values(graph.unionEvents).filter(
     (event) => event.unionId === unionId,
   )
+}
+
+/** A timestamp guaranteed to sort strictly after every existing event for a
+ *  union. Union currency is derived from event order, so an appended event
+ *  (e.g. a reconcile after a divorce) must always win the latest-event sort,
+ *  even when actions happen within the same millisecond. */
+function nextUnionTimestamp(graph: GlobalState, unionId: string): string {
+  const current = now()
+  const latest = unionEventsFor(graph, unionId)
+    .map((event) => event.eventDate ?? event.createdAt)
+    .sort()
+    .at(-1)
+  if (!latest || current > latest) return current
+  return new Date(new Date(latest).getTime() + 1).toISOString()
 }
 
 function currentUnionForPair(
@@ -46,6 +61,34 @@ function currentUnionForPair(
         firstUnion.createdAt.localeCompare(secondUnion.createdAt)
         || firstUnion.id.localeCompare(secondUnion.id),
     )
+    .at(-1)
+}
+
+/** Latest tree-associated union for a person pair, current or not.
+ *  Used to attach divorce/reconcile events even after a union has gone
+ *  non-current (so a divorced couple that shares children stays editable). */
+export function latestUnionForPair(
+  graph: GlobalState,
+  firstPersonId: string,
+  secondPersonId: string,
+  treeId?: string,
+): Union | undefined {
+  const [first, second] = canonicalPersonPair(firstPersonId, secondPersonId)
+  const associatedIds = treeId
+    ? new Set(
+        Object.values(graph.treeUnions)
+          .filter((association) => association.treeId === treeId)
+          .map((association) => association.unionId),
+      )
+    : undefined
+  return Object.values(graph.unions)
+    .filter(
+      (union) =>
+        union.firstPersonId === first
+        && union.secondPersonId === second
+        && (!associatedIds || associatedIds.has(union.id)),
+    )
+    .sort(compareCreatedRecords)
     .at(-1)
 }
 
@@ -211,6 +254,62 @@ export function updateSpouseDateRecords(
   draft.unionEvents[event.id] = {
     ...event,
     eventDate: date || undefined,
+  }
+  return draft
+}
+
+/** Toggle divorce for a couple. Setting `divorced` records a `divorced`
+ *  event (updating the date of an existing one rather than stacking); clearing
+ *  it records a `reconciled` event so the union becomes current again. */
+export function markDivorcedRecords(
+  previous: GlobalState,
+  treeId: string,
+  firstPersonId: string,
+  secondPersonId: string,
+  divorced: boolean,
+  date?: string,
+): GlobalState {
+  if (!treeIsWritable(previous, treeId)) return previous
+  const union = latestUnionForPair(
+    previous,
+    firstPersonId,
+    secondPersonId,
+    treeId,
+  )
+  if (!union) return previous
+  const draft = makeDraft(previous)
+  ensureMarriedEvent(draft, union.id)
+  const latest = unionEventsFor(draft, union.id)
+    .slice()
+    .sort(compareCreatedRecords)
+    .at(-1)
+  const timestamp = nextUnionTimestamp(draft, union.id)
+  if (divorced) {
+    if (latest?.type === "divorced") {
+      draft.unionEvents[latest.id] = {
+        ...latest,
+        eventDate: date || undefined,
+      }
+      return draft
+    }
+    const eventId = newId()
+    draft.unionEvents[eventId] = {
+      id: eventId,
+      unionId: union.id,
+      type: "divorced",
+      eventDate: date || undefined,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+  } else if (latest && isTerminalUnionEvent(latest.type)) {
+    const eventId = newId()
+    draft.unionEvents[eventId] = {
+      id: eventId,
+      unionId: union.id,
+      type: "reconciled",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
   }
   return draft
 }

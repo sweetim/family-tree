@@ -98,6 +98,10 @@ describe("normalized projection", () => {
     expect(family.tim?.spouseIds).toEqual(["yumi"])
     expect(family.yumi?.spouseIds).toEqual(["tim"])
     expect(family.tim?.marriageDates).toEqual({ yumi: "2020-05-01" })
+    expect(family.tim?.unionStatus?.yumi).toEqual({
+      type: "married",
+      marriageDate: "2020-05-01",
+    })
     expect(family.kid?.parents).toEqual([
       { id: "tim", adopted: true, type: "adoptive" },
     ])
@@ -151,6 +155,12 @@ describe("normalized projection", () => {
       updatedAt: "2023-01-01T00:00:00.000Z",
     }
     expect(projectTree(identities, graph, "a").tim?.spouseIds).toEqual([])
+    // Divorced couples drop out of spouseIds but stay editable via unionStatus.
+    expect(projectTree(identities, graph, "a").tim?.unionStatus?.yumi).toEqual({
+      type: "divorced",
+      marriageDate: "2020-05-01",
+      date: "2023-01-01",
+    })
 
     graph.unions.remarriage = {
       id: "remarriage",

@@ -21,8 +21,10 @@ therefore propagate to every associated tree.
 
 Union history can represent starts, engagement, marriage, civil union,
 domestic partnership, separation, reconciliation, divorce, annulment, and an
-ended relationship. The Core UI currently exposes marriage and marriage-date
-editing only. Removing a spouse link does not record a divorce event.
+ended relationship. The Core UI exposes marriage and marriage-date editing,
+plus a divorce toggle on a couple's marriage panel that records a `divorced`
+event (or a `reconciled` event when cleared). Removing a spouse link does not
+record a divorce event.
 
 ## Tree-local associations
 

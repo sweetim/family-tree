@@ -12,10 +12,15 @@ describe("photo input boundaries", () => {
     expect(isPhotoDataUrl("https://example.test/photo.jpg")).toBe(false)
   })
 
-  test("only proxies public Vercel Blob URLs", () => {
+  test("proxies public and private Vercel Blob URLs", () => {
     expect(
       isAllowedStoredPhotoUrl(
         "https://example.public.blob.vercel-storage.com/photos/a.jpg",
+      ),
+    ).toBe(true)
+    expect(
+      isAllowedStoredPhotoUrl(
+        "https://example.private.blob.vercel-storage.com/photos/a.jpg",
       ),
     ).toBe(true)
     expect(isAllowedStoredPhotoUrl("https://example.test/photo.jpg")).toBe(

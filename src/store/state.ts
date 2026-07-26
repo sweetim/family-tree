@@ -576,6 +576,7 @@ function mergeRemoteRecords<
     const id = keyFor(wire)
     const local = result[id]
     if (tombstoneBlocks(collection, id, wire.updatedAt)) continue
+    if (dirtyState[collection].get(id)?.action === "delete") continue
     if (
       local
       && (wire.deletedAt
@@ -613,6 +614,7 @@ export function applyRemote(remote: RemoteRecords): void {
         for (const wire of remote.persons) {
           const local = persons[wire.id]
           if (tombstoneBlocks("persons", wire.id, wire.updatedAt)) continue
+          if (dirtyState.persons.get(wire.id)?.action === "delete") continue
           if (
             local
             && ("deletedAt" in wire
@@ -849,12 +851,25 @@ export function applyFullPull(pull: SyncPullResponse): void {
       [...remoteTombstoneClocks[collection].keys()],
     ]),
   ) as Record<DirtyCollection, string[]>
+  const pendingDeleteIds = Object.fromEntries(
+    RECORD_COLLECTIONS.map((collection) => [
+      collection,
+      [...dirtyState[collection]]
+        .filter(([, record]) => record.action === "delete")
+        .map(([id]) => id),
+    ]),
+  ) as Record<DirtyCollection, string[]>
   notificationsSuppressed = true
   try {
     state = emptyState()
     dirtyState = emptyDirtyState()
     remoteTombstoneClocks = emptyTombstoneClocks()
     nextRevision = 1
+    for (const collection of RECORD_COLLECTIONS) {
+      for (const id of pendingDeleteIds[collection]) {
+        markDirty(collection, id, "delete")
+      }
+    }
     applyRemote(pull.own)
     for (const shared of pull.shared) applyRemote(sharedRemoteRecords(shared))
     for (const id of new Set([

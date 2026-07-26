@@ -34,6 +34,7 @@ export {
 } from "./membership"
 export {
   linkSpouseRecords,
+  markDivorcedRecords,
   unlinkSpouseRecords,
   updateSpouseDateRecords,
 } from "./unions"

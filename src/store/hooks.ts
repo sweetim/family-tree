@@ -30,6 +30,7 @@ import { mergePersonRecords, reconcileTreeData } from "./reconcile"
 import {
   ensureUnion,
   linkSpouseRecords,
+  markDivorcedRecords,
   unlinkSpouseRecords,
   updateSpouseDateRecords,
 } from "./unions"
@@ -369,6 +370,27 @@ export function useFamily(treeId: string) {
     [treeId],
   )
 
+  const setDivorced = useCallback(
+    (
+      firstPersonId: string,
+      secondPersonId: string,
+      divorced: boolean,
+      date?: string,
+    ) => {
+      update((previous) =>
+        markDivorcedRecords(
+          previous,
+          treeId,
+          firstPersonId,
+          secondPersonId,
+          divorced,
+          date,
+        ),
+      )
+    },
+    [treeId],
+  )
+
   const addParent = useCallback(
     (childPersonId: string, parentPersonId: string) => {
       update((previous) => {
@@ -628,6 +650,7 @@ export function useFamily(treeId: string) {
     linkSpouse,
     unlinkSpouse,
     updateSpouseDate,
+    setDivorced,
     addParent,
     removeParent,
     setParentAdopted,

@@ -1,7 +1,7 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react"
 import { ArrowLeftRight, MapPin, Plus } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
-import { photoProxyUrl } from "../lib/image"
+import { personPhotoSrc } from "../lib/image"
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
 import { useTreeActions } from "../lib/tree-actions"
 import { useMemberTrees } from "../store"
@@ -70,6 +70,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const genderKey = person.gender ?? "unknown"
   const avatarRing = AVATAR_RING[genderKey]
   const avatarFill = AVATAR_FILL[genderKey]
+  const photoSrc = personPhotoSrc(person)
 
   let lifeline: string | null = null
   if (deceased && person.dod) {
@@ -117,10 +118,10 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
             <div
               className={`rounded-full bg-linear-to-br p-[3px] ${avatarRing} ${deceased ? "grayscale" : ""}`}
             >
-              {person.photo ? (
+              {photoSrc ? (
                 // biome-ignore lint/performance/noImgElement: small avatar streamed via the auth-checked proxy; Next/Image offers no benefit
                 <img
-                  src={photoProxyUrl(person.id, person.updatedAt)}
+                  src={photoSrc}
                   alt={person.name}
                   className="h-[104px] w-[104px] rounded-full object-cover"
                 />

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { DirtyState, GlobalState } from "./store"
+import { update } from "./store/state"
 import type {
   SyncAppliedIds,
   SyncPullResponse,
@@ -354,6 +355,92 @@ describe("normalized relationship mutations", () => {
     expect(projectTree(next.persons, next, "b").tim?.marriageDates.yumi).toBe(
       "2025-06-20",
     )
+  })
+
+  test("marking divorce records a divorced event and drops the couple from spouseIds", async () => {
+    const store = await freshStore()
+    const next = store.markDivorcedRecords(
+      relationshipState(),
+      "a",
+      "tim",
+      "yumi",
+      true,
+      "2024-05-01",
+    )
+
+    const divorced = Object.values(next.unionEvents).find(
+      (event) => event.type === "divorced",
+    )
+    expect(divorced?.unionId).toBe("union")
+    expect(divorced?.eventDate).toBe("2024-05-01")
+    // Divorce is terminal, so the couple leaves spouseIds...
+    expect(projectTree(next.persons, next, "a").tim?.spouseIds).toEqual([])
+    // ...but stays editable through unionStatus, and the child is unaffected.
+    expect(projectTree(next.persons, next, "a").tim?.unionStatus?.yumi).toEqual({
+      type: "divorced",
+      marriageDate: "2020-01-01",
+      date: "2024-05-01",
+    })
+    expect(projectTree(next.persons, next, "a").kid?.parents).toEqual([
+      { id: "tim", adopted: undefined, type: "biological" },
+    ])
+  })
+
+  test("re-divorcing updates the existing event date instead of stacking", async () => {
+    const store = await freshStore()
+    const first = store.markDivorcedRecords(
+      relationshipState(),
+      "a",
+      "tim",
+      "yumi",
+      true,
+      "2024-05-01",
+    )
+    const second = store.markDivorcedRecords(
+      first,
+      "a",
+      "tim",
+      "yumi",
+      true,
+      "2024-09-09",
+    )
+
+    const divorcedEvents = Object.values(second.unionEvents).filter(
+      (event) => event.type === "divorced",
+    )
+    expect(divorcedEvents).toHaveLength(1)
+    expect(divorcedEvents[0]?.eventDate).toBe("2024-09-09")
+  })
+
+  test("reconciling records a reconciled event and restores the marriage", async () => {
+    const store = await freshStore()
+    const divorced = store.markDivorcedRecords(
+      relationshipState(),
+      "a",
+      "tim",
+      "yumi",
+      true,
+    )
+    const reconciled = store.markDivorcedRecords(
+      divorced,
+      "a",
+      "tim",
+      "yumi",
+      false,
+    )
+
+    expect(
+      Object.values(reconciled.unionEvents).some(
+        (event) => event.type === "reconciled",
+      ),
+    ).toBe(true)
+    expect(projectTree(reconciled.persons, reconciled, "a").tim?.spouseIds).toEqual([
+      "yumi",
+    ])
+    expect(
+      projectTree(reconciled.persons, reconciled, "a").tim?.unionStatus?.yumi
+        ?.type,
+    ).toBe("reconciled")
   })
 
   test("parent unlink is tree-local while adopted edits are global", async () => {
@@ -864,6 +951,63 @@ describe("remote merge", () => {
     })
     expect(store.getSnapshot().persons.omitted).toBeUndefined()
     expect(store.getSnapshot().persons["still-deleted"]).toBeUndefined()
+  })
+
+  test("a pending delete survives a concurrent full pull without resurrecting", async () => {
+    const store = await freshStore()
+    const activePull = () =>
+      fullPull({
+        persons: [
+          { id: "tim", name: "Tim", updatedAt: timestamp, ownerId: "owner" },
+        ],
+        trees: [
+          {
+            id: "a",
+            name: "A",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            ownerId: "owner",
+          },
+        ],
+        treeMembers: [
+          {
+            treeId: "a",
+            personId: "tim",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      })
+
+    // Hold the optimistic push in flight so its tombstone never reaches server.
+    const pushResponse = deferred<Response>()
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_input, _init) =>
+      pushResponse.promise) as typeof fetch
+
+    try {
+      store.applyFullPull(activePull())
+      expect(store.getSnapshot().persons.tim).toBeTruthy()
+
+      update((previous) => store.deletePersonRecords(previous, "tim"))
+      expect(store.getSnapshot().persons.tim).toBeUndefined()
+      expect([...store.snapshotDirty().persons.keys()]).toEqual(["tim"])
+
+      // A pull that still reports tim active (server read before the delete
+      // committed) must not bring tim, or its membership, back to life.
+      store.applyFullPull(activePull())
+
+      expect(store.getSnapshot().persons.tim).toBeUndefined()
+      expect(
+        store.getSnapshot().treeMembers[store.treeMemberKey("a", "tim")],
+      ).toBeUndefined()
+      expect([...store.snapshotDirty().persons.keys()]).toContain("tim")
+      expect([...store.snapshotDirty().treeMembers.keys()]).toContain(
+        store.treeMemberKey("a", "tim"),
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })
 

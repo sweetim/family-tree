@@ -42,7 +42,13 @@ export type PersonNodeType = Node<
   "person"
 >
 export type UnionNodeType = Node<
-  { date?: string; a?: string; b?: string },
+  {
+    date?: string
+    a?: string
+    b?: string
+    statusType?: string
+    divorceDate?: string
+  },
   "union"
 >
 export type FlowNode = PersonNodeType | UnionNodeType
@@ -359,7 +365,9 @@ export function buildFlow(
   selectedId?: string,
   linking?: { sourceId: string; eligible: Set<string> },
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
-  // Collect couples: married pairs plus co-parents of any child.
+  // Collect couples: married pairs, co-parents of any child, plus any pair
+  // with a recorded union (so a divorced couple stays connected by a dashed
+  // line instead of disappearing once it leaves `spouseIds`).
   const couples = new Map<string, [string, string]>()
   for (const p of Object.values(people)) {
     for (const sid of p.spouseIds) {
@@ -377,6 +385,14 @@ export function buildFlow(
           [first.id, second.id].sort() as [string, string],
         )
       }
+    }
+  }
+  for (const p of Object.values(people)) {
+    if (!p.unionStatus) continue
+    for (const partnerId of Object.keys(p.unionStatus)) {
+      if (!people[partnerId]) continue
+      const key = pairKey(p.id, partnerId)
+      couples.set(key, [p.id, partnerId].sort() as [string, string])
     }
   }
 
@@ -419,12 +435,19 @@ export function buildFlow(
     const dot = { x: (pa.x + pb.x) / 2, y: rowTop + COUPLE_LINE_Y }
     unionPos.set(unionId(a, b), dot)
     const date = people[a]?.marriageDates[b] ?? people[b]?.marriageDates[a]
+    const status = people[a]?.unionStatus?.[b] ?? people[b]?.unionStatus?.[a]
     nodes.push({
       id: unionId(a, b),
       type: "union",
       position: { x: dot.x - UNION_SIZE / 2, y: dot.y - UNION_SIZE / 2 },
       selectable: false,
-      data: { a, b, date },
+      data: {
+        a,
+        b,
+        date,
+        statusType: status?.type,
+        divorceDate: status?.type === "divorced" ? status.date : undefined,
+      },
     })
   }
 

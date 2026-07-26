@@ -28,6 +28,10 @@ export type Person = PersonIdentity & {
   parents: ParentLink[]
   spouseIds: string[]
   marriageDates: Record<string, string>
+  /** Latest union status per partner, keyed by partner id. Populated for
+   *  every tree-associated union regardless of currency, so divorced couples
+   *  remain editable even after they leave `spouseIds`. */
+  unionStatus?: Record<string, UnionStatus>
 }
 
 export type FamilyData = Record<string, Person>
@@ -73,6 +77,18 @@ export type UnionEvent = {
   eventDate?: string
   createdAt: string
   updatedAt: string
+}
+
+/** UI-facing summary of a couple's union: its latest event plus the
+ *  marriage date, so panels can show/edit divorce without touching the raw
+ *  event list. */
+export type UnionStatus = {
+  /** Latest event type for this union (e.g. "married", "divorced"). */
+  type: UnionEventType
+  /** Date of the marriage event, if one exists. */
+  marriageDate?: string
+  /** Date of the latest event (e.g. divorce date), if any. */
+  date?: string
 }
 
 export type TreeUnion = {
@@ -150,22 +166,35 @@ export function canonicalPersonPair(
     : [secondPersonId, firstPersonId]
 }
 
+function byEventDate(first: UnionEvent, second: UnionEvent): number {
+  const firstDate = first.eventDate ?? first.createdAt
+  const secondDate = second.eventDate ?? second.createdAt
+  return (
+    firstDate.localeCompare(secondDate)
+    || first.createdAt.localeCompare(second.createdAt)
+    || first.id.localeCompare(second.id)
+  )
+}
+
+export function latestEventForUnion(
+  unionId: string,
+  unionEvents: Record<string, UnionEvent>,
+): UnionEvent | undefined {
+  return Object.values(unionEvents)
+    .filter((event) => event.unionId === unionId)
+    .sort(byEventDate)
+    .at(-1)
+}
+
+export function isTerminalUnionEvent(type: UnionEventType): boolean {
+  return TERMINAL_UNION_EVENTS.has(type)
+}
+
 export function unionIsCurrent(
   unionId: string,
   unionEvents: Record<string, UnionEvent>,
 ): boolean {
-  const latest = Object.values(unionEvents)
-    .filter((event) => event.unionId === unionId)
-    .sort((first, second) => {
-      const firstDate = first.eventDate ?? first.createdAt
-      const secondDate = second.eventDate ?? second.createdAt
-      return (
-        firstDate.localeCompare(secondDate)
-        || first.createdAt.localeCompare(second.createdAt)
-        || first.id.localeCompare(second.id)
-      )
-    })
-    .at(-1)
+  const latest = latestEventForUnion(unionId, unionEvents)
   return !latest || !TERMINAL_UNION_EVENTS.has(latest.type)
 }
 
@@ -237,6 +266,40 @@ export function projectTree(
     }
   }
 
+  // Project union status for every tree-associated union (current or not),
+  // keyed per partner. This keeps divorced couples editable from the
+  // marriage panel even though they no longer appear in `spouseIds`.
+  const latestUnionByPair = new Map<string, Union>()
+  for (const association of associatedUnions) {
+    const union = relationships.unions[association.unionId]
+    if (
+      !union
+      || !family[union.firstPersonId]
+      || !family[union.secondPersonId]
+    ) {
+      continue
+    }
+    const key = `${union.firstPersonId}:${union.secondPersonId}`
+    const existing = latestUnionByPair.get(key)
+    if (!existing || byCreatedAt(union, existing) > 0) {
+      latestUnionByPair.set(key, union)
+    }
+  }
+  for (const union of latestUnionByPair.values()) {
+    const latest = latestEventForUnion(union.id, relationships.unionEvents)
+    if (!latest) continue
+    const status: UnionStatus = {
+      type: latest.type,
+      date: isTerminalUnionEvent(latest.type) ? latest.eventDate : undefined,
+      marriageDate: marriageDateForUnion(union.id, relationships.unionEvents),
+    }
+    const firstPerson = family[union.firstPersonId]
+    const secondPerson = family[union.secondPersonId]
+    if (!firstPerson || !secondPerson) continue
+    ;(firstPerson.unionStatus ??= {})[secondPerson.id] = status
+    ;(secondPerson.unionStatus ??= {})[firstPerson.id] = status
+  }
+
   const seenParentLinks = new Set<string>()
   const associatedParentRelationships = Object.values(
     relationships.treeParentChildRelationships,
@@ -291,6 +354,12 @@ export function projectTrees(
         }
       }
       Object.assign(existing.marriageDates, person.marriageDates)
+      if (person.unionStatus) {
+        existing.unionStatus = {
+          ...existing.unionStatus,
+          ...person.unionStatus,
+        }
+      }
     }
   }
   return output

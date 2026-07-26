@@ -28,24 +28,42 @@ function formatDate(iso: string): string {
 export function UnionNode({
   data,
 }: {
-  data: { date?: string; a?: string; b?: string }
+  data: {
+    date?: string
+    a?: string
+    b?: string
+    statusType?: string
+    divorceDate?: string
+  }
 }) {
   const { settings } = useViewSettings()
   const { editMarriage } = useTreeActions()
   const iso = data.date
   const year = iso ? new Date(iso).getFullYear() : undefined
   const showYear = settings.marriageYears && iso && year && !Number.isNaN(year)
+  const divorced = data.statusType === "divorced"
+  const ringCls = divorced
+    ? "border-rose-300 bg-rose-50"
+    : "border-slate-300 bg-white"
 
   return (
     <button
       type="button"
       className="relative flex cursor-pointer appearance-none items-center justify-center border-0 bg-transparent p-0"
-      title={iso ? formatDate(iso) : undefined}
+      title={
+        divorced
+          ? data.divorceDate
+            ? `Divorced ${formatDate(data.divorceDate)}`
+            : "Divorced"
+          : iso
+            ? formatDate(iso)
+            : undefined
+      }
       onClick={() => {
         if (data.a && data.b) editMarriage(data.a, data.b)
       }}
     >
-      <div className="h-3 w-3 rounded-full border-2 border-slate-300 bg-white shadow-soft">
+      <div className={`h-3 w-3 rounded-full border-2 shadow-soft ${ringCls}`}>
         <Handle
           id="l"
           type="target"

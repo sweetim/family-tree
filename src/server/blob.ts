@@ -26,7 +26,8 @@ export function isAllowedStoredPhotoUrl(value: string): boolean {
     const url = new URL(value)
     return (
       url.protocol === "https:"
-      && url.hostname.endsWith(".public.blob.vercel-storage.com")
+      && (url.hostname.endsWith(".public.blob.vercel-storage.com")
+        || url.hostname.endsWith(".private.blob.vercel-storage.com"))
     )
   } catch {
     return false
@@ -53,8 +54,9 @@ export function decodePhotoDataUrl(dataUrl: string): {
 
 /**
  * Upload cropped JPEG bytes to Vercel Blob under the owner's namespace and
- * return the resulting public blob URL. The URL is never sent to the browser
- * directly — it is only read back through the auth-checked photo proxy.
+ * return the resulting blob URL. The store is private, so the URL must be read
+ * server-side with the service token (see {@link fetchStoredPhoto}) by the
+ * auth-checked photo proxy — it is never sent to the browser directly.
  */
 async function putPhoto(
   ownerId: string,
@@ -63,7 +65,7 @@ async function putPhoto(
 ): Promise<string> {
   const pathname = `photos/${ownerId}/${crypto.randomUUID()}.jpg`
   const blob = await put(pathname, bytes, {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
     contentType,
     token: token(),
@@ -81,6 +83,21 @@ export async function deletePhoto(url: string): Promise<void> {
   } catch (err) {
     console.error("failed to delete blob", err)
   }
+}
+
+/**
+ * Fetch a stored blob photo. Private stores reject anonymous requests (403),
+ * so the service token is sent as a bearer credential; it is harmless for any
+ * legacy public URLs.
+ */
+export async function fetchStoredPhoto(
+  url: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return fetch(url, {
+    headers: { authorization: `Bearer ${token()}` },
+    signal,
+  })
 }
 
 /**

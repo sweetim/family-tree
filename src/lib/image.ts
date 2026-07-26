@@ -55,3 +55,20 @@ export function photoProxyUrl(personId: string, updatedAt?: string): string {
   const query = updatedAt ? `?v=${encodeURIComponent(updatedAt)}` : ""
   return `/api/person-photo/${personId}${query}`
 }
+
+/**
+ * Resolve the avatar source for a person. A freshly cropped photo lives as an
+ * inline data URL in client state and has not reached the server yet, so it is
+ * rendered directly; a stored photo is served through the auth-checked proxy.
+ * Returns `undefined` when the person has no photo (caller renders initials).
+ */
+export function personPhotoSrc(person: {
+  id: string
+  photo?: string
+  updatedAt?: string
+}): string | undefined {
+  if (!person.photo) return undefined
+  return person.photo.startsWith("data:")
+    ? person.photo
+    : photoProxyUrl(person.id, person.updatedAt)
+}

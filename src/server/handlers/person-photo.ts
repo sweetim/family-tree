@@ -5,6 +5,7 @@ import { canRead, personRole } from "../acl"
 import { getAuth } from "../auth"
 import {
   decodePhotoDataUrl,
+  fetchStoredPhoto,
   isAllowedStoredPhotoUrl,
   isPhotoDataUrl,
   MAX_PHOTO_BYTES,
@@ -57,9 +58,7 @@ export async function getPersonPhoto(
 
   let upstream: Response
   try {
-    upstream = await fetch(person.photo, {
-      signal: AbortSignal.timeout(10_000),
-    })
+    upstream = await fetchStoredPhoto(person.photo, AbortSignal.timeout(10_000))
   } catch {
     return new Response(null, { status: 502 })
   }
