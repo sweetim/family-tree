@@ -17,12 +17,10 @@ import {
 export function CreateFamilyPanel({
   family,
   person,
-  treeName,
   onClose,
 }: {
   family: FamilyStore
   person: Person
-  treeName: string
   onClose: () => void
 }) {
   const router = useRouter()
@@ -57,8 +55,7 @@ export function CreateFamilyPanel({
             Create new family
           </h2>
           <p className="text-xs text-slate-500">
-            {person.name} married into {treeName}. Create a new family for their
-            parents.
+            Create a separate family tree for {person.name}'s parents.
           </p>
         </div>
         <button

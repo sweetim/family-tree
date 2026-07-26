@@ -59,7 +59,7 @@ const CARD_BORDER: Record<string, string> = {
 }
 
 export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
-  const { person, linkState, marriedIn } = data
+  const { person, linkState, marriedIn, rootFounder } = data
   const { openChoose, readOnly } = useTreeActions()
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
@@ -200,7 +200,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                       childId: person.id,
                       marryExisting: true,
                     },
-                    { createFamily: marriedIn },
+                    { createFamily: marriedIn, alsoCreateFamily: rootFounder },
                   )
                 }}
               >

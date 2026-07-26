@@ -25,6 +25,10 @@ export type SidebarState =
       /** When set, the chooser offers "Create new family" (for a married-in
        *  person's parents) instead of the usual "Add new". */
       createFamily?: boolean
+      /** When set, the chooser additionally offers "Create new family"
+       *  alongside "Add new" — used for root founders (the top of a bloodline
+       *  with no parents in this tree), who may extend upward either way. */
+      alsoCreateFamily?: boolean
     }
   | { mode: "edit"; personId: string }
   | { mode: "marriage"; a: string; b: string }

@@ -447,3 +447,16 @@ export function isMarriedInSpouse(people: FamilyData, id: string): boolean {
     return !!spouse && spouse.parents.some((link) => people[link.id])
   })
 }
+
+/**
+ * A root founder: a person with no parents of their own in this tree who is
+ * not a married-in spouse — i.e. the top of a bloodline (the founding couple,
+ * or a lone root). Unlike a married-in spouse, they can be extended upward
+ * either by adding a parent here or by spinning off a separate family tree.
+ */
+export function isRootFounder(people: FamilyData, id: string): boolean {
+  const person = people[id]
+  if (!person) return false
+  if (person.parents.some((link) => people[link.id])) return false
+  return !isMarriedInSpouse(people, id)
+}

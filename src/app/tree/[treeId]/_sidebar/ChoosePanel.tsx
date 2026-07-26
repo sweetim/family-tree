@@ -15,6 +15,7 @@ export function ChoosePanel({
   sourceName,
   rel,
   createFamily,
+  alsoCreateFamily,
   onClose,
 }: {
   kind: LinkKind
@@ -22,6 +23,7 @@ export function ChoosePanel({
   sourceName: string
   rel: Relationship
   createFamily?: boolean
+  alsoCreateFamily?: boolean
   onClose: () => void
 }) {
   const { openAdd, openCreateFamily, startLink } = useTreeActions()
@@ -68,6 +70,26 @@ export function ChoosePanel({
             </span>
           </span>
         </button>
+
+        {alsoCreateFamily && !createFamily && (
+          <button
+            type="button"
+            onClick={() => openCreateFamily(sourceId)}
+            className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:border-cobalt-300 hover:bg-cobalt-50/40 active:scale-[0.98]"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cobalt-600 text-white transition-colors group-hover:bg-cobalt-700">
+              <UserPlus className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-slate-800">
+                Create new family
+              </span>
+              <span className="block text-xs text-slate-500">
+                Start a separate family tree for their parents
+              </span>
+            </span>
+          </button>
+        )}
 
         <button
           type="button"

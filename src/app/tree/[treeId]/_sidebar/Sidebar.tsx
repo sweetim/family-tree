@@ -132,6 +132,7 @@ export function Sidebar({
             sourceName={choosePerson.name}
             rel={state.rel}
             createFamily={state.createFamily}
+            alsoCreateFamily={state.alsoCreateFamily}
             onClose={onClose}
           />
         ) : state.mode === "linkParent" && linkParentPerson && editable ? (
@@ -163,7 +164,6 @@ export function Sidebar({
           <CreateFamilyPanel
             family={family}
             person={createFamilyPerson}
-            treeName={treeName}
             onClose={onClose}
           />
         ) : editingPerson && editable ? (

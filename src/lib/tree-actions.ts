@@ -11,7 +11,7 @@ export interface TreeActions {
     kind: LinkKind,
     sourceId: string,
     rel: Relationship,
-    options?: { createFamily?: boolean },
+    options?: { createFamily?: boolean; alsoCreateFamily?: boolean },
   ) => void
   /** Open the sidebar form that creates a brand-new family tree for a
    *  married-in person's parents, then navigates to it on save. */

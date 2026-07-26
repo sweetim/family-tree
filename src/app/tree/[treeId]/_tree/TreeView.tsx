@@ -167,6 +167,7 @@ export function TreeView({
           sourceId,
           rel,
           createFamily: options?.createFamily,
+          alsoCreateFamily: options?.alsoCreateFamily,
         })
         setDrawerOpen(true)
         setSidebarHidden(false)
