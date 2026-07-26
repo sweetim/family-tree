@@ -233,13 +233,25 @@ export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
   return useMemo(() => {
     if (!enabled) return projectTree(graph.persons, graph, treeId)
-    const treeIds = [
-      treeId,
-      ...graph.index
-        .filter((tree) => tree.id !== treeId)
-        .map((tree) => tree.id),
-    ]
-    return projectTrees(graph.persons, graph, treeIds)
+    // Only render trees that share at least one member with the current tree:
+    // those are the families connected/related to this one. Trees with no
+    // overlapping members stay off the canvas.
+    const currentMembers = new Set(
+      Object.values(graph.treeMembers)
+        .filter((member) => member.treeId === treeId)
+        .map((member) => member.personId),
+    )
+    const relatedTreeIds = graph.index
+      .filter(
+        (tree) =>
+          tree.id === treeId
+          || Object.values(graph.treeMembers).some(
+            (member) =>
+              member.treeId === tree.id && currentMembers.has(member.personId),
+          ),
+      )
+      .map((tree) => tree.id)
+    return projectTrees(graph.persons, graph, relatedTreeIds)
   }, [graph, treeId, enabled])
 }
 

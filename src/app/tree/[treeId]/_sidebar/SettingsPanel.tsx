@@ -120,8 +120,8 @@ export function SettingsPanel({
             Show all families
           </span>
           <span className="block text-xs text-slate-500">
-            Render every accessible family&rsquo;s members and relationships on
-            this canvas. Off: show only this family.
+            Render this family and all related families on this canvas. Off:
+            show only this family.
           </span>
         </span>
         <input

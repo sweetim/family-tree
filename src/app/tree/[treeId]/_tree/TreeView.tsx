@@ -54,8 +54,9 @@ export function TreeView({
   const confirm = useConfirm()
   const toast = useToast()
   const { settings } = useViewSettings()
-  // People used for rendering. "Show all families" merges every accessible
-  // tree on this canvas; otherwise this equals family.people.
+  // People used for rendering. "Show all families" merges every family that
+  // shares at least one member with this one onto the canvas; otherwise this
+  // equals family.people.
   const renderPeople = useFamilyAll(tree.id, settings.showAllFamilies)
   const [sidebar, setSidebar] = useState<SidebarState>(() =>
     openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },

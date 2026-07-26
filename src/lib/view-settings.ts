@@ -14,8 +14,10 @@ export type ViewSettings = {
    */
   marriageYears: boolean
   /**
-   * Render every accessible family's members and relationships on one canvas.
-   * Off (default): only the current family's members are shown.
+   * Render this family and every related family's members and relationships
+   * on one canvas. A family is related when it shares at least one member
+   * with the current one. Off (default): only the current family's members
+   * are shown.
    */
   showAllFamilies: boolean
 }

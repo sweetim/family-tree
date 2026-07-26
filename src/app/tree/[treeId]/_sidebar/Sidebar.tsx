@@ -79,7 +79,7 @@ export function Sidebar({
       className={`flex h-full w-[88vw] max-w-sm shrink-0 flex-col border-r border-slate-200 bg-white/95 backdrop-blur-sm transition-transform duration-200 fixed inset-y-0 left-0 z-40 ${
         collapsed
           ? "md:hidden"
-          : "md:relative md:w-80 md:max-w-none md:translate-x-0"
+          : "md:relative md:w-96 md:max-w-none md:translate-x-0"
       } ${open ? "translate-x-0" : "-translate-x-full"}`}
     >
       <button
