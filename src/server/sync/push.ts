@@ -897,6 +897,7 @@ export async function postSync(request: Request): Promise<Response> {
       }
       const applied = emptyAppliedIds()
       const skipped = emptyAppliedIds()
+      const orphanCandidateRelationshipIds = new Set<string>()
       const personReferenceCache = new Map<string, Promise<boolean>>()
       const personIsReferenced = (
         treeId: string,
@@ -998,6 +999,9 @@ export async function postSync(request: Request): Promise<Response> {
             ),
           )
           .returning({ treeId: treeParentChildRelationships.treeId })
+        if (rows.length > 0) {
+          orphanCandidateRelationshipIds.add(wire.parentChildRelationshipId)
+        }
         classify(
           applied,
           skipped,
@@ -1533,19 +1537,21 @@ export async function postSync(request: Request): Promise<Response> {
           }
           let inserted = false
           try {
-            const rows = await db
-              .insert(parentChildRelationships)
-              .values({
-                id: wire.id,
-                parentPersonId: wire.parentPersonId,
-                childPersonId: wire.childPersonId,
-                type: wire.type,
-                createdAt,
-                updatedAt: serverTime,
-              })
-              .onConflictDoNothing()
-              .returning({ id: parentChildRelationships.id })
-            inserted = rows.length > 0
+            await db.transaction(async (tx) => {
+              const rows = await tx
+                .insert(parentChildRelationships)
+                .values({
+                  id: wire.id,
+                  parentPersonId: wire.parentPersonId,
+                  childPersonId: wire.childPersonId,
+                  type: wire.type,
+                  createdAt,
+                  updatedAt: serverTime,
+                })
+                .onConflictDoNothing()
+                .returning({ id: parentChildRelationships.id })
+              inserted = rows.length > 0
+            })
           } catch (error) {
             if (!isParentGraphConstraintError(error)) throw error
           }
@@ -1884,6 +1890,45 @@ export async function postSync(request: Request): Promise<Response> {
           key,
           rows.length > 0,
         )
+      }
+
+      if (orphanCandidateRelationshipIds.size > 0) {
+        const candidateIds = [...orphanCandidateRelationshipIds]
+        const stillAssociatedRows = await db
+          .select({
+            id: treeParentChildRelationships.parentChildRelationshipId,
+          })
+          .from(treeParentChildRelationships)
+          .where(
+            and(
+              inArray(
+                treeParentChildRelationships.parentChildRelationshipId,
+                candidateIds,
+              ),
+              isNull(treeParentChildRelationships.deletedAt),
+            ),
+          )
+        const stillAssociated = new Set(
+          stillAssociatedRows.map((row) => row.id),
+        )
+        const orphanIds = candidateIds.filter(
+          (id) => !stillAssociated.has(id),
+        )
+        if (orphanIds.length > 0) {
+          await db
+            .update(parentChildRelationships)
+            .set({
+              deletedAt: serverTime,
+              updatedAt: serverTime,
+              revision: sql`${parentChildRelationships.revision} + 1`,
+            })
+            .where(
+              and(
+                inArray(parentChildRelationships.id, orphanIds),
+                isNull(parentChildRelationships.deletedAt),
+              ),
+            )
+        }
       }
 
       if (mutationId && !hasClassifiedRecords(skipped)) {

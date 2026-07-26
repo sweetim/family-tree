@@ -42,9 +42,15 @@ function parentRelationshipForPair(
 function activeParentRelationships(
   graph: GlobalState,
 ): ParentChildRelationship[] {
+  const associatedRelationshipIds = new Set(
+    Object.values(graph.treeParentChildRelationships).map(
+      (association) => association.parentChildRelationshipId,
+    ),
+  )
   return Object.values(graph.parentChildRelationships).filter(
     (relationship) =>
-      !!graph.persons[relationship.parentPersonId]
+      associatedRelationshipIds.has(relationship.id)
+      && !!graph.persons[relationship.parentPersonId]
       && !!graph.persons[relationship.childPersonId],
   )
 }
@@ -132,6 +138,12 @@ export function removeParentRecords(
   delete draft.treeParentChildRelationships[
     treeParentChildRelationshipKey(treeId, relationship.id)
   ]
+  const stillAssociated = Object.values(draft.treeParentChildRelationships).some(
+    (association) => association.parentChildRelationshipId === relationship.id,
+  )
+  if (!stillAssociated) {
+    delete draft.parentChildRelationships[relationship.id]
+  }
   return draft
 }
 

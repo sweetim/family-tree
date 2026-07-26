@@ -628,8 +628,29 @@ describe("normalized relationship mutations", () => {
       createdAt: timestamp,
       updatedAt: timestamp,
     }
+    graph.treeParentChildRelationships['["a","second"]'] = {
+      treeId: "a",
+      parentChildRelationshipId: "second",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
     expect(store.canCreateParentRelationship(graph, "third", "kid")).toBe(false)
     expect(store.canCreateParentRelationship(graph, "kid", "tim")).toBe(false)
+  })
+
+  test("orphaned parent facts do not count toward the two-parent limit", async () => {
+    const store = await freshStore()
+    const graph = relationshipState()
+    graph.persons.fifth = { id: "fifth", name: "Fifth", updatedAt: timestamp }
+    graph.parentChildRelationships.orphan = {
+      id: "orphan",
+      parentPersonId: "yumi",
+      childPersonId: "kid",
+      type: "biological",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    expect(store.canCreateParentRelationship(graph, "fifth", "kid")).toBe(true)
   })
 
   test("merge rejects a keep person visible only through viewer trees", async () => {

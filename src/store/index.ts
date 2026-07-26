@@ -56,6 +56,7 @@ export {
   stampAndEnqueue,
   synchronizePending,
   synchronizeTree,
+  synchronizeTreeFresh,
   takeDirtyBatch,
   treeMemberKey,
   treeParentChildRelationshipKey,

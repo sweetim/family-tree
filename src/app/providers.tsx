@@ -11,6 +11,7 @@ import {
 import { ConfirmProvider } from "@/components/Confirm"
 import { ToastProvider } from "@/components/Toast"
 import { useSession } from "@/lib/auth-client"
+import { TreeEditModeProvider, useTreeEditMode } from "@/lib/tree-edit-mode"
 import {
   applyTreeManifest,
   applyTreeSnapshot,
@@ -30,6 +31,7 @@ import {
  */
 function ServerDataBootstrap() {
   const { data: session } = useSession()
+  const { editingTreeId } = useTreeEditMode()
   const userId = session?.user?.id ?? null
   const pathname = usePathname()
   const previousUserId = useRef<string | null | undefined>(undefined)
@@ -115,6 +117,7 @@ function ServerDataBootstrap() {
     }
     const synchronize = () => {
       void synchronizePending()
+      if (treeId && editingTreeId !== treeId) return
       void fetchTreeManifest()
         .then((manifest) => {
           if (!cancelled) applyTreeManifest(manifest)
@@ -131,7 +134,7 @@ function ServerDataBootstrap() {
       window.removeEventListener("online", synchronize)
       window.removeEventListener("focus", synchronize)
     }
-  }, [pathname, userId])
+  }, [editingTreeId, pathname, userId])
 
   return null
 }
@@ -151,8 +154,10 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <ToastProvider>
       <ConfirmProvider>
-        <ServerDataBootstrap />
-        {children}
+        <TreeEditModeProvider>
+          <ServerDataBootstrap />
+          {children}
+        </TreeEditModeProvider>
       </ConfirmProvider>
     </ToastProvider>
   )

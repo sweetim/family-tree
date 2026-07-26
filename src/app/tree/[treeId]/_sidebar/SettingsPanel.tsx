@@ -1,21 +1,25 @@
 import { Download, Upload } from "lucide-react"
 import { useRef } from "react"
 import { useToast } from "@/components/Toast"
+import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import { useViewSettings } from "@/lib/view-settings"
 import { type FamilyStore, isStoredPhotoMarker, normalizeImport } from "@/store"
 
 export function SettingsPanel({
   family,
+  treeId,
   editable,
   onClose,
 }: {
   family: FamilyStore
+  treeId: string
   editable: boolean
   onClose: () => void
 }) {
   const { settings, update } = useViewSettings()
   const importRef = useRef<HTMLInputElement>(null)
   const toast = useToast()
+  const { getEditingSession } = useTreeEditMode()
 
   function exportJson() {
     const people = Object.fromEntries(
@@ -39,8 +43,12 @@ export function SettingsPanel({
 
   async function importJson(file: File | undefined) {
     if (!file) return
+    const editingSession = getEditingSession(treeId)
+    if (editingSession === null) return
     try {
-      const data = normalizeImport(JSON.parse(await file.text()))
+      const contents = await file.text()
+      if (getEditingSession(treeId) !== editingSession) return
+      const data = normalizeImport(JSON.parse(contents))
       const valid = Object.values(data).every(
         (p) =>
           p
@@ -52,6 +60,7 @@ export function SettingsPanel({
       family.replaceAll(data)
       onClose()
     } catch (err) {
+      if (getEditingSession(treeId) !== editingSession) return
       console.error(err)
       toast("That file doesn't look like an exported family tree.", "error")
     }

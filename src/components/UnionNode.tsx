@@ -22,8 +22,8 @@ function formatDate(iso: string): string {
  *   inside the dot itself — the 12px dot is overlaid with a larger circle
  *   badge carrying the year. The dot and its invisible handles stay put, so
  *   the marriage line still lands on the right spot.
- * - Clicking the dot opens the sidebar editor for the couple's marriage date
- *   via `TreeActions.editMarriage` (a no-op while click-to-connect is active).
+ * - In edit mode, clicking the dot opens the couple's marriage editor via
+ *   `TreeActions.editMarriage`.
  */
 export function UnionNode({
   data,
@@ -37,7 +37,7 @@ export function UnionNode({
   }
 }) {
   const { settings } = useViewSettings()
-  const { editMarriage } = useTreeActions()
+  const { editMarriage, readOnly } = useTreeActions()
   const iso = data.date
   const year = iso ? new Date(iso).getFullYear() : undefined
   const showYear = settings.marriageYears && iso && year && !Number.isNaN(year)
@@ -49,7 +49,10 @@ export function UnionNode({
   return (
     <button
       type="button"
-      className="relative flex cursor-pointer appearance-none items-center justify-center border-0 bg-transparent p-0"
+      disabled={readOnly}
+      className={`relative flex appearance-none items-center justify-center border-0 bg-transparent p-0 ${
+        readOnly ? "cursor-default" : "cursor-pointer"
+      }`}
       title={
         divorced
           ? data.divorceDate

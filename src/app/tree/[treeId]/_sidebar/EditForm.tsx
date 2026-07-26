@@ -1,18 +1,11 @@
-import {
-  Baby,
-  GitMerge,
-  Heart,
-  Network,
-  Plus,
-  Trash2,
-  X,
-} from "lucide-react"
+import { Baby, GitMerge, Heart, Network, Plus, Trash2, X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
 import { Section } from "@/components/Section"
 import { photoProxyUrl } from "@/lib/image"
 import { findRoots } from "@/lib/layout"
+import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import {
   type FamilyStore,
   type TreeMeta,
@@ -61,6 +54,7 @@ export function EditForm({
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
   const confirm = useConfirm()
+  const { getEditingSession } = useTreeEditMode()
   const { createTree } = useTreeIndex()
 
   const rootGroup = useMemo(
@@ -444,6 +438,8 @@ export function EditForm({
               <select
                 value=""
                 onChange={async (e) => {
+                  const editingSession = getEditingSession(treeId)
+                  if (editingSession === null) return
                   const otherId = e.target.value
                   if (!otherId) return
                   const otherName =
@@ -455,7 +451,8 @@ export function EditForm({
                     confirmText: "Merge",
                     tone: "danger",
                   })
-                  if (!ok) return
+                  if (!ok || getEditingSession(treeId) !== editingSession)
+                    return
                   family.mergePersons(otherId, person.id)
                   setMergeTreeId("")
                   onClose()
@@ -484,13 +481,14 @@ export function EditForm({
       <button
         type="button"
         onClick={async () => {
-          if (
-            await confirm({
-              title: "Remove from tree",
-              message: `Remove ${person.name} from this tree?`,
-              confirmText: "Remove",
-            })
-          ) {
+          const editingSession = getEditingSession(treeId)
+          if (editingSession === null) return
+          const confirmed = await confirm({
+            title: "Remove from tree",
+            message: `Remove ${person.name} from this tree?`,
+            confirmText: "Remove",
+          })
+          if (confirmed && getEditingSession(treeId) === editingSession) {
             family.removeFromTree(person.id, treeId)
             onClose()
           }

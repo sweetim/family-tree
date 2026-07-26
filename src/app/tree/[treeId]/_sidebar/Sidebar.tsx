@@ -1,4 +1,12 @@
-import { ChevronLeft, Plus, Settings, Users } from "lucide-react"
+import {
+  Check,
+  ChevronLeft,
+  LoaderCircle,
+  Pencil,
+  Plus,
+  Settings,
+  Users,
+} from "lucide-react"
 import Link from "next/link"
 import { AccountMenu } from "@/components/AccountMenu"
 import type { FamilyStore, TreeMeta } from "@/store"
@@ -24,10 +32,12 @@ interface Props {
   state: SidebarState
   open: boolean
   editable: boolean
+  startingEditMode: boolean
   onSelect: (id: string) => void
   onAddRoot: () => void
   onOpenSettings: () => void
   onClose: () => void
+  onToggleEditMode: () => void
   collapsed: boolean
   onCollapse: () => void
 }
@@ -40,10 +50,12 @@ export function Sidebar({
   state,
   open,
   editable,
+  startingEditMode,
   onSelect,
   onAddRoot,
   onOpenSettings,
   onClose,
+  onToggleEditMode,
   collapsed,
   onCollapse,
 }: Props) {
@@ -106,6 +118,7 @@ export function Sidebar({
         {state.mode === "settings" ? (
           <SettingsPanel
             family={family}
+            treeId={treeId}
             editable={editable}
             onClose={onClose}
           />
@@ -208,7 +221,7 @@ export function Sidebar({
         ) : (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
             <p className="text-sm leading-relaxed text-slate-500">
-              Tap a card to view its details. Tap{" "}
+              Select a card to view its details. Select{" "}
               <b className="font-semibold text-slate-700">Edit</b> to add or
               change people.
             </p>
@@ -217,6 +230,35 @@ export function Sidebar({
       </div>
 
       <div className="space-y-2 border-t border-slate-200 px-5 py-4">
+        {!readOnly && (
+          <button
+            aria-label={
+              startingEditMode
+                ? "Refreshing tree before editing"
+                : editable
+                  ? "Done editing"
+                  : "Edit tree"
+            }
+            aria-busy={startingEditMode}
+            type="button"
+            disabled={startingEditMode}
+            onClick={onToggleEditMode}
+            className={`inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium shadow-soft ring-1 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-70 ${
+              editable
+                ? "bg-cobalt-600 text-white ring-cobalt-600 hover:bg-cobalt-700"
+                : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            {startingEditMode ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+            ) : editable ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <Pencil className="h-4 w-4" />
+            )}
+            {startingEditMode ? "Syncing" : editable ? "Done" : "Edit"}
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenSettings}

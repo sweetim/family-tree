@@ -1168,6 +1168,10 @@ async function runTreeSynchronization(treeId: string): Promise<void> {
 export function synchronizeTree(treeId: string): Promise<void> {
   const existing = treeSyncInFlight.get(treeId)
   if (existing) return existing
+  return startTreeSynchronization(treeId)
+}
+
+function startTreeSynchronization(treeId: string): Promise<void> {
   const synchronization = runTreeSynchronization(treeId).finally(() => {
     if (treeSyncInFlight.get(treeId) === synchronization) {
       treeSyncInFlight.delete(treeId)
@@ -1175,6 +1179,17 @@ export function synchronizeTree(treeId: string): Promise<void> {
   })
   treeSyncInFlight.set(treeId, synchronization)
   return synchronization
+}
+
+export async function synchronizeTreeFresh(
+  treeId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) return
+  const existing = treeSyncInFlight.get(treeId)
+  if (existing) await existing
+  if (signal?.aborted) return
+  return synchronizeTree(treeId)
 }
 
 async function runPushLoop(generation: number): Promise<void> {

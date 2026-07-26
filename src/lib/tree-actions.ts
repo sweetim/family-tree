@@ -22,7 +22,7 @@ export interface TreeActions {
   startLink: (kind: LinkKind, sourceId: string) => void
   /** Open the sidebar editor for a couple's marriage date (from a union-dot click). */
   editMarriage: (a: string, b: string) => void
-  /** True when the current user is a viewer on this tree — hides mutating affordances. */
+  /** True unless the current user has enabled edit mode on a writable tree. */
   readOnly: boolean
 }
 

@@ -9,8 +9,8 @@ import {
   Panel,
   ReactFlow,
 } from "@xyflow/react"
-import { Check, Link2, Menu, PanelLeftOpen, Pencil, X } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { Link2, Menu, PanelLeftOpen, X } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
 import { PersonNode } from "@/components/PersonNode"
 import { useToast } from "@/components/Toast"
@@ -22,8 +22,16 @@ import {
   type TreeActions,
   TreeActionsContext,
 } from "@/lib/tree-actions"
+import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import { useViewSettings } from "@/lib/view-settings"
-import { type TreeMeta, useFamily, useFamilyAll } from "@/store"
+import {
+  applyTreeManifest,
+  fetchTreeManifest,
+  synchronizeTreeFresh,
+  type TreeMeta,
+  useFamily,
+  useFamilyAll,
+} from "@/store"
 import { ancestorsOf, descendantsOf } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
 
@@ -41,6 +49,8 @@ export function TreeView({
 }) {
   const family = useFamily(tree.id)
   const { data: session } = useSession()
+  const { editingTreeId, getEditingSession, isTreeEditing, setEditingTreeId } =
+    useTreeEditMode()
   const confirm = useConfirm()
   const toast = useToast()
   const { settings } = useViewSettings()
@@ -53,8 +63,10 @@ export function TreeView({
   const [link, setLink] = useState<{ kind: LinkKind; sourceId: string }>()
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [sidebarHidden, setSidebarHidden] = useState(false)
-  const [editMode, setEditMode] = useState(false)
-  const [isDesktop, setIsDesktop] = useState(false)
+  const [startingEditMode, setStartingEditMode] = useState(false)
+  const editModeRequest = useRef(0)
+  const editModeAbort = useRef<AbortController | null>(null)
+  const editMode = editingTreeId === tree.id
 
   // Follow cross-tree jumps that land on this already-mounted tree.
   useEffect(() => {
@@ -65,18 +77,76 @@ export function TreeView({
     }
   }, [openPersonId])
 
-  // Desktop has no Edit toggle — it stays editable (hover-to-add). Mobile
-  // defaults to read-only until the user taps Edit. Viewport width is read
-  // after mount to avoid an SSR/hydration mismatch.
+  // Edit mode is scoped to the mounted tree so navigating away always returns
+  // to read mode, including when the user later revisits the same tree.
   useEffect(() => {
-    const mq = window.matchMedia("(min-width: 768px)")
-    const update = () => setIsDesktop(mq.matches)
-    update()
-    mq.addEventListener("change", update)
-    return () => mq.removeEventListener("change", update)
-  }, [])
+    return () => {
+      editModeRequest.current += 1
+      editModeAbort.current?.abort()
+      if (isTreeEditing(tree.id)) setEditingTreeId(null)
+    }
+  }, [isTreeEditing, setEditingTreeId, tree.id])
 
-  const canEdit = !family.readOnly && (isDesktop || editMode)
+  const canEdit = !family.readOnly && editMode
+
+  // Cancel mutation workflows as soon as edit access or edit mode ends.
+  useEffect(() => {
+    if (canEdit) return
+    setLink(undefined)
+    setSidebar((current) => {
+      switch (current.mode) {
+        case "add":
+        case "choose":
+        case "linkParent":
+        case "linkSpouse":
+        case "linkChild":
+        case "createFamily":
+          return { mode: "idle" }
+        default:
+          return current
+      }
+    })
+    if (family.readOnly && editingTreeId === tree.id) {
+      setEditingTreeId(null)
+    }
+  }, [canEdit, editingTreeId, family.readOnly, setEditingTreeId, tree.id])
+
+  const toggleEditMode = async () => {
+    if (editMode) {
+      editModeRequest.current += 1
+      editModeAbort.current?.abort()
+      setEditingTreeId(null)
+      return
+    }
+    if (family.readOnly || startingEditMode) return
+
+    const request = ++editModeRequest.current
+    const abortController = new AbortController()
+    editModeAbort.current?.abort()
+    editModeAbort.current = abortController
+    setStartingEditMode(true)
+    try {
+      const manifest = await fetchTreeManifest()
+      if (request !== editModeRequest.current) return
+      applyTreeManifest(manifest)
+      const currentTree = manifest.find((item) => item.id === tree.id)
+      if (!currentTree || currentTree.role === "viewer") {
+        toast("You do not have permission to edit this tree.", "error")
+        return
+      }
+      await synchronizeTreeFresh(tree.id, abortController.signal)
+      if (request !== editModeRequest.current) return
+      setEditingTreeId(tree.id)
+    } catch (error) {
+      if (request !== editModeRequest.current) return
+      console.error("edit mode sync failed", error)
+      toast("Could not refresh the tree before editing.", "error")
+    } finally {
+      if (request === editModeRequest.current) setStartingEditMode(false)
+      if (editModeAbort.current === abortController)
+        editModeAbort.current = null
+    }
+  }
 
   // Both an explicit click-to-connect session (link) and the chooser panel
   // (sidebar "Add/Connect") target a source person + relation kind. Collapsing
@@ -157,10 +227,12 @@ export function TreeView({
   const actions = useMemo<TreeActions>(
     () => ({
       openAdd: (rel) => {
+        if (!canEdit) return
         setSidebar({ mode: "add", rel })
         setDrawerOpen(true)
       },
       openChoose: (kind, sourceId, rel, options) => {
+        if (!canEdit) return
         setSidebar({
           mode: "choose",
           kind,
@@ -173,17 +245,20 @@ export function TreeView({
         setSidebarHidden(false)
       },
       openCreateFamily: (personId) => {
+        if (!canEdit) return
         setSidebar({ mode: "createFamily", personId })
         setDrawerOpen(true)
         setSidebarHidden(false)
       },
       backToChoose: (kind, sourceId, rel) => {
+        if (!canEdit) return
         setLink(undefined)
         setSidebar({ mode: "choose", kind, sourceId, rel })
         setDrawerOpen(true)
         setSidebarHidden(false)
       },
       startLink: (kind, sourceId) => {
+        if (!canEdit) return
         setLink({ kind, sourceId })
         // For parents, also surface a focused sidebar panel so the cross-tree
         // picker is reachable — the canvas can only target cards already in
@@ -204,7 +279,7 @@ export function TreeView({
       },
       editMarriage: (a, b) => {
         // Ignore while click-to-connect is active (a dot isn't a valid target).
-        if (link) return
+        if (!canEdit || link) return
         setSidebar({ mode: "marriage", a, b })
         setDrawerOpen(true)
         setSidebarHidden(false)
@@ -229,7 +304,7 @@ export function TreeView({
     // Union dots are handled by their own onClick (see UnionNode) which routes
     // through TreeActions.editMarriage, so they never reach the person logic.
     if (node.type !== "person") return
-    if (targetKind && targetSourceId) {
+    if (canEdit && targetKind && targetSourceId) {
       // Click-to-connect is active — either an explicit session (link) or the
       // chooser panel is open. Clicking an eligible card completes the link;
       // the source card and ineligible cards do nothing.
@@ -252,7 +327,8 @@ export function TreeView({
   }
 
   const onEdgeClick: EdgeMouseHandler<FlowEdge> = async (_e, edge) => {
-    if (link) return
+    const editingSession = getEditingSession(tree.id)
+    if (!canEdit || editingSession === null || link) return
     const data = edge.data
     if (!data) return
 
@@ -261,14 +337,13 @@ export function TreeView({
       const b = family.people[data.b]
       if (!a || !b) return
       if (!a.spouseIds.includes(b.id)) return // co-parent line only, no marriage to remove
-      if (
-        await confirm({
-          title: "Remove marriage",
-          message: `Remove the marriage between ${a.name} and ${b.name}?`,
-          confirmText: "Remove",
-          tone: "danger",
-        })
-      ) {
+      const confirmed = await confirm({
+        title: "Remove marriage",
+        message: `Remove the marriage between ${a.name} and ${b.name}?`,
+        confirmText: "Remove",
+        tone: "danger",
+      })
+      if (confirmed && getEditingSession(tree.id) === editingSession) {
         family.unlinkSpouse(a.id, b.id)
       }
     } else if (data.kind === "child" && data.childId && data.parentIds) {
@@ -278,14 +353,13 @@ export function TreeView({
         .map((id) => family.people[id]?.name)
         .filter(Boolean)
         .join(" and ")
-      if (
-        await confirm({
-          title: "Detach child",
-          message: `Detach ${child.name} from ${names}?`,
-          confirmText: "Detach",
-          tone: "danger",
-        })
-      ) {
+      const confirmed = await confirm({
+        title: "Detach child",
+        message: `Detach ${child.name} from ${names}?`,
+        confirmText: "Detach",
+        tone: "danger",
+      })
+      if (confirmed && getEditingSession(tree.id) === editingSession) {
         for (const pid of data.parentIds) family.removeParent(child.id, pid)
       }
     }
@@ -297,6 +371,9 @@ export function TreeView({
     nodes: FlowNode[]
     edges: Edge[]
   }) => {
+    if (!canEdit) return false
+    const editingSession = getEditingSession(tree.id)
+    if (editingSession === null) return false
     const persons = toDelete.filter((n) => n.type === "person")
     if (persons.length === 0) return false
     if (
@@ -310,15 +387,17 @@ export function TreeView({
       return false
     }
     const names = persons.map((n) => n.data.person.name).join(", ")
-    return await confirm({
+    const confirmed = await confirm({
       title: "Delete people",
       message: `Delete ${names} from ALL trees?`,
       confirmText: "Delete",
       tone: "danger",
     })
+    return confirmed && getEditingSession(tree.id) === editingSession
   }
 
   const onNodesDelete = (deleted: FlowNode[]) => {
+    if (!canEdit || !isTreeEditing(tree.id)) return
     for (const node of deleted) {
       if (node.type === "person") family.deletePerson(node.id)
     }
@@ -337,7 +416,9 @@ export function TreeView({
           state={sidebar}
           open={drawerOpen}
           editable={canEdit}
+          startingEditMode={startingEditMode}
           collapsed={sidebarHidden}
+          onToggleEditMode={() => void toggleEditMode()}
           onCollapse={() => setSidebarHidden(true)}
           onSelect={(id) => {
             setSidebar({ mode: "edit", personId: id })
@@ -380,7 +461,7 @@ export function TreeView({
               <PanelLeftOpen className="h-5 w-5" />
             </button>
           )}
-          <div className="absolute left-3 top-3 z-20 flex items-center gap-2 md:hidden">
+          <div className="absolute left-3 top-3 z-20 md:hidden">
             <button
               aria-label="Open panel"
               className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95"
@@ -389,25 +470,6 @@ export function TreeView({
             >
               <Menu className="h-5 w-5" />
             </button>
-            {!family.readOnly && (
-              <button
-                aria-label={editMode ? "Done editing" : "Edit tree"}
-                type="button"
-                onClick={() => setEditMode((v) => !v)}
-                className={`inline-flex h-10 items-center gap-1.5 rounded-xl px-3 text-sm font-medium shadow-soft ring-1 transition-colors active:scale-95 ${
-                  editMode
-                    ? "bg-cobalt-600 text-white ring-cobalt-600 hover:bg-cobalt-700"
-                    : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                {editMode ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Pencil className="h-4 w-4" />
-                )}
-                {editMode ? "Done" : "Edit"}
-              </button>
-            )}
           </div>
           <ReactFlow
             nodes={nodes}
@@ -421,7 +483,7 @@ export function TreeView({
               setSidebar({ mode: "idle" })
               setDrawerOpen(false)
             }}
-            deleteKeyCode={family.readOnly ? [] : ["Delete", "Backspace"]}
+            deleteKeyCode={canEdit ? ["Delete", "Backspace"] : []}
             onBeforeDelete={onBeforeDelete}
             onNodesDelete={onNodesDelete}
             fitView
