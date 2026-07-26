@@ -5,6 +5,7 @@ import {
   Pencil,
   Plus,
   Settings,
+  Share2,
   Users,
 } from "lucide-react"
 import Link from "next/link"
@@ -20,6 +21,7 @@ import { LinkSpousePanel } from "./LinkSpousePanel"
 import { MarriagePanel } from "./MarriagePanel"
 import { ReadonlyDetails } from "./ReadonlyDetails"
 import { SettingsPanel } from "./SettingsPanel"
+import { SharePanel } from "./SharePanel"
 import { primaryBtn, type SidebarState } from "./shared"
 
 export type { SidebarState }
@@ -38,6 +40,8 @@ interface Props {
   onOpenSettings: () => void
   onClose: () => void
   onToggleEditMode: () => void
+  onOpenShare: () => void
+  canShare: boolean
   collapsed: boolean
   onCollapse: () => void
 }
@@ -56,6 +60,8 @@ export function Sidebar({
   onOpenSettings,
   onClose,
   onToggleEditMode,
+  onOpenShare,
+  canShare,
   collapsed,
   onCollapse,
 }: Props) {
@@ -115,7 +121,13 @@ export function Sidebar({
       </div>
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
-        {state.mode === "settings" ? (
+        {state.mode === "share" ? (
+          <SharePanel
+            treeId={treeId}
+            treeName={treeName}
+            onClose={onClose}
+          />
+        ) : state.mode === "settings" ? (
           <SettingsPanel
             family={family}
             treeId={treeId}
@@ -257,6 +269,15 @@ export function Sidebar({
               <Pencil className="h-4 w-4" />
             )}
             {startingEditMode ? "Syncing" : editable ? "Done" : "Edit"}
+          </button>
+        )}
+        {canShare && (
+          <button
+            type="button"
+            onClick={onOpenShare}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
+          >
+            <Share2 className="h-4 w-4" /> Share
           </button>
         )}
         <button

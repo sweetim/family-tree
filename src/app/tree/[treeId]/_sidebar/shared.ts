@@ -37,6 +37,7 @@ export type SidebarState =
   | { mode: "linkChild"; personId: string }
   | { mode: "createFamily"; personId: string }
   | { mode: "settings" }
+  | { mode: "share" }
 
 export type Fields = {
   name: string

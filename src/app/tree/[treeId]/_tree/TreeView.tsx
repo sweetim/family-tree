@@ -436,6 +436,12 @@ export function TreeView({
             setDrawerOpen(true)
             setSidebarHidden(false)
           }}
+          onOpenShare={() => {
+            setSidebar({ mode: "share" })
+            setDrawerOpen(true)
+            setSidebarHidden(false)
+          }}
+          canShare={tree.role === "owner"}
           onClose={() => {
             setSidebar({ mode: "idle" })
             setDrawerOpen(false)

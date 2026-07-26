@@ -1,13 +1,6 @@
 import { Loader2, Trash2, X } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
-import { useToast } from "./Toast"
-
-interface Share {
-  email: string
-  userId: string | null
-  role: "viewer" | "editor"
-  pending: boolean
-}
+import { useShares } from "@/lib/shares"
 
 /**
  * Modal for a tree owner to manage shares. Lists current shares (with a
@@ -23,33 +16,9 @@ export function ShareDialog({
   treeName: string
   onClose: () => void
 }) {
-  const toast = useToast()
-  const [shares, setShares] = useState<Share[]>([])
-  const [loading, setLoading] = useState(true)
+  const { shares, loading, submitting, add, remove } = useShares(treeId)
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<"viewer" | "editor">("viewer")
-  const [submitting, setSubmitting] = useState(false)
-
-  async function refresh() {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/trees/${treeId}/shares`, {
-        credentials: "include",
-      })
-      if (!res.ok) throw new Error(`load failed: ${res.status}`)
-      const data = (await res.json()) as { shares: Share[] }
-      setShares(data.shares)
-    } catch (err) {
-      console.error(err)
-      toast("Couldn't load shares.", "error")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void refresh()
-  }, [treeId])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -59,52 +28,12 @@ export function ShareDialog({
     return () => window.removeEventListener("keydown", onKey)
   }, [onClose])
 
-  async function add(e: FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault()
     const trimmed = email.trim().toLowerCase()
     if (!trimmed) return
-    setSubmitting(true)
-    try {
-      const res = await fetch(`/api/trees/${treeId}/shares`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmed, role }),
-      })
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(err.error ?? `add failed: ${res.status}`)
-      }
-      setEmail("")
-      await refresh()
-    } catch (err) {
-      console.error(err)
-      toast(
-        err instanceof Error && err.message
-          ? err.message
-          : "Couldn't add share.",
-        "error",
-      )
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function remove(targetEmail: string) {
-    setSubmitting(true)
-    try {
-      const res = await fetch(
-        `/api/trees/${treeId}/shares?email=${encodeURIComponent(targetEmail)}`,
-        { method: "DELETE", credentials: "include" },
-      )
-      if (!res.ok) throw new Error(`remove failed: ${res.status}`)
-      await refresh()
-    } catch (err) {
-      console.error(err)
-      toast("Couldn't remove share.", "error")
-    } finally {
-      setSubmitting(false)
-    }
+    const ok = await add(trimmed, role)
+    if (ok) setEmail("")
   }
 
   return (
@@ -138,7 +67,7 @@ export function ShareDialog({
         </div>
 
         <form
-          onSubmit={add}
+          onSubmit={onSubmit}
           className="mt-4 flex flex-col gap-2 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200"
         >
           <label
