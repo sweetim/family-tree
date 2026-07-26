@@ -85,72 +85,81 @@ export function TreeView({
 
   const canEdit = !family.readOnly && (isDesktop || editMode)
 
-  const linkSource = link ? family.people[link.sourceId] : undefined
+  // Both an explicit click-to-connect session (link) and the chooser panel
+  // (sidebar "Add/Connect") target a source person + relation kind. Collapsing
+  // them into a single target lets the canvas highlight connectable cards — and
+  // complete a connection on click — the moment the chooser opens, not only
+  // after pressing "Connect existing".
+  const chooserKind = sidebar.mode === "choose" ? sidebar.kind : undefined
+  const chooserSourceId =
+    sidebar.mode === "choose" ? sidebar.sourceId : undefined
+  const targetKind = link?.kind ?? chooserKind
+  const targetSourceId = link?.sourceId ?? chooserSourceId
+  const targetSource = targetSourceId
+    ? family.people[targetSourceId]
+    : undefined
 
-  // Cancel link mode if the source disappears (e.g. deleted from the sidebar).
+  // Cancel the active task if its source disappears (e.g. deleted from the sidebar).
   useEffect(() => {
-    if (link && !linkSource) setLink(undefined)
-  }, [link, linkSource])
+    if (link && !targetSource) setLink(undefined)
+  }, [link, targetSource])
 
   useEffect(() => {
-    if (!link) return
+    if (!targetKind) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setLink(undefined)
+      if (e.key !== "Escape") return
+      if (link) setLink(undefined)
+      else {
+        setSidebar({ mode: "idle" })
+        setDrawerOpen(false)
+      }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [link])
+  }, [targetKind, link])
 
   // Who may be clicked to complete the pending connection. Mirrors the
   // sidebar's dropdown rules: max two parents, no duplicate links, and no
   // cycles (an ancestor can't become a child, a descendant can't become a parent).
   const linkEligible = useMemo(() => {
-    if (!link || !linkSource) return undefined
+    if (!targetKind || !targetSourceId || !targetSource) return undefined
     const eligible = new Set<string>()
-    if (link.kind === "parent" && linkSource.parents.length >= 2)
+    if (targetKind === "parent" && targetSource.parents.length >= 2)
       return eligible
     const blockedAncestry =
-      link.kind === "parent"
-        ? descendantsOf(family.people, linkSource.id)
-        : link.kind === "child"
-          ? ancestorsOf(family.people, linkSource.id)
+      targetKind === "parent"
+        ? descendantsOf(family.people, targetSourceId)
+        : targetKind === "child"
+          ? ancestorsOf(family.people, targetSourceId)
           : undefined
     for (const p of Object.values(family.people)) {
-      if (p.id === linkSource.id || blockedAncestry?.has(p.id)) continue
-      if (link.kind === "spouse" && linkSource.spouseIds.includes(p.id))
+      if (p.id === targetSourceId || blockedAncestry?.has(p.id)) continue
+      if (targetKind === "spouse" && targetSource.spouseIds.includes(p.id))
         continue
       if (
-        link.kind === "parent"
-        && linkSource.parents.some((l) => l.id === p.id)
+        targetKind === "parent"
+        && targetSource.parents.some((l) => l.id === p.id)
       )
         continue
       if (
-        link.kind === "child"
+        targetKind === "child"
         && (p.parents.length >= 2
-          || p.parents.some((l) => l.id === linkSource.id))
+          || p.parents.some((l) => l.id === targetSourceId))
       )
         continue
       eligible.add(p.id)
     }
     return eligible
-  }, [link, linkSource, family.people])
+  }, [targetKind, targetSourceId, targetSource, family.people])
 
   const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
   const { nodes, edges } = useMemo(() => {
-    const flow = buildFlow(
-      renderPeople,
-      selectedId,
-      link && linkEligible
-        ? { sourceId: link.sourceId, eligible: linkEligible }
-        : undefined,
-    )
-    return flow
-  }, [
-    renderPeople,
-    selectedId,
-    link,
-    linkEligible,
-  ])
+    const linking =
+      targetSourceId && linkEligible
+        ? { sourceId: targetSourceId, eligible: linkEligible }
+        : undefined
+    return buildFlow(renderPeople, selectedId, linking)
+  }, [renderPeople, selectedId, targetSourceId, linkEligible])
 
   const actions = useMemo<TreeActions>(
     () => ({
@@ -215,14 +224,21 @@ export function TreeView({
     // Union dots are handled by their own onClick (see UnionNode) which routes
     // through TreeActions.editMarriage, so they never reach the person logic.
     if (node.type !== "person") return
-    if (link) {
-      if (node.id === link.sourceId) return setLink(undefined)
+    if (targetKind && targetSourceId) {
+      // Click-to-connect is active — either an explicit session (link) or the
+      // chooser panel is open. Clicking an eligible card completes the link;
+      // the source card and ineligible cards do nothing.
+      if (node.id === targetSourceId) {
+        if (link) setLink(undefined)
+        return
+      }
       if (!linkEligible?.has(node.id)) return
-      if (link.kind === "spouse") family.linkSpouse(link.sourceId, node.id)
-      else if (link.kind === "parent")
-        linkCoupleAsParents(link.sourceId, node.id)
-      else linkCoupleAsParents(node.id, link.sourceId)
-      setLink(undefined)
+      if (targetKind === "spouse") family.linkSpouse(targetSourceId, node.id)
+      else if (targetKind === "parent")
+        linkCoupleAsParents(targetSourceId, node.id)
+      else linkCoupleAsParents(node.id, targetSourceId)
+      if (link) setLink(undefined)
+      else setSidebar({ mode: "edit", personId: targetSourceId })
       return
     }
     setSidebar({ mode: "edit", personId: node.id })
@@ -414,28 +430,34 @@ export function TreeView({
               />
             )}
 
-            {link && linkSource && (
+            {targetKind && targetSource && (
               <Panel position="top-center">
                 <div className="flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-2xl bg-emerald-600/85 py-1.5 pl-4 pr-1.5 text-xs text-white shadow-glass ring-1 ring-white/25 backdrop-blur-md sm:flex-nowrap sm:rounded-full sm:text-sm">
                   <Link2 className="h-4 w-4 shrink-0" />
                   <span>
                     {linkEligible && linkEligible.size === 0 ? (
                       <>
-                        No one can be connected as <b>{linkSource.name}</b>
-                        &rsquo;s {link.kind}
+                        No one can be connected as <b>{targetSource.name}</b>
+                        &rsquo;s {targetKind}
                       </>
                     ) : (
                       <>
                         Click a highlighted card to connect as{" "}
-                        <b>{linkSource.name}</b>&rsquo;s {link.kind}
-                        {link.kind !== "spouse"
+                        <b>{targetSource.name}</b>&rsquo;s {targetKind}
+                        {targetKind !== "spouse"
                           && " · married couples connect together"}
                       </>
                     )}
                   </span>
                   <button
                     type="button"
-                    onClick={() => setLink(undefined)}
+                    onClick={() => {
+                      if (link) setLink(undefined)
+                      else {
+                        setSidebar({ mode: "idle" })
+                        setDrawerOpen(false)
+                      }
+                    }}
                     className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
                   >
                     <X className="h-3.5 w-3.5" /> Cancel (Esc)

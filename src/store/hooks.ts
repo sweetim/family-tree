@@ -596,13 +596,54 @@ export function useFamily(treeId: string) {
         ) {
           return previous
         }
+        const otherFamily = projectTree(previous.persons, previous, otherTreeId)
+        if (descendantsOf(otherFamily, childPersonId).has(parentPersonId)) {
+          return previous
+        }
+
+        // Bring the child's whole subtree over from the other tree: the
+        // child, their descendants, and the spouses of everyone in that set.
+        const included = new Set<string>([childPersonId])
+        for (const descendant of descendantsOf(otherFamily, childPersonId)) {
+          included.add(descendant)
+        }
+        for (const personId of [...included]) {
+          for (const spouseId of otherFamily[personId]?.spouseIds ?? []) {
+            if (otherFamily[spouseId]) included.add(spouseId)
+          }
+        }
+
+        const draft = makeDraft(previous)
+        for (const personId of included) {
+          addMemberWithCurrentSpouses(draft, treeId, personId)
+        }
+        for (const personId of included) {
+          const person = otherFamily[personId]
+          if (!person) continue
+          for (const parent of person.parents) {
+            if (!included.has(parent.id)) continue
+            const relationship = ensureParentChildRelationship(
+              draft,
+              parent.id,
+              personId,
+              parent.type ?? (parent.adopted ? "adoptive" : "biological"),
+            )
+            if (!relationship) return previous
+            associateParentChildRelationship(draft, treeId, relationship.id)
+          }
+          for (const spouseId of person.spouseIds) {
+            if (!included.has(spouseId)) continue
+            const union = ensureUnion(draft, personId, spouseId)
+            associateUnion(draft, treeId, union.id)
+          }
+        }
+
+        // Link the selected parent (and their current co-parent) to the child.
         const currentFamily = projectTree(previous.persons, previous, treeId)
         const parentIds = [
           parentPersonId,
           ...(currentFamily[parentPersonId]?.spouseIds ?? []),
         ]
-        const draft = makeDraft(previous)
-        addMember(draft, treeId, childPersonId)
         for (const candidateParentId of parentIds) {
           if (!previous.persons[candidateParentId]) continue
           const relationship = ensureParentChildRelationship(
