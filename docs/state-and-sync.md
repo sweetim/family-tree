@@ -91,12 +91,17 @@ remove local records.
 
 An in-memory remote tombstone clock is kept per id in every collection. It
 blocks a delayed older or equal active record from resurrecting deleted data.
-Tree tombstones also remove and clock their local associations.
+Tree tombstones also remove and clock their local associations. A pending
+local delete blocks the matching remote record from the same merge until the
+delete is acknowledged, so an in-flight tombstone cannot be undone by a pull
+that still reports the record active.
 
 `applyFullPull` is authoritative: it rebuilds all maps from an epoch pull,
 clears dirty queues, and records the pull's `serverTime` as a tombstone clock
 for anything formerly local but now absent. This removes revoked shared trees
-and stale optimistic records.
+and stale optimistic records. Unacknowledged local deletes are re-enqueued
+before the rebuild so they survive it: a concurrent pull cannot resurrect a
+record whose tombstone has not yet reached the server.
 
 The store performs a full reconciliation:
 

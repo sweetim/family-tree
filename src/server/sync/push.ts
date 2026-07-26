@@ -337,8 +337,8 @@ async function tombstonePersonCascade(
   clientUpdatedAt: Date,
 ): Promise<boolean> {
   const result = await db.execute(sql<{ id: string; photo: string | null }>`
-    WITH server_clock AS MATERIALIZED (
-      SELECT CURRENT_TIMESTAMP AS value
+    WITH     server_clock AS MATERIALIZED (
+      SELECT ${clientUpdatedAt}::timestamptz AS value
     ),
     target_person AS MATERIALIZED (
       UPDATE ${persons}
@@ -566,7 +566,6 @@ export async function postSync(request: Request): Promise<Response> {
       }
     }
   }
-  const serverUpdatedAt = sql`CURRENT_TIMESTAMP`
   const applied = emptyAppliedIds()
   const skipped = emptyAppliedIds()
 
@@ -600,7 +599,7 @@ export async function postSync(request: Request): Promise<Response> {
     }
     const rows = await db
       .update(treeUnions)
-      .set({ deletedAt: serverUpdatedAt, updatedAt: serverUpdatedAt })
+      .set({ deletedAt: updatedAt, updatedAt: updatedAt })
       .where(
         and(
           eq(treeUnions.treeId, wire.treeId),
@@ -626,7 +625,7 @@ export async function postSync(request: Request): Promise<Response> {
     }
     const rows = await db
       .update(treeParentChildRelationships)
-      .set({ deletedAt: serverUpdatedAt, updatedAt: serverUpdatedAt })
+      .set({ deletedAt: updatedAt, updatedAt: updatedAt })
       .where(
         and(
           eq(treeParentChildRelationships.treeId, wire.treeId),
@@ -663,7 +662,7 @@ export async function postSync(request: Request): Promise<Response> {
     }
     const rows = await db
       .update(treeMembers)
-      .set({ deletedAt: serverUpdatedAt, updatedAt: serverUpdatedAt })
+      .set({ deletedAt: updatedAt, updatedAt: updatedAt })
       .where(
         and(
           eq(treeMembers.treeId, wire.treeId),
@@ -702,7 +701,7 @@ export async function postSync(request: Request): Promise<Response> {
     }
     const rows = await db
       .update(trees)
-      .set({ deletedAt: serverUpdatedAt, updatedAt: serverUpdatedAt })
+      .set({ deletedAt: updatedAt, updatedAt: updatedAt })
       .where(
         and(
           eq(trees.id, wire.id),
@@ -743,7 +742,7 @@ export async function postSync(request: Request): Promise<Response> {
           ownerId: me.id,
           name: wire.name,
           createdAt,
-          updatedAt: serverUpdatedAt,
+          updatedAt: updatedAt,
         })
         .onConflictDoNothing()
         .returning({ id: trees.id })
@@ -759,7 +758,7 @@ export async function postSync(request: Request): Promise<Response> {
     }
     const rows = await db
       .update(trees)
-      .set({ name: wire.name, updatedAt: serverUpdatedAt })
+      .set({ name: wire.name, updatedAt: updatedAt })
       .where(
         and(
           eq(trees.id, wire.id),
@@ -817,7 +816,7 @@ export async function postSync(request: Request): Promise<Response> {
           gender: wire.gender ?? null,
           location: wire.location ?? null,
           photo,
-          updatedAt: serverUpdatedAt,
+          updatedAt: updatedAt,
         })
         .onConflictDoNothing()
         .returning({ id: persons.id })
@@ -869,7 +868,7 @@ export async function postSync(request: Request): Promise<Response> {
               "gender" = ${wire.gender ?? null},
               "location" = ${wire.location ?? null},
               "photo" = ${photo},
-              "updated_at" = CURRENT_TIMESTAMP
+              "updated_at" = ${updatedAt}
           WHERE ${persons.id} IN (SELECT id FROM target_person)
           RETURNING ${persons.id} AS id
         )
@@ -944,11 +943,11 @@ export async function postSync(request: Request): Promise<Response> {
         treeId: wire.treeId,
         personId: wire.personId,
         createdAt,
-        updatedAt: serverUpdatedAt,
+        updatedAt: updatedAt,
       })
       .onConflictDoUpdate({
         target: [treeMembers.treeId, treeMembers.personId],
-        set: { deletedAt: null, updatedAt: serverUpdatedAt },
+        set: { deletedAt: null, updatedAt: updatedAt },
         setWhere: lt(treeMembers.updatedAt, updatedAt),
       })
       .returning({ treeId: treeMembers.treeId })
@@ -997,7 +996,7 @@ export async function postSync(request: Request): Promise<Response> {
           firstPersonId: wire.firstPersonId,
           secondPersonId: wire.secondPersonId,
           createdAt,
-          updatedAt: serverUpdatedAt,
+          updatedAt: updatedAt,
         })
         .onConflictDoNothing()
         .returning({ id: unions.id })
@@ -1016,7 +1015,7 @@ export async function postSync(request: Request): Promise<Response> {
     }
     const rows = await db
       .update(unions)
-      .set({ updatedAt: serverUpdatedAt })
+      .set({ updatedAt: updatedAt })
       .where(
         and(
           eq(unions.id, wire.id),
@@ -1075,7 +1074,7 @@ export async function postSync(request: Request): Promise<Response> {
             childPersonId: wire.childPersonId,
             type: wire.type,
             createdAt,
-            updatedAt: serverUpdatedAt,
+            updatedAt: updatedAt,
           })
           .onConflictDoNothing()
           .returning({ id: parentChildRelationships.id })
@@ -1103,7 +1102,7 @@ export async function postSync(request: Request): Promise<Response> {
     }
     const rows = await db
       .update(parentChildRelationships)
-      .set({ type: wire.type, updatedAt: serverUpdatedAt })
+      .set({ type: wire.type, updatedAt: updatedAt })
       .where(
         and(
           eq(parentChildRelationships.id, wire.id),
@@ -1165,7 +1164,7 @@ export async function postSync(request: Request): Promise<Response> {
           type: wire.type,
           eventDate: wire.eventDate ?? null,
           createdAt,
-          updatedAt: serverUpdatedAt,
+          updatedAt: updatedAt,
         })
         .onConflictDoNothing()
         .returning({ id: unionEvents.id })
@@ -1190,7 +1189,7 @@ export async function postSync(request: Request): Promise<Response> {
       .set({
         type: wire.type,
         eventDate: wire.eventDate ?? null,
-        updatedAt: serverUpdatedAt,
+        updatedAt: updatedAt,
       })
       .where(
         and(
@@ -1255,11 +1254,11 @@ export async function postSync(request: Request): Promise<Response> {
         treeId: wire.treeId,
         unionId: wire.unionId,
         createdAt,
-        updatedAt: serverUpdatedAt,
+        updatedAt: updatedAt,
       })
       .onConflictDoUpdate({
         target: [treeUnions.treeId, treeUnions.unionId],
-        set: { deletedAt: null, updatedAt: serverUpdatedAt },
+        set: { deletedAt: null, updatedAt: updatedAt },
         setWhere: lt(treeUnions.updatedAt, updatedAt),
       })
       .returning({ treeId: treeUnions.treeId })
@@ -1329,14 +1328,14 @@ export async function postSync(request: Request): Promise<Response> {
         treeId: wire.treeId,
         parentChildRelationshipId: wire.parentChildRelationshipId,
         createdAt,
-        updatedAt: serverUpdatedAt,
+        updatedAt: updatedAt,
       })
       .onConflictDoUpdate({
         target: [
           treeParentChildRelationships.treeId,
           treeParentChildRelationships.parentChildRelationshipId,
         ],
-        set: { deletedAt: null, updatedAt: serverUpdatedAt },
+        set: { deletedAt: null, updatedAt: updatedAt },
         setWhere: lt(treeParentChildRelationships.updatedAt, updatedAt),
       })
       .returning({ treeId: treeParentChildRelationships.treeId })
