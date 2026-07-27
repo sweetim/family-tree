@@ -100,6 +100,11 @@
 .react-flow__edge:hover .react-flow__edge-path {
   stroke: #ef4444 !important;
 }
+/* Raise the hovered edge above all others (incl. selected) so its red line
+   isn't crossed over. !important beats the inline z-index React Flow sets. */
+.react-flow__edges svg:has(.react-flow__edge:hover) {
+  z-index: 2000 !important;
+}
 
 /* React Flow controls/minimap match the new palette. */
 .react-flow__controls-button {

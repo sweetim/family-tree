@@ -80,15 +80,24 @@ const pairKey = (a: string, b: string) => [a, b].sort().join(":")
  * Assigns every person a generation rank (row index, 0 = topmost).
  *
  * Partners must share a row, so people are first grouped into partner
- * components — one component is one row. Ranks then satisfy
- * `child > parent` by longest path from the top.
+ * components — one component is one row. The ranks then pin every parent
+ * component exactly one row above its child components.
  *
- * That alone leaves married-in ancestors stranded: a couple with no parents
- * of their own gets rank 0 even when their only child sits four rows down,
- * because nothing pulls them toward their descendants. So a second pass
- * tightens every unparented component down to `min(child rank) - 1`, which
- * is the lowest row that still keeps it above its children. Components that
- * do have visible parents stay where the longest path put them.
+ * That spacing has to survive a spouse with deeper ancestry: when a couple
+ * is dragged down to sit beside one partner's deeper in-laws, the *other*
+ * partner's own parents and siblings must follow them down, or they end up
+ * stranded several rows too high (e.g. a wife's parents floating two rows
+ * above her because her husband's side is one generation deeper). Two rules
+ * applied to a fixpoint enforce the 1-row gap on every edge:
+ *
+ *   1. `child >= parent + 1` — longest-path floor, keeps a child below its
+ *      parents.
+ *   2. `parent >= child - 1` — a parent follows its deepest child down, so a
+ *      bloodline slides with a member who married into a deeper family.
+ *
+ * Together they force `child == parent + 1` for every edge. Both rules only
+ * ever raise ranks, so the loop converges; the pass bound guards against
+ * malformed cyclic ancestry.
  */
 function rankPeople(
   people: FamilyData,
@@ -112,53 +121,42 @@ function rankPeople(
     }
   }
 
-  // parent group → child groups, and which groups have parents at all.
-  const childGroups = new Map<number, Set<number>>()
-  const parented = new Set<number>()
+  // Deduped parent-group -> child-group edges. Self-edges and links whose
+  // endpoints aren't in a group are dropped.
+  const seenEdge = new Set<string>()
+  const edges: Array<[number, number]> = []
   for (const p of Object.values(people)) {
     const cg = groupOf.get(p.id)
     if (cg === undefined) continue
     for (const link of p.parents) {
       const pg = groupOf.get(link.id)
       if (pg === undefined || pg === cg) continue
-      parented.add(cg)
-      let kids = childGroups.get(pg)
-      if (!kids) {
-        kids = new Set()
-        childGroups.set(pg, kids)
-      }
-      kids.add(cg)
+      const key = `${pg}:${cg}`
+      if (seenEdge.has(key)) continue
+      seenEdge.add(key)
+      edges.push([pg, cg])
     }
   }
 
-  // Longest path from the top. Bounded so malformed data (a person who is
-  // their own ancestor) settles instead of looping forever.
+  // Fixpoint: child below parent (rule 1) and parent follows child (rule 2).
   const groupRank = new Array<number>(groupCount).fill(0)
-  for (let pass = 0; pass < groupCount; pass++) {
+  for (let pass = 0; pass < groupCount + 1; pass++) {
     let changed = false
-    for (const [pg, kids] of childGroups) {
-      const want = (groupRank[pg] ?? 0) + 1
-      for (const cg of kids) {
-        if (want > (groupRank[cg] ?? 0)) {
-          groupRank[cg] = want
-          changed = true
-        }
+    for (const [pg, cg] of edges) {
+      if (groupRank[cg] < groupRank[pg] + 1) {
+        groupRank[cg] = groupRank[pg] + 1
+        changed = true
+      }
+      if (groupRank[pg] < groupRank[cg] - 1) {
+        groupRank[pg] = groupRank[cg] - 1
+        changed = true
       }
     }
     if (!changed) break
   }
 
-  // Pull unparented components down to just above their children.
-  for (let g = 0; g < groupCount; g++) {
-    if (parented.has(g)) continue
-    const kids = childGroups.get(g)
-    if (!kids || kids.size === 0) continue
-    let lowest = Infinity
-    for (const cg of kids) lowest = Math.min(lowest, groupRank[cg] ?? 0)
-    if (Number.isFinite(lowest)) groupRank[g] = lowest - 1
-  }
-
-  // Tightening can push ranks negative; renormalise so the top row is 0.
+  // Following children down can push ranks negative; renormalise so the top
+  // row is 0.
   const min = groupRank.length > 0 ? Math.min(...groupRank) : 0
   const rank = new Map<string, number>()
   for (const id of ids)
@@ -462,6 +460,10 @@ export function buildFlow(
 
   const edges: FlowEdge[] = []
   const coupleStroke = { stroke: "#94a3b8", strokeWidth: 2 }
+  const selectedStroke = { stroke: "#3258f5", strokeWidth: 3 }
+  const selectedZIndex = 1000
+  const touchesSelected = (ids: (string | undefined)[]) =>
+    selectedId !== undefined && ids.includes(selectedId)
 
   // Marriage / co-parent lines: partner → union dot, horizontal.
   for (const [a, b] of couples.values()) {
@@ -469,6 +471,10 @@ export function buildFlow(
     const ux = unionPos.get(u)?.x
     const married =
       people[a]?.spouseIds.includes(b) || people[b]?.spouseIds.includes(a)
+    const coupleBase = married
+      ? coupleStroke
+      : { ...coupleStroke, strokeDasharray: "6 4" }
+    const highlightCouple = touchesSelected([a, b])
     for (const pid of [a, b]) {
       const px = pos.get(pid)?.x
       if (px === undefined || ux === undefined) continue
@@ -479,9 +485,11 @@ export function buildFlow(
         target: u,
         targetHandle: px <= ux ? "l" : "r",
         type: "straight",
-        style: married
-          ? coupleStroke
-          : { ...coupleStroke, strokeDasharray: "6 4" },
+        animated: highlightCouple,
+        zIndex: highlightCouple ? selectedZIndex : undefined,
+        style: highlightCouple
+          ? { ...coupleBase, ...selectedStroke }
+          : coupleBase,
         data: { kind: "couple", a, b },
       })
     }
@@ -497,6 +505,13 @@ export function buildFlow(
     if (!first) continue
     const source =
       parents.length === 2 && second ? unionId(first.id, second.id) : first.id
+    const childBase = adopted
+      ? { ...coupleStroke, strokeDasharray: "4 4" }
+      : coupleStroke
+    const highlightChild = touchesSelected([
+      child.id,
+      ...parents.map((l) => l.id),
+    ])
     edges.push({
       id: `pc:${source}:${child.id}`,
       source,
@@ -505,9 +520,9 @@ export function buildFlow(
       targetHandle: "t",
       type: "smoothstep",
       pathOptions: { borderRadius: 0, stepPosition: CHILD_BUS_POSITION },
-      style: adopted
-        ? { ...coupleStroke, strokeDasharray: "4 4" }
-        : coupleStroke,
+      animated: highlightChild,
+      zIndex: highlightChild ? selectedZIndex : undefined,
+      style: highlightChild ? { ...childBase, ...selectedStroke } : childBase,
       ...(adopted && {
         label: "adopted",
         labelStyle: { fill: "#64748b", fontSize: 10 },
