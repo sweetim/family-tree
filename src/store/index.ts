@@ -7,6 +7,7 @@ export {
   countMembers,
   createTreeWithRootMember,
   deleteTreeById,
+  useAncestorTree,
   useFamily,
   useFamilyAll,
   useMembersOf,
@@ -20,6 +21,7 @@ export { normalizeImport } from "./import"
 export {
   addMemberWithSpousesRecords,
   deletePersonRecords,
+  findAncestorTree,
   personHasWritableTree,
   removeFromTreeRecords,
 } from "./membership"

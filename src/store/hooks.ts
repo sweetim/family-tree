@@ -15,6 +15,7 @@ import {
   associateParentChildRelationship,
   associateUnion,
   deletePersonRecords,
+  findAncestorTree,
   hasMember,
   removeFromTreeRecords,
   treeIsWritable,
@@ -146,6 +147,21 @@ export function useMemberTrees(personId: string): TreeMeta[] {
   return useMemo(
     () => graph.index.filter((tree) => hasMember(graph, tree.id, personId)),
     [graph, personId],
+  )
+}
+
+/**
+ * The person's "ancestor family": another tree (not the current one) that holds
+ * both the person and at least one of their parents. See {@link findAncestorTree}.
+ */
+export function useAncestorTree(
+  personId: string,
+  currentTreeId: string,
+): TreeMeta | undefined {
+  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  return useMemo(
+    () => findAncestorTree(graph, personId, currentTreeId),
+    [graph, personId, currentTreeId],
   )
 }
 

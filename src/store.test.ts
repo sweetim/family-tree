@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { DirtyState, GlobalState } from "./store"
+import { type DirtyState, findAncestorTree, type GlobalState } from "./store"
 import { update } from "./store/state"
 import type { SyncPullResponse, SyncRecordSet } from "./sync/types"
 import { projectTree } from "./types"
@@ -110,6 +110,103 @@ function marriageEvent(state: GlobalState) {
   if (!event) throw new Error("Missing marriage event fixture")
   return event
 }
+
+describe("findAncestorTree", () => {
+  function member(treeId: string, personId: string) {
+    return [
+      JSON.stringify([treeId, personId]),
+      { treeId, personId, createdAt: timestamp, updatedAt: timestamp },
+    ]
+  }
+
+  function stateWithAncestor(): GlobalState {
+    return {
+      persons: {
+        c: { id: "c", name: "Child", updatedAt: timestamp },
+        p: { id: "p", name: "Parent", updatedAt: timestamp },
+      },
+      index: [
+        {
+          id: "root",
+          name: "Root",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        {
+          id: "ancestor",
+          name: "Ancestor",
+          createdAt: "2023-01-01T00:00:00.000Z",
+          updatedAt: timestamp,
+        },
+        {
+          id: "other",
+          name: "Other",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      ],
+      treeMembers: Object.fromEntries([
+        member("root", "c"),
+        member("ancestor", "c"),
+        member("ancestor", "p"),
+        member("other", "c"),
+      ]),
+      unions: {},
+      unionEvents: {},
+      treeUnions: {},
+      parentChildRelationships: {
+        pc: {
+          id: "pc",
+          parentPersonId: "p",
+          childPersonId: "c",
+          type: "biological",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      },
+      treeParentChildRelationships: {},
+    }
+  }
+
+  test("returns the other tree that holds the person and a parent", () => {
+    expect(findAncestorTree(stateWithAncestor(), "c", "root")?.id).toBe(
+      "ancestor",
+    )
+  })
+
+  test("returns undefined when no other tree has a parent", () => {
+    expect(
+      findAncestorTree(stateWithAncestor(), "c", "ancestor"),
+    ).toBeUndefined()
+  })
+
+  test("returns undefined when the person has no parents", () => {
+    expect(findAncestorTree(stateWithAncestor(), "p", "root")).toBeUndefined()
+  })
+
+  test("picks the earliest candidate deterministically", () => {
+    const state = stateWithAncestor()
+    state.index.push({
+      id: "ancestor2",
+      name: "Ancestor2",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    })
+    state.treeMembers[JSON.stringify(["ancestor2", "c"])] = {
+      treeId: "ancestor2",
+      personId: "c",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    state.treeMembers[JSON.stringify(["ancestor2", "p"])] = {
+      treeId: "ancestor2",
+      personId: "p",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    expect(findAncestorTree(state, "c", "root")?.id).toBe("ancestor")
+  })
+})
 
 function fullPull(
   own: Partial<SyncRecordSet> = {},

@@ -3,6 +3,7 @@ import {
   type GlobalState,
   makeDraft,
   now,
+  type TreeMeta,
   treeMemberKey,
   treeParentChildRelationshipKey,
   treeUnionKey,
@@ -135,6 +136,40 @@ export function treesContainingAll(
         && personIds.every((personId) => hasMember(graph, tree.id, personId)),
     )
     .map((tree) => tree.id)
+}
+
+/**
+ * Finds the "ancestor family" of a person: another tree (not the current one)
+ * that contains both the person and at least one of their parents — i.e. the
+ * family their ancestry lives in. Returns the earliest such tree, or undefined
+ * when none exists (including when the person has no parents at all).
+ */
+export function findAncestorTree(
+  graph: GlobalState,
+  personId: string,
+  currentTreeId: string,
+): TreeMeta | undefined {
+  const parentIds = Object.values(graph.parentChildRelationships)
+    .filter((relationship) => relationship.childPersonId === personId)
+    .map((relationship) => relationship.parentPersonId)
+  if (parentIds.length === 0) return undefined
+  const candidates = graph.index.filter(
+    (tree) =>
+      tree.id !== currentTreeId
+      && hasMember(graph, tree.id, personId)
+      && parentIds.some((parentId) => hasMember(graph, tree.id, parentId)),
+  )
+  if (candidates.length === 0) return undefined
+  candidates.sort((a, b) =>
+    a.createdAt < b.createdAt
+      ? -1
+      : a.createdAt > b.createdAt
+        ? 1
+        : a.id < b.id
+          ? -1
+          : 1,
+  )
+  return candidates[0]
 }
 
 export function removePersonFromTreeRecords(

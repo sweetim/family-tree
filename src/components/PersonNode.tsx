@@ -1,11 +1,11 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react"
-import { ArrowLeftRight, MapPin, Plus } from "lucide-react"
+import { ArrowLeftRight, MapPin, Network, Plus } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { personPhotoSrc } from "../lib/image"
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
 import { useTreeActions } from "../lib/tree-actions"
-import { useMemberTrees } from "../store"
+import { useAncestorTree, useMemberTrees } from "../store"
 import type { Gender } from "../types"
 import { PersonAvatar } from "./PersonAvatar"
 
@@ -67,6 +67,8 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const navigate = (to: string) => router.push(to)
   const { treeId } = useParams<{ treeId: string }>()
   const otherTrees = useMemberTrees(person.id).filter((t) => t.id !== treeId)
+  const ancestorTree = useAncestorTree(person.id, treeId)
+  const parentAddVisible = !linkState && !readOnly && person.parents.length < 2
   const deceased = !!person.dod
   const age = person.dob ? ageOf(person.dob, person.dod) : null
   const genderKey = person.gender ?? "unknown"
@@ -188,6 +190,27 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
           </div>
         </div>
       </div>
+
+      {ancestorTree && person.parents.length === 0 && (
+        <div
+          className={`absolute left-1/2 -translate-x-1/2 ${
+            parentAddVisible ? "-top-10" : "-top-3.5"
+          }`}
+        >
+          <button
+            type="button"
+            title={`Ancestor family: ${ancestorTree.name}`}
+            className="nodrag nopan z-10 inline-flex max-w-[170px] items-center gap-1 rounded-full bg-cobalt-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-soft transition-colors hover:bg-cobalt-700"
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/tree/${ancestorTree.id}/p/${person.id}`)
+            }}
+          >
+            <Network className="h-3 w-3 shrink-0" />
+            <span className="truncate">{ancestorTree.name}</span>
+          </button>
+        </div>
+      )}
 
       {!linkState && !readOnly && (
         <>

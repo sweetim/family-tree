@@ -1,5 +1,6 @@
-import { Loader2, Trash2 } from "lucide-react"
-import { type FormEvent, useState } from "react"
+import { Copy, Loader2, Trash2 } from "lucide-react"
+import { type FormEvent, useEffect, useState } from "react"
+import { useToast } from "@/components/Toast"
 import { useShares } from "@/lib/shares"
 import { inputCls, labelCls } from "./shared"
 
@@ -18,8 +19,36 @@ export function SharePanel({
   onClose: () => void
 }) {
   const { shares, loading, submitting, add, remove } = useShares(treeId)
+  const toast = useToast()
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<"viewer" | "editor">("viewer")
+  const [shareUrl, setShareUrl] = useState("")
+
+  useEffect(() => {
+    setShareUrl(`${window.location.origin}/tree/${treeId}`)
+  }, [treeId])
+
+  async function onCopyLink() {
+    if (!shareUrl) return
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareUrl)
+      } else {
+        const textarea = document.createElement("textarea")
+        textarea.value = shareUrl
+        textarea.style.position = "fixed"
+        textarea.style.opacity = "0"
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textarea)
+      }
+      toast("Link copied to clipboard.", "success")
+    } catch (err) {
+      console.error(err)
+      toast("Couldn't copy link.", "error")
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -47,6 +76,39 @@ export function SharePanel({
         you add can open it from any device after signing in with the email
         below.
       </p>
+
+      <div className="space-y-2">
+        <label
+          htmlFor="share-link-input"
+          className={labelCls}
+        >
+          Share link
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id="share-link-input"
+            type="url"
+            readOnly
+            value={shareUrl}
+            onFocus={(event) => event.currentTarget.select()}
+            placeholder="https://…"
+            className={inputCls}
+            aria-label="Tree share link"
+          />
+          <button
+            type="button"
+            onClick={onCopyLink}
+            disabled={!shareUrl}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-cobalt-600 px-3 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <Copy className="h-4 w-4" />
+            Copy
+          </button>
+        </div>
+        <p className="text-[11px] leading-relaxed text-slate-500">
+          Anyone you've shared with can use this link after signing in.
+        </p>
+      </div>
 
       <form
         onSubmit={onSubmit}
