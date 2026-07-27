@@ -14,8 +14,7 @@ two invariants a family chart depends on:
    between them.
 2. **Siblings must appear in birth order.**
 
-Instead, the tree is laid out recursively. (Note: the project README still
-mentions dagre historically, but the implementation is this custom algorithm.)
+dagre is intentionally not used; instead, the tree is laid out recursively.
 
 ## The algorithm
 

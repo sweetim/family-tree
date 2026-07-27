@@ -1,44 +1,45 @@
 # Family Tree
 
-An interactive family tree builder. Register family members with their name,
-date of birth, location and a photo, and see them laid out automatically as a
-tree.
+An interactive family-tree builder. Add family members and watch them laid out
+automatically as a clean, navigable tree. Sign in with Google, build multiple
+trees, link the same person across them, and share each tree with others.
 
-Built with **Next.js (App Router) + React 19 + Tailwind CSS v4 + React Flow
-(@xyflow/react)**, auto-layout by **dagre**. Sign in with Google (Better Auth)
-is required — trees are stored in Neon Postgres and per-tree sharing
-(viewer + editor roles) is built in. Photos are downscaled client-side before
-upload. Export/Import lets you back up or share a tree as JSON.
+## Features
 
-## Documentation
+- **Add anyone** — name, birth/death dates, gender, location, and a profile
+  photo. Lifeline badges show age, or birth–death years.
+- **Automatic layout** — partners sit side by side and children appear in birth
+  order. Pan, zoom, and use the minimap to navigate large trees.
+- **Click-to-connect relationships** — add parents, spouses, and children right
+  from the canvas.
+- **Rich relationships** — biological, adoptive, foster, guardian, and step
+  parents are all supported.
+- **Marriages** — set marriage dates and mark divorces; hover a couple's junction
+  to see the date.
+- **Photos cropped in your browser** — drag to position, zoom to fit, no raw
+  uploads.
+- **One person, many trees** — link the same person into multiple trees without
+  duplicating their details.
+- **Search everyone** — find any person across all your trees in one box.
+- **Sharing** — invite people by email as a **viewer** (read-only) or **editor**.
+  Invited before they sign up? They get access on first sign-in.
+- **Export & import** — back up or transfer a tree as a single JSON file.
+- **Sign in with Google** — your trees are private to your account.
+- **Try it instantly** — create a sample tree with one click.
 
-Detailed, AI-agent-friendly reference docs live in [`docs/`](./docs). Start with
-[`docs/README.md`](./docs/README.md), which indexes architecture, domain model,
-state/sync, database, auth/ACL, API, layout, components, and conventions.
-
-## Development
+## Get started
 
 ```bash
 bun install
 bun run dev        # http://localhost:3000
 ```
 
-## Production build
+This requires a Postgres database and Google OAuth credentials. Copy
+[.env.local.example](./.env.local.example) and fill it in; see the docs below for
+full setup, migrations, and deployment.
 
-```bash
-bun run build      # outputs to .next
-bun run start      # serve the production build
-```
+## Documentation
 
-## Tests
-
-```bash
-bun test
-```
-
-## Deploy to Vercel
-
-Next.js is detected automatically by Vercel — no `vercel.json` is needed.
-Connect the repo on vercel.com and set the environment variables from
-`.env.local.example` (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`,
-`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `BLOB_READ_WRITE_TOKEN`).
+Technical reference (architecture, data model, auth/sharing, API, layout, and
+conventions) lives in [`docs/`](./docs) — start with
+[`docs/README.md`](./docs/README.md).
