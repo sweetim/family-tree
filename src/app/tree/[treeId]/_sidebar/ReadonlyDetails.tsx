@@ -1,4 +1,5 @@
 import { Baby, Heart, MapPin, Users } from "lucide-react"
+import { PersonAvatar } from "@/components/PersonAvatar"
 import { Section } from "@/components/Section"
 import { personPhotoSrc } from "@/lib/image"
 import type { FamilyStore } from "@/store"
@@ -51,11 +52,10 @@ export function ReadonlyDetails({
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft">
         <div className="flex items-center gap-3">
           {photoSrc ? (
-            // biome-ignore lint/performance/noImgElement: avatar streamed via the auth-checked proxy
-            <img
+            <PersonAvatar
               src={photoSrc}
               alt={person.name}
-              className="h-14 w-14 rounded-full object-cover ring-2 ring-slate-100"
+              className="h-14 w-14 ring-2 ring-slate-100"
             />
           ) : (
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-lg font-semibold text-slate-500">

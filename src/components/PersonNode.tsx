@@ -6,6 +6,7 @@ import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
 import { useTreeActions } from "../lib/tree-actions"
 import { useMemberTrees } from "../store"
 import type { Gender } from "../types"
+import { PersonAvatar } from "./PersonAvatar"
 
 function ageOf(dob: string, until?: string): number | null {
   const birth = new Date(dob)
@@ -119,11 +120,10 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
               className={`rounded-full bg-linear-to-br p-[3px] ${avatarRing} ${deceased ? "grayscale" : ""}`}
             >
               {photoSrc ? (
-                // biome-ignore lint/performance/noImgElement: small avatar streamed via the auth-checked proxy; Next/Image offers no benefit
-                <img
+                <PersonAvatar
                   src={photoSrc}
                   alt={person.name}
-                  className="h-[104px] w-[104px] rounded-full object-cover"
+                  className="h-[104px] w-[104px]"
                 />
               ) : (
                 <div
