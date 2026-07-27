@@ -1,6 +1,7 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react"
 import { ArrowLeftRight, MapPin, Plus } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 import { personPhotoSrc } from "../lib/image"
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
 import { useTreeActions } from "../lib/tree-actions"
@@ -72,6 +73,11 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const avatarRing = AVATAR_RING[genderKey]
   const avatarFill = AVATAR_FILL[genderKey]
   const photoSrc = personPhotoSrc(person)
+  const [photoError, setPhotoError] = useState(false)
+  useEffect(() => {
+    setPhotoError(false)
+  }, [photoSrc])
+  const showPhoto = photoSrc !== undefined && !photoError
 
   let lifeline: string | null = null
   if (deceased && person.dod) {
@@ -119,11 +125,12 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
             <div
               className={`rounded-full bg-linear-to-br p-[3px] ${avatarRing} ${deceased ? "grayscale" : ""}`}
             >
-              {photoSrc ? (
+              {showPhoto && photoSrc ? (
                 <PersonAvatar
                   src={photoSrc}
                   alt={person.name}
                   className="h-[104px] w-[104px]"
+                  onError={() => setPhotoError(true)}
                 />
               ) : (
                 <div
