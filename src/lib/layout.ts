@@ -143,12 +143,14 @@ function rankPeople(
   for (let pass = 0; pass < groupCount + 1; pass++) {
     let changed = false
     for (const [pg, cg] of edges) {
-      if (groupRank[cg] < groupRank[pg] + 1) {
-        groupRank[cg] = groupRank[pg] + 1
+      const parentRank = groupRank[pg] ?? 0
+      const childRank = groupRank[cg] ?? 0
+      if (childRank < parentRank + 1) {
+        groupRank[cg] = parentRank + 1
         changed = true
       }
-      if (groupRank[pg] < groupRank[cg] - 1) {
-        groupRank[pg] = groupRank[cg] - 1
+      if (parentRank < childRank - 1) {
+        groupRank[pg] = childRank - 1
         changed = true
       }
     }
