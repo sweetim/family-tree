@@ -5,7 +5,7 @@ import { Providers } from "./providers"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 
-const title = "Family Tree"
+const title = "FamiKi"
 const description =
   "An interactive family tree builder. Register family members and see them laid out automatically as a tree."
 const siteUrl = process.env.BETTER_AUTH_URL

@@ -5,6 +5,7 @@ import {
   isRootFounder,
   type Person,
 } from "../types"
+import { Z_INDEX } from "./z-index"
 
 const NODE_WIDTH = 176
 const NODE_HEIGHT = 220
@@ -448,6 +449,7 @@ export function buildFlow(
     nodes.push({
       id: unionId(a, b),
       type: "union",
+      zIndex: Z_INDEX.unionNode,
       position: { x: dot.x - UNION_SIZE / 2, y: dot.y - UNION_SIZE / 2 },
       selectable: false,
       data: {
@@ -463,7 +465,6 @@ export function buildFlow(
   const edges: FlowEdge[] = []
   const coupleStroke = { stroke: "#94a3b8", strokeWidth: 2 }
   const selectedStroke = { stroke: "#3258f5", strokeWidth: 3 }
-  const selectedZIndex = 1000
   const touchesSelected = (ids: (string | undefined)[]) =>
     selectedId !== undefined && ids.includes(selectedId)
 
@@ -488,7 +489,7 @@ export function buildFlow(
         targetHandle: px <= ux ? "l" : "r",
         type: "straight",
         animated: highlightCouple,
-        zIndex: highlightCouple ? selectedZIndex : undefined,
+        zIndex: highlightCouple ? Z_INDEX.edgeSelected : undefined,
         style: highlightCouple
           ? { ...coupleBase, ...selectedStroke }
           : coupleBase,
@@ -523,7 +524,7 @@ export function buildFlow(
       type: "smoothstep",
       pathOptions: { borderRadius: 0, stepPosition: CHILD_BUS_POSITION },
       animated: highlightChild,
-      zIndex: highlightChild ? selectedZIndex : undefined,
+      zIndex: highlightChild ? Z_INDEX.edgeSelected : undefined,
       style: highlightChild ? { ...childBase, ...selectedStroke } : childBase,
       ...(adopted && {
         label: "adopted",

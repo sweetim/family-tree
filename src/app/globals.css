@@ -93,6 +93,10 @@
 }
 
 /* Relationship lines are clickable (click removes the link). */
+.react-flow {
+  /* Mirrors Z_INDEX.edgeHovered in src/lib/z-index.ts — keep in sync. */
+  --z-edge-hovered: 2000;
+}
 .react-flow__edge {
   cursor: pointer;
 }
@@ -103,7 +107,7 @@
 /* Raise the hovered edge above all others (incl. selected) so its red line
    isn't crossed over. !important beats the inline z-index React Flow sets. */
 .react-flow__edges svg:has(.react-flow__edge:hover) {
-  z-index: 2000 !important;
+  z-index: var(--z-edge-hovered) !important;
 }
 
 /* React Flow controls/minimap match the new palette. */
