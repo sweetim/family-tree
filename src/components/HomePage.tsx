@@ -31,6 +31,7 @@ import {
 } from "../store"
 import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
+import { LandingPage } from "./LandingPage"
 import { ShareDialog } from "./ShareDialog"
 import { useToast } from "./Toast"
 
@@ -453,22 +454,10 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
       </p>
     )
   } else if (!session?.user) {
-    body = (
-      <div className="rounded-xl border border-slate-200 bg-white p-10 text-center">
-        <p className="text-sm font-medium text-slate-700">
-          Sign in to view your family trees
-        </p>
-        <p className="mt-1 text-xs text-slate-500">
-          Trees are stored in your account. Sign in to create or open one.
-        </p>
-        <button
-          type="button"
-          onClick={() => authClient.signIn.social({ provider: "google" })}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-cobalt-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-cobalt-700 active:scale-95"
-        >
-          Sign in with Google
-        </button>
-      </div>
+    return (
+      <LandingPage
+        onSignIn={() => authClient.signIn.social({ provider: "google" })}
+      />
     )
   } else {
     body = (
