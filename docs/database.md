@@ -25,6 +25,7 @@ Application data is normalized:
 | `persons` | Shared identity: `id`, `owner_id`, name, birth/death dates, gender, location, `photo` text, `updated_at`, `deleted_at`. |
 | `trees` | Tree metadata only: `id`, `owner_id`, name, creation/update timestamps, tombstone. |
 | `tree_shares` | Pending or bound viewer/editor grants, keyed by `(tree_id, email)`; `user_id` is nullable until the invitee signs in. |
+| `tree_access_requests` | Owner-reviewed access requests from visitors who reached a share URL without an invite, keyed by `(tree_id, user_id)`; `status` is `pending`/`approved`/`denied`, with the requester's `comment`. |
 | `tree_members` | Tree-local person membership, keyed by `(tree_id, person_id)`. |
 | `unions` | Shared canonical pair of people. Endpoint ids are immutable, distinct, ASCII, and stored in C-collation order. |
 | `union_events` | Shared union history with an optional calendar date. |
@@ -78,6 +79,9 @@ The committed migration sequence is intentionally one-time:
    indexes.
 6. `0005_lying_nightshade.sql` enables trigram search and replaces the initial
    name index with a substring-search GIN index.
+7. `0006_black_scalphunter.sql` adds the `tree_access_requests` table and
+   `access_request_status` enum for owner-approved access requests on shared
+   trees.
 
 The preflight is strict and aborts the transaction instead of guessing. It
 rejects malformed or unsupported records, dangling/nonmember endpoints,

@@ -97,6 +97,18 @@ use bounded JSON parsing, normalized email addresses, deterministic ordering,
 and strict roles. Pending shares are reconciled during manifest loading, which
 also closes the share/user-creation race.
 
+## Access requests
+
+`GET /api/trees/[treeId]/access-request` returns the requesting user's own
+request (status + comment) or `null`. `POST` creates or reopens a pending
+request and requires a session, a non-deleted tree, no existing role, and a
+non-empty comment of at most 500 characters.
+
+`GET /api/trees/[treeId]/access-requests` (owner-only) lists pending requests
+with the requester's name, email, comment, and timestamp. `POST` (owner-only)
+resolves one with `{ userId, action: "approve" | "deny" }`; `approve` inserts a
+`viewer` share and marks the request `approved` in one transaction.
+
 ## Photos
 
 `GET /api/person-photo/[personId]` authorizes every request and returns

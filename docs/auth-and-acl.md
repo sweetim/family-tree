@@ -20,6 +20,17 @@ Owners can share with an email before that person has an account. Such a
 matching pending rows to a newly created user, making the trees available on
 their first sign-in.
 
+### Access requests
+
+A visitor who reaches a share URL but has not been invited can request access.
+The signed-in, no-access view of `/tree/[treeId]` shows a request card with a
+short "who are you?" note. The request is stored in `tree_access_requests`
+(status `pending` / `approved` / `denied`, one row per tree + requester). The
+owner reviews pending requests from the Share dialog; approving inserts a
+`viewer` share row in the same transaction, so the requester gains read-only
+access on their next load. Denying marks the request `denied`; the requester
+may re-request, which reopens the row to `pending`.
+
 ## Roles
 
 `Role` is `owner | editor | viewer`, ordered from strongest to weakest. A

@@ -165,6 +165,12 @@ export const trees = pgTable(
 
 export const shareRole = pgEnum("share_role", ["viewer", "editor"])
 
+export const accessRequestStatus = pgEnum("access_request_status", [
+  "pending",
+  "approved",
+  "denied",
+])
+
 export const treeShares = pgTable(
   "tree_shares",
   {
@@ -186,6 +192,31 @@ export const treeShares = pgTable(
     index("tree_shares_pending_email_idx")
       .on(table.email)
       .where(sql`${table.userId} IS NULL`),
+  ],
+)
+
+export const treeAccessRequests = pgTable(
+  "tree_access_requests",
+  {
+    treeId: text("tree_id")
+      .notNull()
+      .references(() => trees.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    comment: text("comment").notNull(),
+    status: accessRequestStatus("status").notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.treeId, table.userId] }),
+    index("tree_access_requests_tree_id_status_idx").on(
+      table.treeId,
+      table.status,
+    ),
   ],
 )
 
@@ -447,6 +478,7 @@ export const userRelations = relations(user, ({ many }) => ({
   ownedPersons: many(persons),
   ownedTrees: many(trees),
   treeShares: many(treeShares),
+  accessRequests: many(treeAccessRequests),
 }))
 
 export const treesRelations = relations(trees, ({ one, many }) => ({
@@ -455,12 +487,27 @@ export const treesRelations = relations(trees, ({ one, many }) => ({
   members: many(treeMembers),
   unionAssociations: many(treeUnions),
   parentChildRelationshipAssociations: many(treeParentChildRelationships),
+  accessRequests: many(treeAccessRequests),
 }))
 
 export const treeSharesRelations = relations(treeShares, ({ one }) => ({
   tree: one(trees, { fields: [treeShares.treeId], references: [trees.id] }),
   user: one(user, { fields: [treeShares.userId], references: [user.id] }),
 }))
+
+export const treeAccessRequestsRelations = relations(
+  treeAccessRequests,
+  ({ one }) => ({
+    tree: one(trees, {
+      fields: [treeAccessRequests.treeId],
+      references: [trees.id],
+    }),
+    user: one(user, {
+      fields: [treeAccessRequests.userId],
+      references: [user.id],
+    }),
+  }),
+)
 
 export const personsRelations = relations(persons, ({ one, many }) => ({
   owner: one(user, { fields: [persons.ownerId], references: [user.id] }),

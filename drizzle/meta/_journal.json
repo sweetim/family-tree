@@ -43,6 +43,13 @@
       "when": 1785043136853,
       "tag": "0005_lying_nightshade",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785244726405,
+      "tag": "0006_black_scalphunter",
+      "breakpoints": true
     }
   ]
 }
