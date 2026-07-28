@@ -1466,7 +1466,7 @@ describe("dirty tracking and push wires", () => {
     const response = deferred<Response>()
     const originalFetch = globalThis.fetch
     globalThis.fetch = (async (input, init) => {
-      expect(input).toBe("/api/v2/mutations")
+      expect(input).toBe("/api/mutations")
       expect(init?.method).toBe("POST")
       expect(init?.credentials).toBe("include")
       expect(JSON.parse(String(init?.body))).toMatchObject({

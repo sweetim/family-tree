@@ -1,6 +1,6 @@
 # API Reference
 
-Next.js App Router handlers use same-origin Better Auth session cookies. API v2
+Next.js App Router handlers use same-origin Better Auth session cookies. The API
 separates bounded queries from idempotent mutations. Wire types are defined in
 `src/sync/types.ts`.
 
@@ -11,27 +11,27 @@ endpoint requires a session and returns `401` when unauthenticated.
 
 ## Tree manifest
 
-`GET /api/v2/trees?cursor=<opaque>&limit=<1-100>` returns accessible tree
+`GET /api/trees?cursor=<opaque>&limit=<1-100>` returns accessible tree
 metadata, role, member count, row revision, and sync version. It never loads
 people or relationships. Results use stable keyset pagination.
 
 ## Tree reads
 
-`GET /api/v2/trees/[treeId]/snapshot` returns one selected tree and its active
+`GET /api/trees/[treeId]/snapshot` returns one selected tree and its active
 normalized graph. It also returns an opaque change cursor pinned to the tree's
 current sync version. Other accessible trees are not included.
 
-`GET /api/v2/trees/[treeId]/graph?focusPersonId=<id>&radius=<0-6>` returns at
+`GET /api/trees/[treeId]/graph?focusPersonId=<id>&radius=<0-6>` returns at
 most 300 people in a relationship neighborhood around one member. The response
 sets `partial: true` and identifies boundary people. Person deep links use this
 bounded query; the main tree canvas uses the selected-tree snapshot.
 
-`GET /api/v2/people/search?query=<text>` searches accessible identities without
+`GET /api/people/search?query=<text>` searches accessible identities without
 loading their trees and returns at most eight results.
 
 ## Changes
 
-`GET /api/v2/changes?treeId=<id>&cursor=<opaque>&limit=<1-100>` returns ordered
+`GET /api/changes?treeId=<id>&cursor=<opaque>&limit=<1-100>` returns ordered
 normalized change batches after the supplied cursor. The work and payload scale
 with committed changes rather than tree size. Responses contain `cursor` and
 `hasMore`; clients continue until `hasMore` is false.
@@ -43,7 +43,7 @@ refresh.
 
 ## Mutations
 
-`POST /api/v2/mutations` accepts one logical normalized mutation:
+`POST /api/mutations` accepts one logical normalized mutation:
 
 ```ts
 {
@@ -103,9 +103,11 @@ also closes the share/user-creation race.
 `private, no-store` image responses with content-type allowlisting, byte limits,
 and `nosniff`. Blob URLs are never exposed in sync DTOs.
 
-## Legacy compatibility
+## Bulk pull and deletion
 
-`GET /api/sync` and `DELETE /api/trees/[treeId]` remain temporarily available
-for read/delete compatibility. `POST /api/sync` returns `426`; writes must use
-API v2 so revisions, atomicity, idempotency, and change records cannot be
-bypassed.
+`GET /api/sync?since=<iso>` returns an authoritative full pull across every
+tree the account can access; the client uses it to reconcile after incremental
+change synchronization reports divergent or skipped records. `DELETE
+/api/trees/[treeId]` is owner-only and atomically tombstones a tree and its
+tree-local records. Writes go through `POST /api/mutations`, so revisions,
+atomicity, idempotency, and change records cannot be bypassed.

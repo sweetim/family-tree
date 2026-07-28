@@ -1,4 +1,4 @@
-import { listTrees } from "@/server/handlers/trees-v2"
+import { listTrees } from "@/server/handlers/trees"
 
 export const runtime = "nodejs"
 

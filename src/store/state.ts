@@ -962,7 +962,7 @@ export async function fetchTreeManifest(): Promise<TreeManifestItem[]> {
   do {
     const parameters = new URLSearchParams({ limit: "100" })
     if (cursor) parameters.set("cursor", cursor)
-    const response = await fetch(`/api/v2/trees?${parameters}`, {
+    const response = await fetch(`/api/trees?${parameters}`, {
       credentials: "include",
     })
     if (!response.ok)
@@ -1011,8 +1011,8 @@ export async function fetchTreeSnapshot(
   focusPersonId?: string,
 ): Promise<TreeSnapshotResponse> {
   const path = focusPersonId
-    ? `/api/v2/trees/${encodeURIComponent(treeId)}/graph?focusPersonId=${encodeURIComponent(focusPersonId)}&radius=3`
-    : `/api/v2/trees/${encodeURIComponent(treeId)}/snapshot`
+    ? `/api/trees/${encodeURIComponent(treeId)}/graph?focusPersonId=${encodeURIComponent(focusPersonId)}&radius=3`
+    : `/api/trees/${encodeURIComponent(treeId)}/snapshot`
   const response = await fetch(path, { credentials: "include" })
   if (!response.ok) {
     throw Object.assign(new Error(`tree snapshot failed: ${response.status}`), {
@@ -1048,7 +1048,7 @@ export async function deleteTreeOnServer(treeId: string): Promise<void> {
     parentChildRelationships: [],
     treeParentChildRelationships: [],
   }
-  const response = await fetch("/api/v2/mutations", {
+  const response = await fetch("/api/mutations", {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
@@ -1127,7 +1127,7 @@ async function runTreeSynchronization(treeId: string): Promise<void> {
   let hasMore = true
   while (hasMore) {
     const parameters = new URLSearchParams({ treeId, cursor, limit: "100" })
-    const response = await fetch(`/api/v2/changes?${parameters}`, {
+    const response = await fetch(`/api/changes?${parameters}`, {
       credentials: "include",
     })
     if (generation !== storeGeneration) return
@@ -1222,7 +1222,7 @@ async function runPushLoop(generation: number): Promise<void> {
 
     try {
       await persistCurrentStore()
-      const response = await fetch("/api/v2/mutations", {
+      const response = await fetch("/api/mutations", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

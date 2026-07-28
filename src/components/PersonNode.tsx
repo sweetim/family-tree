@@ -89,9 +89,9 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   }
 
   return (
-    <div className="group relative">
+    <div className="group relative transition-transform duration-200 hover:-translate-y-0.5">
       <div
-        className={`w-44 rounded-2xl border bg-white transition-all duration-200 hover:-translate-y-0.5 ${
+        className={`w-44 rounded-2xl border bg-white transition-all duration-200 ${
           CARD_BORDER[linkState ?? (selected ? "selected" : "default")]
         }`}
       >

@@ -1,4 +1,4 @@
-import { getTreeSnapshot } from "@/server/handlers/trees-v2"
+import { getTreeSnapshot } from "@/server/handlers/trees"
 
 export const runtime = "nodejs"
 

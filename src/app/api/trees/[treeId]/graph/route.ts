@@ -1,4 +1,4 @@
-import { getTreeGraph } from "@/server/handlers/trees-v2"
+import { getTreeGraph } from "@/server/handlers/trees"
 
 export const runtime = "nodejs"
 

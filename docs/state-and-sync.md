@@ -17,7 +17,7 @@ for conflict resolution.
 ## Bootstrap and lazy reads
 
 Account bootstrap restores the account's IndexedDB snapshot, then fetches the
-paginated `/api/v2/trees` manifest. The home page therefore loads only metadata
+paginated `/api/trees` manifest. The home page therefore loads only metadata
 and counts. Opening a main tree fetches that tree's snapshot. A person deep link
 fetches a bounded radius-three graph, and cross-tree member selectors load the
 selected tree on demand.
@@ -44,7 +44,7 @@ choosing one silently.
 
 ## Atomic mutations and conflicts
 
-`POST /api/v2/mutations` sends a bounded normalized record set as one logical
+`POST /api/mutations` sends a bounded normalized record set as one logical
 mutation. Server ACL checks, dependency checks, canonical ID adoption, graph
 constraints, writes, scope-version increments, change-log insertion, and the
 idempotency receipt share one transaction.
@@ -60,7 +60,7 @@ The account menu displays `saved`, `saving`, `offline`, or `conflict` state.
 ## Incremental synchronization
 
 Each loaded tree stores an opaque cursor. Polling, focus, and online refreshes
-request `/api/v2/changes` and merge only committed batches after that cursor.
+request `/api/changes` and merge only committed batches after that cursor.
 Change rows include authoritative revisions and tombstones. Cursor pages are
 bounded to 100 batches.
 
@@ -71,7 +71,7 @@ snapshots of every shared tree.
 
 ## Deletion and aliases
 
-Tree deletion uses the same v2 mutation service as other edits. It atomically
+Tree deletion uses the same mutation service as other edits. It atomically
 tombstones tree-local records and removes shares. Person-owner deletion
 atomically tombstones the person and every dependent fact and association.
 

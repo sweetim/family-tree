@@ -59,12 +59,12 @@ fetches a metadata-only tree manifest. Selected trees load on demand.
 | Endpoint | Methods | Purpose |
 |---|---|---|
 | `/api/auth/*` | GET, POST | Better Auth flows. |
-| `/api/v2/trees` | GET | Paginated metadata/access manifest. |
-| `/api/v2/trees/[treeId]/snapshot` | GET | One selected tree snapshot. |
-| `/api/v2/trees/[treeId]/graph` | GET | Bounded graph around a person. |
-| `/api/v2/changes` | GET | Paginated tree-scoped deltas. |
-| `/api/v2/mutations` | POST | Atomic, idempotent mutations. |
-| `/api/v2/people/search` | GET | Bounded accessible-person search. |
+| `/api/trees` | GET | Paginated metadata/access manifest. |
+| `/api/trees/[treeId]/snapshot` | GET | One selected tree snapshot. |
+| `/api/trees/[treeId]/graph` | GET | Bounded graph around a person. |
+| `/api/changes` | GET | Paginated tree-scoped deltas. |
+| `/api/mutations` | POST | Atomic, idempotent mutations. |
+| `/api/people/search` | GET | Bounded accessible-person search. |
 | `/api/trees/[treeId]/shares` | GET, POST, DELETE | Owner-only share management. |
 | `/api/person-photo/[personId]` | GET | Authorized no-store image proxy. |
 

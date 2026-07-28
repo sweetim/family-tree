@@ -219,7 +219,7 @@ function PersonSearch({
     }
     const controller = new AbortController()
     void fetch(
-      `/api/v2/people/search?query=${encodeURIComponent(deferredQuery)}`,
+      `/api/people/search?query=${encodeURIComponent(deferredQuery)}`,
       { credentials: "include", signal: controller.signal },
     )
       .then(async (response) => {

@@ -1,4 +1,4 @@
-import { searchPeople } from "@/server/handlers/people-v2"
+import { searchPeople } from "@/server/handlers/people"
 
 export const runtime = "nodejs"
 
