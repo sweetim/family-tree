@@ -44,7 +44,7 @@ export type Fields = {
   gender: Gender | ""
   dob: string
   dod: string
-  location: string
+  birthplace: string
   photo?: string
 }
 
@@ -54,7 +54,7 @@ export function fieldsFrom(p?: Person): Fields {
     gender: p?.gender ?? "",
     dob: p?.dob ?? "",
     dod: p?.dod ?? "",
-    location: p?.location ?? "",
+    birthplace: p?.birthplace ?? "",
     photo: p?.photo,
   }
 }
@@ -65,7 +65,7 @@ export function toInput(f: Fields): PersonInput {
     gender: f.gender || undefined,
     dob: f.dob || undefined,
     dod: f.dod || undefined,
-    location: f.location.trim() || undefined,
+    birthplace: f.birthplace.trim() || undefined,
     photo: f.photo,
   }
 }

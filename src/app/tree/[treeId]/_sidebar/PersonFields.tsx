@@ -161,15 +161,15 @@ export function PersonFields({
 
       <div>
         <label
-          htmlFor="field-location"
+          htmlFor="field-birthplace"
           className={labelCls}
         >
-          Location
+          Birthplace
         </label>
         <input
-          id="field-location"
-          value={fields.location}
-          onChange={(e) => onChange({ ...fields, location: e.target.value })}
+          id="field-birthplace"
+          value={fields.birthplace}
+          onChange={(e) => onChange({ ...fields, birthplace: e.target.value })}
           placeholder="e.g. Singapore"
           className={inputCls}
         />

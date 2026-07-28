@@ -31,7 +31,7 @@ const EXPECTED_COLUMNS_BY_TABLE = {
     "dob",
     "dod",
     "gender",
-    "location",
+    "birthplace",
     "photo",
     "revision",
     "updated_at",

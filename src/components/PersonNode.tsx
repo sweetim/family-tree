@@ -160,13 +160,13 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 </span>
               </div>
             )}
-            {person.location && (
+            {person.birthplace && (
               <p
                 className="mt-0.5 inline-flex items-center gap-0.5 truncate text-xs text-slate-400"
-                title={person.location}
+                title={person.birthplace}
               >
                 <MapPin className="h-3 w-3 shrink-0" />
-                <span className="truncate">{person.location}</span>
+                <span className="truncate">{person.birthplace}</span>
               </p>
             )}
             {!!otherTrees.length && (

@@ -211,7 +211,7 @@ export function identityFromPerson(person: Person): PersonIdentity {
     dob: person.dob,
     dod: person.dod,
     gender: person.gender,
-    location: person.location,
+    birthplace: person.birthplace,
     photo: person.photo,
   }
 }

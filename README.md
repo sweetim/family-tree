@@ -6,7 +6,7 @@ trees, link the same person across them, and share each tree with others.
 
 ## Features
 
-- **Add anyone** — name, birth/death dates, gender, location, and a profile
+- **Add anyone** — name, birth/death dates, gender, birthplace, and a profile
   photo. Lifeline badges show age, or birth–death years.
 - **Automatic layout** — partners sit side by side and children appear in birth
   order. Pan, zoom, and use the minimap to navigate large trees.

@@ -14,7 +14,7 @@ export type PersonIdentity = {
   /** Date of death - set when the person is deceased. */
   dod?: string
   gender?: Gender
-  location?: string
+  birthplace?: string
   /** Compressed data-URL of the uploaded photo. */
   photo?: string
   /** ISO timestamp of the last edit. Set by the sync seam. */
@@ -389,7 +389,7 @@ export type PersonInput = {
   dob?: string
   dod?: string
   gender?: Gender
-  location?: string
+  birthplace?: string
   photo?: string
 }
 

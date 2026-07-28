@@ -50,7 +50,7 @@ const personSyncSelection = {
   dob: persons.dob,
   dod: persons.dod,
   gender: persons.gender,
-  location: persons.location,
+  birthplace: persons.birthplace,
   photo: sql<
     string | null
   >`CASE WHEN ${persons.photo} IS NULL THEN NULL ELSE 'stored' END`,

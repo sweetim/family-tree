@@ -69,9 +69,9 @@ export function ReadonlyDetails({
             {lifeline && (
               <p className="mt-0.5 text-xs text-slate-500">{lifeline}</p>
             )}
-            {person.location && (
+            {person.birthplace && (
               <p className="mt-0.5 inline-flex items-center gap-0.5 text-xs text-slate-400">
-                <MapPin className="h-3 w-3" /> {person.location}
+                <MapPin className="h-3 w-3" /> {person.birthplace}
               </p>
             )}
             {person.gender && (

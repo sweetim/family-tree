@@ -20,7 +20,7 @@ export type PersonRecordWire = {
   dob?: string
   dod?: string
   gender?: Gender
-  location?: string
+  birthplace?: string
   photo?: string
   hasPhoto?: boolean
   revision?: number

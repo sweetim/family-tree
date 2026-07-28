@@ -112,7 +112,7 @@ export const persons = pgTable(
     dob: text("dob"),
     dod: text("dod"),
     gender: text("gender"),
-    location: text("location"),
+    birthplace: text("birthplace"),
     photo: text("photo"),
     revision: integer("revision").notNull().default(1),
     updatedAt: timestamp("updated_at", { withTimezone: true })

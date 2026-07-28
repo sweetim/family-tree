@@ -20,7 +20,7 @@ const UNION_SIZE = 12
 
 /**
  * Where a parent→child "bus" bends, as a fraction from the union dot to the
- * child row's top. Card height varies with content (lifeline, location,
+ * child row's top. Card height varies with content (lifeline, birthplace,
  * cross-tree badges all add lines), but the union dot sits only
  * COUPLE_LINE_Y below its row's *assumed* top — a plain 0.5 midpoint can
  * land inside a taller-than-assumed card. The child row's top edge is

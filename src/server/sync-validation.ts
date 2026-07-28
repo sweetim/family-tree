@@ -147,14 +147,14 @@ function isValidPersonWire(value: unknown, now: Date): boolean {
     hasExactKeys(
       value,
       ["id", "name", "updatedAt"],
-      ["dob", "dod", "gender", "location", "photo", "ownerId", "revision"],
+      ["dob", "dod", "gender", "birthplace", "photo", "ownerId", "revision"],
     )
     && isValidSyncId(value.id)
     && isValidText(value.name)
     && (value.dob === undefined || isValidIsoDate(value.dob))
     && (value.dod === undefined || isValidIsoDate(value.dod))
     && (value.gender === undefined || GENDERS.has(value.gender as string))
-    && isOptionalString(value.location)
+    && isOptionalString(value.birthplace)
     && isOptionalPhoto(value.photo)
     && (value.ownerId === undefined || isValidSyncId(value.ownerId))
     && isReasonableClientTimestamp(value.updatedAt, now)

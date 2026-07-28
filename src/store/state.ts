@@ -745,7 +745,7 @@ export function buildPushWires(
         dob: person.dob,
         dod: person.dod,
         gender: person.gender,
-        location: person.location,
+        birthplace: person.birthplace,
         revision: person.revision,
         ...(isStoredPhotoMarker(person.photo)
           ? {}
@@ -1405,7 +1405,7 @@ export function applyRemote(remote: RemoteRecords): void {
               dob: wire.dob,
               dod: wire.dod,
               gender: wire.gender,
-              location: wire.location,
+              birthplace: wire.birthplace,
               photo: wire.hasPhoto ? STORED_PHOTO_MARKER : wire.photo,
               revision: wire.revision,
               updatedAt: wire.updatedAt,

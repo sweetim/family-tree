@@ -22,7 +22,7 @@ Application data is normalized:
 
 | Table | Purpose and important columns |
 |---|---|
-| `persons` | Shared identity: `id`, `owner_id`, name, birth/death dates, gender, location, `photo` text, `updated_at`, `deleted_at`. |
+| `persons` | Shared identity: `id`, `owner_id`, name, birth/death dates, gender, birthplace, `photo` text, `updated_at`, `deleted_at`. |
 | `trees` | Tree metadata only: `id`, `owner_id`, name, creation/update timestamps, tombstone. |
 | `tree_shares` | Pending or bound viewer/editor grants, keyed by `(tree_id, email)`; `user_id` is nullable until the invitee signs in. |
 | `tree_access_requests` | Owner-reviewed access requests from visitors who reached a share URL without an invite, keyed by `(tree_id, user_id)`; `status` is `pending`/`approved`/`denied`, with the requester's `comment`. |

@@ -6,7 +6,7 @@ The domain types and projection functions live in `src/types.ts`.
 ## Canonical shared facts
 
 - `PersonIdentity` stores one person's name, birth/death dates, gender,
-  location, photo, owner, and sync timestamp. A photo is compressed in the
+  birthplace, photo, owner, and sync timestamp. A photo is compressed in the
   browser, then synced and stored as text.
 - `Union` stores an immutable canonical pair of people. A pair is ordered by
   person id and may have many `UnionEvent` history records.

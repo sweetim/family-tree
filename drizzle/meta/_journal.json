@@ -50,6 +50,13 @@
       "when": 1785244726405,
       "tag": "0006_black_scalphunter",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785246627593,
+      "tag": "0007_birthplace",
+      "breakpoints": true
     }
   ]
 }

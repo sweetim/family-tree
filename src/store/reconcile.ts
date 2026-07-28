@@ -136,7 +136,7 @@ export function mergePersonRecords(
     dob: keep.dob ?? drop.dob,
     dod: keep.dod ?? drop.dod,
     gender: keep.gender ?? drop.gender,
-    location: keep.location ?? drop.location,
+    birthplace: keep.birthplace ?? drop.birthplace,
     photo: keep.photo ?? drop.photo,
     ownerId: keep.ownerId ?? drop.ownerId,
   }

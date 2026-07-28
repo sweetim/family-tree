@@ -7,7 +7,7 @@ architecture before making changes. All references point to source files with
 ## What this app is
 
 An interactive, collaborative family-tree builder. Users register family members
-(name, dates, location, photo) and the app lays them out automatically as a
+(name, dates, birthplace, photo) and the app lays them out automatically as a
 genealogy chart. A single person can belong to multiple trees, so linking
 families across trees is a first-class concept. Trees can be shared with other
 users as **viewer** or **editor**, and every tree can be exported/imported as
