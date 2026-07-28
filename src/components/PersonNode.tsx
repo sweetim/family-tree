@@ -5,6 +5,7 @@ import { useEffect, useState } from "react"
 import { personPhotoSrc } from "../lib/image"
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
 import { useTreeActions } from "../lib/tree-actions"
+import { useViewSettings } from "../lib/view-settings"
 import { useAncestorTree, useMemberTrees } from "../store"
 import type { Gender } from "../types"
 import { PersonAvatar } from "./PersonAvatar"
@@ -57,12 +58,14 @@ const CARD_BORDER: Record<string, string> = {
   eligible: "border-emerald-400 ring-2 ring-emerald-300",
   blocked: "border-slate-200 opacity-30",
   selected: "border-cobalt-500 ring-2 ring-cobalt-300 shadow-lift",
+  bloodline: "border-amber-300 ring-2 ring-amber-200",
   default: "border-slate-200",
 }
 
 export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   const { person, linkState, marriedIn, rootFounder } = data
   const { openChoose, readOnly } = useTreeActions()
+  const { settings } = useViewSettings()
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
   const { treeId } = useParams<{ treeId: string }>()
@@ -80,6 +83,17 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
     setPhotoError(false)
   }, [photoSrc])
   const showPhoto = photoSrc !== undefined && !photoError
+  // Bloodline highlight only affects the resting state — an active click-to-
+  // connect session or the selected card keep their own styling.
+  const highlightBloodline = settings.highlightBloodline && !linkState
+  const cardKey =
+    linkState
+    ?? (selected
+      ? "selected"
+      : highlightBloodline && !marriedIn
+        ? "bloodline"
+        : "default")
+  const dimmed = highlightBloodline && marriedIn && !selected
 
   let lifeline: string | null = null
   if (deceased && person.dod) {
@@ -89,10 +103,12 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
   }
 
   return (
-    <div className="group relative transition-transform duration-200 hover:-translate-y-0.5">
+    <div
+      className={`group relative transition-transform duration-200 hover:-translate-y-0.5 ${dimmed ? "opacity-40" : ""}`}
+    >
       <div
         className={`w-44 rounded-2xl border bg-white transition-all duration-200 ${
-          CARD_BORDER[linkState ?? (selected ? "selected" : "default")]
+          CARD_BORDER[cardKey]
         }`}
       >
         <Handle

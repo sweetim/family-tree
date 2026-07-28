@@ -20,6 +20,11 @@ export type ViewSettings = {
    * are shown.
    */
   showAllFamilies: boolean
+  /**
+   * Highlight the family bloodline (founding roots and every descendant)
+   * and dim married-in spouses, so the bloodline stands out at a glance.
+   */
+  highlightBloodline: boolean
 }
 
 const STORAGE_KEY = "family-tree:view-settings"
@@ -27,6 +32,7 @@ const DEFAULTS: ViewSettings = {
   minimap: true,
   marriageYears: true,
   showAllFamilies: false,
+  highlightBloodline: false,
 }
 
 function load(): ViewSettings {
