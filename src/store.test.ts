@@ -243,17 +243,9 @@ async function freshStore() {
   return store
 }
 
-describe("legacy projected JSON compatibility", () => {
-  test("normalizes v1 and retains the projected v2 format", async () => {
+describe("projected JSON compatibility", () => {
+  test("retains the projected v2 format", async () => {
     const { normalizeImport } = await import("./store")
-    const versionOne = {
-      a: { id: "a", name: "A", parentIds: ["p"], spouseId: "b" },
-      b: { id: "b", name: "B" },
-      p: { id: "p", name: "P" },
-    }
-    expect(normalizeImport(versionOne).a?.parents).toEqual([{ id: "p" }])
-    expect(normalizeImport(versionOne).a?.spouseIds).toEqual(["b"])
-
     const versionTwo = {
       a: {
         id: "a",

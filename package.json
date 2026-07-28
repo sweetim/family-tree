@@ -12,8 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
-    "db:validate": "bun run scripts/validate-normalized-database.ts",
-    "db:migrate-photos": "bun run scripts/migrate-photos-to-blob.ts"
+    "db:validate": "bun run scripts/validate-normalized-database.ts"
   },
   "dependencies": {
     "@biomejs/biome": "^2.5.4",

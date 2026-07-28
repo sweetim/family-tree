@@ -1,25 +1,8 @@
 import {
   type FamilyData,
-  type Gender,
   type ParentChildRelationshipType,
-  type ParentLink,
   type Person,
 } from "../types"
-
-type LegacyPerson = Partial<{
-  id: string
-  name: string
-  dob: string
-  dod: string
-  gender: Gender
-  location: string
-  photo: string
-  parentIds: string[]
-  spouseId: string
-  parents: ParentLink[]
-  spouseIds: string[]
-  marriageDates: Record<string, string>
-}>
 
 const ASCII_ID = /^[\x21-\x7e]+$/
 const PARENT_RELATIONSHIP_TYPES = new Set<ParentChildRelationshipType>([
@@ -160,46 +143,16 @@ function validateImportedFamily(data: FamilyData): FamilyData {
   return data
 }
 
-function migrateLegacy(data: Record<string, LegacyPerson>): FamilyData {
-  const family: FamilyData = {}
-  for (const person of Object.values(data)) {
-    if (!person || typeof person.id !== "string") continue
-    family[person.id] = {
-      id: person.id,
-      name: person.name ?? "",
-      dob: person.dob,
-      dod: person.dod,
-      gender: person.gender,
-      location: person.location,
-      photo: person.photo,
-      parents: Array.isArray(person.parentIds)
-        ? person.parentIds.map((id) => ({ id }))
-        : (person.parents ?? []),
-      spouseIds: person.spouseId ? [person.spouseId] : (person.spouseIds ?? []),
-      marriageDates: person.marriageDates ?? {},
-    }
-  }
-  return family
-}
-
 export function normalizeImport(data: Record<string, unknown>): FamilyData {
   if (Array.isArray(data)) throw new Error("Imported family must be an object")
-  const looksLegacy = Object.values(data).some((person) => {
-    const candidate = person as LegacyPerson | null | undefined
-    return (
-      Array.isArray(candidate?.parentIds) || candidate?.spouseId !== undefined
-    )
-  })
-  const family = looksLegacy
-    ? migrateLegacy(data as Record<string, LegacyPerson>)
-    : (Object.fromEntries(
-        Object.entries(data).map(([id, value]) => {
-          if (!value || typeof value !== "object" || Array.isArray(value)) {
-            throw new Error("Every imported member must be an object")
-          }
-          const person = value as Person
-          return [id, { ...person, marriageDates: person.marriageDates ?? {} }]
-        }),
-      ) as FamilyData)
+  const family = Object.fromEntries(
+    Object.entries(data).map(([id, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("Every imported member must be an object")
+      }
+      const person = value as Person
+      return [id, { ...person, marriageDates: person.marriageDates ?? {} }]
+    }),
+  ) as FamilyData
   return validateImportedFamily(family)
 }

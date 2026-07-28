@@ -4,10 +4,8 @@ import { persons } from "../../db/schema"
 import { canRead, personRole } from "../acl"
 import { getAuth } from "../auth"
 import {
-  decodePhotoDataUrl,
   fetchStoredPhoto,
   isAllowedStoredPhotoUrl,
-  isPhotoDataUrl,
   MAX_PHOTO_BYTES,
 } from "../blob"
 
@@ -65,20 +63,6 @@ export async function getPersonPhoto(
     && !canRead(await personRole(db, session.user.id, personId))
   ) {
     return new Response(null, { status: 404 })
-  }
-  if (isPhotoDataUrl(person.photo)) {
-    try {
-      const photo = decodePhotoDataUrl(person.photo)
-      return new Response(photo.bytes, {
-        headers: {
-          "content-type": photo.contentType,
-          "cache-control": "private, no-store",
-          "x-content-type-options": "nosniff",
-        },
-      })
-    } catch {
-      return new Response(null, { status: 502 })
-    }
   }
   if (!isAllowedStoredPhotoUrl(person.photo)) {
     return new Response(null, { status: 502 })
