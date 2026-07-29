@@ -1,4 +1,4 @@
-import { del, put } from "@vercel/blob"
+import { del, get, put } from "@vercel/blob"
 
 const DATA_URL_PREFIX = "data:"
 export const MAX_PHOTO_BYTES = 512 * 1024
@@ -94,9 +94,18 @@ export async function fetchStoredPhoto(
   url: string,
   signal?: AbortSignal,
 ): Promise<Response> {
-  return fetch(url, {
-    headers: { authorization: `Bearer ${token()}` },
-    signal,
+  const result = await get(url, {
+    access: "private",
+    abortSignal: signal,
+  })
+  if (result?.statusCode !== 200) {
+    return new Response(null, { status: result?.statusCode ?? 404 })
+  }
+  return new Response(result.stream, {
+    headers: {
+      "content-length": String(result.blob.size),
+      "content-type": result.blob.contentType,
+    },
   })
 }
 
