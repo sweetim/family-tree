@@ -48,6 +48,9 @@ export function TreeView({
   openPersonId?: string
 }) {
   const family = useFamily(tree.id)
+  const loadedMemberCount = Object.keys(family.people).length
+  const sidebarLoading =
+    !tree.loaded && (tree.memberCount ?? 0) > 0 && loadedMemberCount === 0
   const { data: session } = useSession()
   const { editingTreeId, getEditingSession, isTreeEditing, setEditingTreeId } =
     useTreeEditMode()
@@ -418,6 +421,7 @@ export function TreeView({
           open={drawerOpen}
           editable={canEdit}
           startingEditMode={startingEditMode}
+          loading={sidebarLoading}
           collapsed={sidebarHidden}
           onToggleEditMode={() => void toggleEditMode()}
           onCollapse={() => setSidebarHidden(true)}

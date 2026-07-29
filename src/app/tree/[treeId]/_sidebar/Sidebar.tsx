@@ -35,6 +35,7 @@ interface Props {
   open: boolean
   editable: boolean
   startingEditMode: boolean
+  loading: boolean
   onSelect: (id: string) => void
   onAddRoot: () => void
   onOpenSettings: () => void
@@ -55,6 +56,7 @@ export function Sidebar({
   open,
   editable,
   startingEditMode,
+  loading,
   onSelect,
   onAddRoot,
   onOpenSettings,
@@ -114,14 +116,30 @@ export function Sidebar({
         <h1 className="mt-2 text-lg font-bold tracking-tight text-slate-800">
           {treeName}
         </h1>
-        <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-cobalt-50 px-2.5 py-1 text-xs font-medium text-cobalt-700">
+        <span
+          className="mt-2 inline-flex items-center gap-1 rounded-full bg-cobalt-50 px-2.5 py-1 text-xs font-medium text-cobalt-700"
+          aria-busy={loading}
+        >
           <Users className="h-3.5 w-3.5" />
-          {count} members
+          {loading ? (
+            <>
+              <span
+                aria-hidden="true"
+                className="h-3 w-4 animate-pulse rounded bg-cobalt-200"
+              />
+              <span aria-hidden="true">members</span>
+              <span className="sr-only">Loading member count</span>
+            </>
+          ) : (
+            `${count} members`
+          )}
         </span>
       </div>
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
-        {state.mode === "share" ? (
+        {loading ? (
+          <SidebarSkeleton />
+        ) : state.mode === "share" ? (
           <SharePanel
             treeId={treeId}
             treeName={treeName}
@@ -241,7 +259,11 @@ export function Sidebar({
         )}
       </div>
 
-      <div className="space-y-2 border-t border-slate-200 px-5 py-4">
+      <div
+        className={`space-y-2 border-t border-slate-200 px-5 py-4 ${
+          loading ? "pointer-events-none opacity-60" : ""
+        }`}
+      >
         {!readOnly && (
           <button
             aria-label={
@@ -289,5 +311,24 @@ export function Sidebar({
         </button>
       </div>
     </aside>
+  )
+}
+
+function SidebarSkeleton() {
+  return (
+    <div
+      className="space-y-4"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
+        <div className="space-y-2">
+          <div className="h-3 w-3/4 animate-pulse rounded bg-slate-200" />
+          <div className="h-3 w-full animate-pulse rounded bg-slate-200" />
+          <div className="h-3 w-2/3 animate-pulse rounded bg-slate-200" />
+        </div>
+      </div>
+      <div className="h-10 w-full animate-pulse rounded-xl bg-slate-200" />
+    </div>
   )
 }
