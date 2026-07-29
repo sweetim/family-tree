@@ -186,6 +186,15 @@ let persistenceRestore: Promise<void> | undefined
 let persistenceRestoreUserId: string | null = null
 let persistenceRestoreToken = 0
 
+/**
+ * Display-only hint mapping a person to the id of their earliest ancestor-family
+ * tree. Populated from tree snapshots so the "ancestor family" card label can
+ * render before every related tree is loaded. Not synced and not part of the
+ * normalized graph — `projectTree` never reads it, so it cannot leak partial
+ * membership into a tree's projection.
+ */
+let ancestorTreeLinks = new Map<string, string>()
+
 function persistedSnapshot(): PersistedStore {
   return {
     state,
@@ -1098,6 +1107,13 @@ export function applyTreeSnapshot(snapshot: TreeSnapshotResponse): void {
     )
   }
   applyRemote({ ...snapshot.records, trees: [snapshot.tree] })
+  if (snapshot.ancestorTrees?.length) {
+    const nextLinks = new Map(ancestorTreeLinks)
+    for (const link of snapshot.ancestorTrees) {
+      nextLinks.set(link.personId, link.treeId)
+    }
+    ancestorTreeLinks = nextLinks
+  }
   update(
     (previous) => ({
       ...previous,
@@ -1653,6 +1669,7 @@ export function applyFullPull(pull: SyncPullResponse): void {
   try {
     state = emptyState()
     dirtyState = emptyDirtyState()
+    ancestorTreeLinks = new Map()
     remoteTombstoneClocks = emptyTombstoneClocks()
     applyRemote(pull.own)
     for (const shared of pull.shared) applyRemote(sharedRemoteRecords(shared))
@@ -1798,6 +1815,10 @@ export function getGraph(): GlobalState {
   return state
 }
 
+export function getAncestorTreeLinks(): Map<string, string> {
+  return ancestorTreeLinks
+}
+
 function getHydrated(): boolean {
   return hydrated
 }
@@ -1818,6 +1839,7 @@ export function resetStore(): void {
   state = emptyState()
   dirtyState = emptyDirtyState()
   remoteTombstoneClocks = emptyTombstoneClocks()
+  ancestorTreeLinks = new Map()
   nextRevision = 1
   deviceId = newId()
   mutationIdsByBatch.clear()
@@ -1970,6 +1992,7 @@ export function resolveNextSyncConflict(
     for (const listener of listeners) listener()
     void pushDirty()
   } else {
+    setSyncStatus(statusFromDirtyState())
     schedulePersistence()
     for (const listener of listeners) listener()
   }

@@ -446,6 +446,85 @@ export async function loadActiveRecordsForPeople(
   }
 }
 
+type AncestorLinkRow = {
+  personId: string
+  treeId: string
+  treeCreatedAt: string
+}
+
+/**
+ * The earliest accessible "ancestor family" tree for each visible person — a
+ * tree (other than the current one) that holds both the person and at least one
+ * of their parents. The client resolves the full tree metadata from its index,
+ * so we only need to return the link. Keeping this separate from the synced
+ * records avoids pre-populating partial membership into the store, which would
+ * otherwise render a lone, disconnected card when the user opens that tree
+ * before its own snapshot loads.
+ */
+export async function loadAncestorTreeLinks(
+  db: DB,
+  userId: string,
+  treeId: string,
+  personIds: string[],
+): Promise<Array<{ personId: string; treeId: string }>> {
+  if (personIds.length === 0) return []
+  const result = await db.execute<AncestorLinkRow>(sql`
+    SELECT
+      rel.child_person_id AS "personId",
+      tpr.tree_id AS "treeId",
+      at.created_at AS "treeCreatedAt"
+    FROM parent_child_relationships rel
+    INNER JOIN tree_parent_child_relationships tpr
+      ON tpr.parent_child_relationship_id = rel.id
+      AND tpr.deleted_at IS NULL
+    INNER JOIN tree_members child_member
+      ON child_member.tree_id = tpr.tree_id
+      AND child_member.person_id = rel.child_person_id
+      AND child_member.deleted_at IS NULL
+    INNER JOIN tree_members parent_member
+      ON parent_member.tree_id = tpr.tree_id
+      AND parent_member.person_id = rel.parent_person_id
+      AND parent_member.deleted_at IS NULL
+    INNER JOIN trees at
+      ON at.id = tpr.tree_id
+      AND at.deleted_at IS NULL
+    WHERE rel.deleted_at IS NULL
+      AND rel.child_person_id IN (${sql.join(
+        personIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})
+      AND tpr.tree_id <> ${treeId}
+      AND (
+        at.owner_id = ${userId}
+        OR EXISTS (
+          SELECT 1
+          FROM tree_shares ats
+          WHERE ats.tree_id = at.id AND ats.user_id = ${userId}
+        )
+      )
+  `)
+  if (result.rows.length === 0) return []
+  const earliest = new Map<string, { treeId: string; treeCreatedAt: string }>()
+  for (const row of result.rows) {
+    const existing = earliest.get(row.personId)
+    if (
+      !existing
+      || row.treeCreatedAt < existing.treeCreatedAt
+      || (row.treeCreatedAt === existing.treeCreatedAt
+        && row.treeId < existing.treeId)
+    ) {
+      earliest.set(row.personId, {
+        treeId: row.treeId,
+        treeCreatedAt: row.treeCreatedAt,
+      })
+    }
+  }
+  return [...earliest.entries()].map(([personId, { treeId }]) => ({
+    personId,
+    treeId,
+  }))
+}
+
 /** GET /api/sync?since=<iso> with query count independent of tree count. */
 export async function getSync(request: Request): Promise<Response> {
   const sinceParam = new URL(request.url).searchParams.get("since")

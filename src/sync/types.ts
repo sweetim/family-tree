@@ -234,9 +234,14 @@ export type TreeManifestResponse = {
   nextCursor?: string
 }
 
+export type AncestorTreeLink = { personId: string; treeId: string }
+
 export type TreeSnapshotResponse = {
   tree: TreeRecordWire
   records: Omit<SyncRecordSet, "trees">
+  /** Earliest accessible ancestor-family tree per visible person, so the
+   *  client can show the "ancestor family" label without loading every tree. */
+  ancestorTrees?: AncestorTreeLink[]
   syncVersion: number
   cursor: string
   partial?: boolean

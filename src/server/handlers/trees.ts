@@ -20,6 +20,7 @@ import { encodeSyncCursor } from "../sync/cursor"
 import {
   loadActiveRecordsByTree,
   loadActiveRecordsForPeople,
+  loadAncestorTreeLinks,
 } from "../sync/pull"
 import { treeToWire } from "../sync/wire"
 import { isValidSyncId } from "../sync-validation"
@@ -276,6 +277,12 @@ export async function getTreeSnapshot(
   if (!row) return Response.json({ error: "tree not found" }, { status: 404 })
 
   const records = (await loadActiveRecordsByTree(db, [treeId])).get(treeId)
+  const ancestorTrees = await loadAncestorTreeLinks(
+    db,
+    me.id,
+    treeId,
+    (records?.persons ?? []).map((person) => person.id),
+  )
   const body: TreeSnapshotResponse = {
     tree: treeToWire(row.tree, role, row.ownerEmail) as TreeRecordWire,
     records: records ?? {
@@ -287,6 +294,7 @@ export async function getTreeSnapshot(
       parentChildRelationships: [],
       treeParentChildRelationships: [],
     },
+    ancestorTrees,
     syncVersion: row.tree.syncVersion,
     cursor: encodeSyncCursor({
       treeId,
@@ -383,10 +391,17 @@ export async function getTreeGraph(
     return Response.json({ error: "person not found" }, { status: 404 })
   }
   const records = await loadActiveRecordsForPeople(db, treeId, personIds)
+  const ancestorTrees = await loadAncestorTreeLinks(
+    db,
+    me.id,
+    treeId,
+    personIds,
+  )
   const maximumDepth = Math.max(...reachable.rows.map((row) => row.depth))
   const body: TreeSnapshotResponse = {
     tree: treeToWire(treeRow.tree, role, treeRow.ownerEmail) as TreeRecordWire,
     records,
+    ancestorTrees,
     syncVersion: treeRow.tree.syncVersion,
     cursor: encodeSyncCursor({
       treeId,

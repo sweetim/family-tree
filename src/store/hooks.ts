@@ -33,6 +33,7 @@ import {
   applyTreeSnapshot,
   deleteTreeOnServer,
   fetchTreeSnapshot,
+  getAncestorTreeLinks,
   getGraph,
   getSnapshot,
   makeDraft,
@@ -152,17 +153,29 @@ export function useMemberTrees(personId: string): TreeMeta[] {
 
 /**
  * The person's "ancestor family": another tree (not the current one) that holds
- * both the person and at least one of their parents. See {@link findAncestorTree}.
+ * both the person and at least one of their parents. Prefers the display-only
+ * link resolved by the server snapshot (available before every related tree is
+ * loaded), falling back to {@link findAncestorTree} once the membership graph is
+ * fully present.
  */
 export function useAncestorTree(
   personId: string,
   currentTreeId: string,
 ): TreeMeta | undefined {
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
-  return useMemo(
-    () => findAncestorTree(graph, personId, currentTreeId),
-    [graph, personId, currentTreeId],
+  const links = useSyncExternalStore(
+    subscribe,
+    getAncestorTreeLinks,
+    getAncestorTreeLinks,
   )
+  return useMemo(() => {
+    const linkedTreeId = links.get(personId)
+    if (linkedTreeId && linkedTreeId !== currentTreeId) {
+      const linked = graph.index.find((tree) => tree.id === linkedTreeId)
+      if (linked) return linked
+    }
+    return findAncestorTree(graph, personId, currentTreeId)
+  }, [graph, links, personId, currentTreeId])
 }
 
 export function useMembersOf(
