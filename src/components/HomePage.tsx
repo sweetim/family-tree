@@ -11,6 +11,7 @@ import {
   Users,
   X,
 } from "lucide-react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import {
   type FormEvent,
@@ -565,9 +566,13 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
     <div className="min-h-dvh bg-slate-50">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-2.5 sm:px-6">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cobalt-600 text-white">
-            <Network className="h-4.5 w-4.5" />
-          </span>
+          <Image
+            src="/logo.webp"
+            alt=""
+            width={32}
+            height={32}
+            className="h-8 w-8 shrink-0 rounded-lg object-cover"
+          />
           <span className="hidden text-base font-semibold tracking-tight text-slate-900 sm:inline">
             FamiKi
           </span>
