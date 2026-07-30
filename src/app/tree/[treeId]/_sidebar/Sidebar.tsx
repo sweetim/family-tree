@@ -148,6 +148,7 @@ export function Sidebar({
         ) : state.mode === "reviewChanges" ? (
           <ReviewChangesPanel
             changes={blockedChanges}
+            treeId={treeId}
             onClose={onClose}
           />
         ) : state.mode === "settings" ? (

@@ -2227,11 +2227,11 @@ function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
 export async function resolveBlockedOperation(
   operationId: string,
   resolution: "device" | "server",
+  treeId: string,
 ): Promise<"resolved" | "stale" | "conflict" | "offline"> {
   const conflict = operationConflicts.find(
     (candidate) => candidate.operationId === operationId,
   )
-  if (!conflict) return "stale"
   const isCurrentConflictRecord = (
     current: DirtyRecord | undefined,
     record: PersistedOperationConflict["records"][number],
@@ -2244,33 +2244,60 @@ export async function resolveBlockedOperation(
             && (current.operationId === record.dirty.operationId
               || current.sourceId === record.dirty.sourceId))),
     )
-  if (resolution === "server") {
-    for (const record of conflict.records) {
-      const current = dirtyState[record.collection].get(record.id)
-      if (!isCurrentConflictRecord(current, record)) continue
-      dirtyState[record.collection].delete(record.id)
-      if (record.collection === "trees") {
-        state.index = state.index.filter((tree) => tree.id !== record.id)
-        if (
-          record.serverValue
-          && !("deletedAt" in (record.serverValue as object))
-        ) {
-          state.index.push(record.serverValue as TreeMeta)
-        }
-      } else {
-        const records = state[record.collection] as Record<string, unknown>
-        if (
-          !record.serverValue
-          || "deletedAt" in (record.serverValue as object)
-        ) {
-          delete records[record.id]
-        } else records[record.id] = record.serverValue
-      }
-    }
-    operationConflicts = operationConflicts.filter(
-      (candidate) => candidate.operationId !== operationId,
+  const legacyRecords = RECORD_COLLECTIONS.flatMap((collection) =>
+    [...dirtyState[collection]]
+      .filter(
+        ([id, record]) =>
+          record.blocked
+          && (record.operationId === operationId
+            || `${collection}:${id}` === operationId),
+      )
+      .map(([id, dirty]) => ({ collection, id, dirty })),
+  )
+  const currentRecords = conflict
+    ? conflict.records.flatMap((record) => {
+        const current = dirtyState[record.collection].get(record.id)
+        return isCurrentConflictRecord(current, record)
+          ? [{ collection: record.collection, id: record.id, dirty: current }]
+          : []
+      })
+    : legacyRecords
+  if (currentRecords.length === 0) return "stale"
+  const matchesCapturedIntent = (
+    current: DirtyRecord | undefined,
+    captured: DirtyRecord,
+  ): current is DirtyRecord =>
+    Boolean(
+      current?.blocked
+        && current.operationId === captured.operationId
+        && current.sourceId === captured.sourceId
+        && current.action === captured.action,
     )
-    clearedOperationConflictIds.add(operationId)
+
+  if (resolution === "server") {
+    let snapshot: TreeSnapshotResponse
+    try {
+      snapshot = await fetchTreeSnapshot(treeId)
+    } catch {
+      return "offline"
+    }
+    let cleared = 0
+    for (const record of currentRecords) {
+      const current = dirtyState[record.collection].get(record.id)
+      if (!matchesCapturedIntent(current, record.dirty)) continue
+      const token = dirtyToken(record.collection, record.id, current)
+      if (token) clearedDirtyTokens.add(token)
+      dirtyState[record.collection].delete(record.id)
+      cleared++
+    }
+    if (cleared === 0) return "stale"
+    if (conflict) {
+      operationConflicts = operationConflicts.filter(
+        (candidate) => candidate.operationId !== operationId,
+      )
+      clearedOperationConflictIds.add(operationId)
+    }
+    applyTreeSnapshot(snapshot)
     schedulePersistence()
     setSyncStatus(statusFromDirtyState())
     notifyListeners()
@@ -2278,41 +2305,96 @@ export async function resolveBlockedOperation(
     return "resolved"
   } else {
     const retryOperationId = newId()
-    let changed = false
-    for (const record of conflict.records) {
+    let requeued = 0
+    for (const record of currentRecords) {
       const current = dirtyState[record.collection].get(record.id)
-      if (!isCurrentConflictRecord(current, record)) continue
+      if (!matchesCapturedIntent(current, record.dirty)) continue
+      const conflictRecord = conflict?.records.find(
+        (candidate) =>
+          candidate.collection === record.collection
+          && candidate.id === record.id,
+      )
       const serverRevision = (
-        record.serverValue as { revision?: number } | undefined
+        conflictRecord?.serverValue as { revision?: number } | undefined
       )?.revision
+      if (
+        conflictRecord
+        && current.action === "delete"
+        && !conflictRecord.serverValue
+      ) {
+        const token = dirtyToken(record.collection, record.id, current)
+        if (token) clearedDirtyTokens.add(token)
+        dirtyState[record.collection].delete(record.id)
+        continue
+      }
       dirtyState[record.collection].set(record.id, {
         ...current,
         blocked: false,
-        baseRevision: serverRevision,
+        baseRevision: conflictRecord ? serverRevision : current.baseRevision,
         revision: nextRevision++,
         operationId: retryOperationId,
         conflictId: undefined,
       })
-      changed = true
+      requeued++
     }
-    if (!changed) return "stale"
+    if (requeued === 0) {
+      if (conflict) {
+        operationConflicts = operationConflicts.filter(
+          (candidate) => candidate.operationId !== operationId,
+        )
+        clearedOperationConflictIds.add(operationId)
+      }
+      schedulePersistence()
+      setSyncStatus(statusFromDirtyState())
+      notifyListeners()
+      await persistCurrentStore()
+      return "resolved"
+    }
+    schedulePersistence()
+    setSyncStatus(statusFromDirtyState())
+    notifyListeners()
+    if (pushInFlight && pushInFlightGeneration === storeGeneration) {
+      await pushInFlight
+    }
+    await pushDirty()
+    if (syncStatus === "offline") {
+      for (const record of currentRecords) {
+        const current = dirtyState[record.collection].get(record.id)
+        if (current?.operationId !== retryOperationId) continue
+        dirtyState[record.collection].set(record.id, {
+          ...record.dirty,
+          blocked: true,
+          revision: nextRevision++,
+        })
+      }
+      setSyncStatus(statusFromDirtyState())
+      schedulePersistence()
+      notifyListeners()
+      await persistCurrentStore()
+      return "offline"
+    }
+    const retriedConflict = operationConflicts.find(
+      (candidate) => candidate.operationId === retryOperationId,
+    )
+    if (retriedConflict) {
+      if (conflict) {
+        operationConflicts = operationConflicts.filter(
+          (candidate) => candidate.operationId !== operationId,
+        )
+        clearedOperationConflictIds.add(operationId)
+        schedulePersistence()
+        notifyListeners()
+        await persistCurrentStore()
+      }
+      return "conflict"
+    }
   }
-  schedulePersistence()
-  setSyncStatus(statusFromDirtyState())
-  notifyListeners()
-  if (pushInFlight && pushInFlightGeneration === storeGeneration) {
-    await pushInFlight
+  if (conflict) {
+    operationConflicts = operationConflicts.filter(
+      (candidate) => candidate.operationId !== operationId,
+    )
+    clearedOperationConflictIds.add(operationId)
   }
-  await pushDirty()
-  if (syncStatus === "offline") return "offline"
-  const retriedConflict = operationConflicts.find(
-    (candidate) => candidate.operationId !== operationId,
-  )
-  if (retriedConflict) return "conflict"
-  operationConflicts = operationConflicts.filter(
-    (candidate) => candidate.operationId !== operationId,
-  )
-  clearedOperationConflictIds.add(operationId)
   schedulePersistence()
   notifyListeners()
   await persistCurrentStore()

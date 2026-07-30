@@ -4,9 +4,11 @@ import { type BlockedChange, resolveBlockedOperation } from "@/store"
 
 export function ReviewChangesPanel({
   changes,
+  treeId,
   onClose,
 }: {
   changes: BlockedChange[]
+  treeId: string
   onClose: () => void
 }) {
   const [expandedId, setExpandedId] = useState<string>()
@@ -16,7 +18,7 @@ export function ReviewChangesPanel({
   async function resolve(change: BlockedChange, side: "device" | "server") {
     setResolvingId(change.id)
     setError(undefined)
-    const result = await resolveBlockedOperation(change.id, side)
+    const result = await resolveBlockedOperation(change.id, side, treeId)
     setResolvingId(undefined)
     if (result === "resolved") setExpandedId(undefined)
     else {
