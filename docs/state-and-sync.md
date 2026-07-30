@@ -79,6 +79,10 @@ snapshots of every shared tree.
 Tree deletion uses the same mutation service as other edits. It atomically
 tombstones tree-local records and removes shares. Person-owner deletion
 atomically tombstones the person and every dependent fact and association.
+Removing a member from one tree atomically tombstones that tree's marriage and
+parent associations involving the member before tombstoning the membership.
+The resulting association tombstones are included in the same tree change-log
+batch, so other clients remove the connections and member together.
 
 Parent relationship collisions return canonical fact and association aliases.
 The store remaps records, keys, revisions, and queued work immediately, avoiding

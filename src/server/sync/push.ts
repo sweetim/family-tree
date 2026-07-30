@@ -57,6 +57,12 @@ import {
 type SyncCollection = keyof SyncAppliedIds
 type RoleForTree = (treeId: string) => Promise<Role | null>
 type ActivePeopleExist = (personIds: string[]) => Promise<boolean>
+type CascadedTreeReferences = {
+  unionIds: Set<string>
+  parentRelationshipIds: Set<string>
+  treeUnionKeys: Set<string>
+  treeParentRelationshipKeys: Set<string>
+}
 
 const GENDERS = new Set<Gender>(["male", "female", "other"])
 const UNION_EVENT_TYPES = new Set<UnionEventType>([
@@ -186,6 +192,15 @@ function emptyRecordSet(): SyncRecordSet {
   }
 }
 
+function emptyCascadedTreeReferences(): CascadedTreeReferences {
+  return {
+    unionIds: new Set(),
+    parentRelationshipIds: new Set(),
+    treeUnionKeys: new Set(),
+    treeParentRelationshipKeys: new Set(),
+  }
+}
+
 async function collectMutationChanges(
   db: DB,
   body: SyncPushRequest,
@@ -197,6 +212,7 @@ async function collectMutationChanges(
       type: ParentChildRelationshipType
     }
   >,
+  cascadedReferences: CascadedTreeReferences = emptyCascadedTreeReferences(),
 ): Promise<Map<string, SyncRecordSet>> {
   const personIds = new Set([
     ...body.persons.map((wire) => wire.id),
@@ -209,30 +225,34 @@ async function collectMutationChanges(
   const explicitMemberKeys = new Set(
     body.treeMembers.map((wire) => associationKey(wire.treeId, wire.personId)),
   )
-  const explicitTreeUnionKeys = new Set(
-    body.treeUnions.map((wire) => associationKey(wire.treeId, wire.unionId)),
-  )
-  const explicitTreeParentKeys = new Set(
-    body.treeParentChildRelationships.map((wire) =>
+  const explicitTreeUnionKeys = new Set([
+    ...body.treeUnions.map((wire) => associationKey(wire.treeId, wire.unionId)),
+    ...cascadedReferences.treeUnionKeys,
+  ])
+  const explicitTreeParentKeys = new Set([
+    ...body.treeParentChildRelationships.map((wire) =>
       associationKey(
         wire.treeId,
         parentAliases.get(wire.parentChildRelationshipId)?.id
           ?? wire.parentChildRelationshipId,
       ),
     ),
-  )
+    ...cascadedReferences.treeParentRelationshipKeys,
+  ])
   const unionIds = new Set([
     ...body.unions.map((wire) => wire.id),
     ...body.unionEvents.flatMap((wire) =>
       "unionId" in wire ? [wire.unionId] : [],
     ),
     ...body.treeUnions.map((wire) => wire.unionId),
+    ...cascadedReferences.unionIds,
   ])
   const parentIds = new Set([
     ...body.parentChildRelationships.map((wire) => wire.id),
     ...body.treeParentChildRelationships.map(
       (wire) => wire.parentChildRelationshipId,
     ),
+    ...cascadedReferences.parentRelationshipIds,
   ])
   for (const alias of parentAliases.values()) parentIds.add(alias.id)
 
@@ -574,52 +594,41 @@ async function activeTreeHasMembers(
   )
 }
 
-async function personIsReferencedInTree(
+async function tombstonePersonReferencesInTree(
   db: DB,
   treeId: string,
   personId: string,
-): Promise<boolean> {
+  serverTime: Date,
+): Promise<{ unionIds: string[]; parentRelationshipIds: string[] }> {
   const unionAssociations = await db
-    .select({ unionId: treeUnions.unionId })
+    .select({ id: treeUnions.unionId })
     .from(treeUnions)
-    .where(and(eq(treeUnions.treeId, treeId), isNull(treeUnions.deletedAt)))
-  const unionIds = unionAssociations.map((row) => row.unionId)
-  if (unionIds.length > 0) {
-    const referencedUnions = await db
-      .select({ id: unions.id })
-      .from(unions)
-      .where(
-        and(
-          inArray(unions.id, unionIds),
-          isNull(unions.deletedAt),
-          or(
-            eq(unions.firstPersonId, personId),
-            eq(unions.secondPersonId, personId),
-          ),
+    .innerJoin(unions, eq(unions.id, treeUnions.unionId))
+    .where(
+      and(
+        eq(treeUnions.treeId, treeId),
+        isNull(treeUnions.deletedAt),
+        isNull(unions.deletedAt),
+        or(
+          eq(unions.firstPersonId, personId),
+          eq(unions.secondPersonId, personId),
         ),
-      )
-    if (referencedUnions.length > 0) return true
-  }
-
+      ),
+    )
   const parentAssociations = await db
-    .select({
-      relationshipId: treeParentChildRelationships.parentChildRelationshipId,
-    })
+    .select({ id: treeParentChildRelationships.parentChildRelationshipId })
     .from(treeParentChildRelationships)
+    .innerJoin(
+      parentChildRelationships,
+      eq(
+        parentChildRelationships.id,
+        treeParentChildRelationships.parentChildRelationshipId,
+      ),
+    )
     .where(
       and(
         eq(treeParentChildRelationships.treeId, treeId),
         isNull(treeParentChildRelationships.deletedAt),
-      ),
-    )
-  const relationshipIds = parentAssociations.map((row) => row.relationshipId)
-  if (relationshipIds.length === 0) return false
-  const referencedRelationships = await db
-    .select({ id: parentChildRelationships.id })
-    .from(parentChildRelationships)
-    .where(
-      and(
-        inArray(parentChildRelationships.id, relationshipIds),
         isNull(parentChildRelationships.deletedAt),
         or(
           eq(parentChildRelationships.parentPersonId, personId),
@@ -627,7 +636,46 @@ async function personIsReferencedInTree(
         ),
       ),
     )
-  return referencedRelationships.length > 0
+  const unionIds = unionAssociations.map((row) => row.id)
+  const parentRelationshipIds = parentAssociations.map((row) => row.id)
+  await Promise.all([
+    unionIds.length > 0
+      ? db
+          .update(treeUnions)
+          .set({
+            deletedAt: serverTime,
+            updatedAt: serverTime,
+            revision: sql`${treeUnions.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(treeUnions.treeId, treeId),
+              inArray(treeUnions.unionId, unionIds),
+              isNull(treeUnions.deletedAt),
+            ),
+          )
+      : Promise.resolve(),
+    parentRelationshipIds.length > 0
+      ? db
+          .update(treeParentChildRelationships)
+          .set({
+            deletedAt: serverTime,
+            updatedAt: serverTime,
+            revision: sql`${treeParentChildRelationships.revision} + 1`,
+          })
+          .where(
+            and(
+              eq(treeParentChildRelationships.treeId, treeId),
+              inArray(
+                treeParentChildRelationships.parentChildRelationshipId,
+                parentRelationshipIds,
+              ),
+              isNull(treeParentChildRelationships.deletedAt),
+            ),
+          )
+      : Promise.resolve(),
+  ])
+  return { unionIds, parentRelationshipIds }
 }
 
 /** One PostgreSQL statement makes person-owner deletion globally atomic. */
@@ -923,18 +971,7 @@ export async function postSync(request: Request): Promise<Response> {
       const applied = emptyAppliedIds()
       const skipped = emptyAppliedIds()
       const orphanCandidateRelationshipIds = new Set<string>()
-      const personReferenceCache = new Map<string, Promise<boolean>>()
-      const personIsReferenced = (
-        treeId: string,
-        personId: string,
-      ): Promise<boolean> => {
-        const key = associationKey(treeId, personId)
-        const cached = personReferenceCache.get(key)
-        if (cached) return cached
-        const result = personIsReferencedInTree(db, treeId, personId)
-        personReferenceCache.set(key, result)
-        return result
-      }
+      const cascadedReferences = emptyCascadedTreeReferences()
 
       const forbiddenGlobalDeletes = [
         ["unions", body.unions],
@@ -1051,10 +1088,28 @@ export async function postSync(request: Request): Promise<Response> {
           || !updatedAt
           || !revision
           || !canWrite(await roleForTree(wire.treeId))
-          || (await personIsReferenced(wire.treeId, wire.personId))
         ) {
           classify(applied, skipped, "treeMembers", key, false)
           continue
+        }
+        const references = await tombstonePersonReferencesInTree(
+          db,
+          wire.treeId,
+          wire.personId,
+          serverTime,
+        )
+        for (const unionId of references.unionIds) {
+          cascadedReferences.unionIds.add(unionId)
+          cascadedReferences.treeUnionKeys.add(
+            associationKey(wire.treeId, unionId),
+          )
+        }
+        for (const relationshipId of references.parentRelationshipIds) {
+          orphanCandidateRelationshipIds.add(relationshipId)
+          cascadedReferences.parentRelationshipIds.add(relationshipId)
+          cascadedReferences.treeParentRelationshipKeys.add(
+            associationKey(wire.treeId, relationshipId),
+          )
         }
         const rows = await db
           .update(treeMembers)
@@ -1959,6 +2014,7 @@ export async function postSync(request: Request): Promise<Response> {
           db,
           body,
           parentRelationshipIdAlias,
+          cascadedReferences,
         )
         for (const [treeId, records] of [...changesByTree].sort(
           ([first], [second]) => first.localeCompare(second),
