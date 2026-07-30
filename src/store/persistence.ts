@@ -34,6 +34,7 @@ export type PersistedStore = {
   conflicts?: PersistedConflict[]
   clearedConflictIds?: string[]
   operationConflicts?: PersistedOperationConflict[]
+  clearedOperationConflictIds?: string[]
 }
 
 const COLLECTIONS: DirtyCollection[] = [
@@ -99,6 +100,9 @@ function mergePersistedStore(
   const merged = structuredClone(incoming)
   const cleared = new Set(incoming.clearedDirtyTokens ?? [])
   const clearedConflictIds = new Set(incoming.clearedConflictIds ?? [])
+  const clearedOperationConflictIds = new Set(
+    incoming.clearedOperationConflictIds ?? [],
+  )
   merged.conflicts = [
     ...new Map(
       [...(existing.conflicts ?? []), ...(incoming.conflicts ?? [])]
@@ -111,7 +115,11 @@ function mergePersistedStore(
       [
         ...(existing.operationConflicts ?? []),
         ...(incoming.operationConflicts ?? []),
-      ].map((conflict) => [conflict.operationId, conflict]),
+      ]
+        .filter(
+          (conflict) => !clearedOperationConflictIds.has(conflict.operationId),
+        )
+        .map((conflict) => [conflict.operationId, conflict]),
     ).values(),
   ]
 
@@ -174,6 +182,12 @@ function mergePersistedStore(
     ...new Set([
       ...(existing.clearedConflictIds ?? []),
       ...(incoming.clearedConflictIds ?? []),
+    ]),
+  ]
+  merged.clearedOperationConflictIds = [
+    ...new Set([
+      ...(existing.clearedOperationConflictIds ?? []),
+      ...(incoming.clearedOperationConflictIds ?? []),
     ]),
   ]
   return merged

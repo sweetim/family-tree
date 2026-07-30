@@ -108,12 +108,12 @@ export function Sidebar({
         <div className="flex items-center gap-1.5">
           <Link
             href="/"
-            title="All trees"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            title="Home"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
           >
-            <ChevronLeft className="h-4 w-4" />
+            <ChevronLeft className="h-6 w-6" />
           </Link>
-          <span className="text-xs font-medium text-slate-400">All trees</span>
+          <span className="text-sm font-medium text-slate-400">Home</span>
           <div className="ml-auto mr-3">
             <AccountMenu />
           </div>

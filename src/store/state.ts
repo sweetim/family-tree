@@ -190,6 +190,7 @@ const mutationIdsByBatch = new Map<string, string>()
 const clearedDirtyTokens = new Set<string>()
 let syncConflicts: PersistedConflict[] = []
 let operationConflicts: PersistedOperationConflict[] = []
+const clearedOperationConflictIds = new Set<string>()
 const clearedConflictIds = new Set<string>()
 let persistenceUserId: string | null = null
 let persistenceScheduled = false
@@ -223,6 +224,7 @@ function persistedSnapshot(): PersistedStore {
     conflicts: syncConflicts,
     clearedConflictIds: [...clearedConflictIds],
     operationConflicts,
+    clearedOperationConflictIds: [...clearedOperationConflictIds],
   }
 }
 
@@ -237,6 +239,10 @@ function persistCurrentStore(): Promise<void> {
       if (!persisted || persistenceUserId !== userId) return
       syncConflicts = persisted.conflicts ?? []
       operationConflicts = persisted.operationConflicts ?? []
+      clearedOperationConflictIds.clear()
+      for (const id of persisted.clearedOperationConflictIds ?? []) {
+        clearedOperationConflictIds.add(id)
+      }
       for (const collection of RECORD_COLLECTIONS) {
         const merged = new Map(persisted.dirty[collection] ?? [])
         for (const [id, current] of dirtyState[collection]) {
@@ -2023,6 +2029,7 @@ export function resetStore(): void {
   clearedDirtyTokens.clear()
   syncConflicts = []
   operationConflicts = []
+  clearedOperationConflictIds.clear()
   clearedConflictIds.clear()
   treeSyncInFlight.clear()
   persistenceUserId = null
@@ -2070,6 +2077,10 @@ export async function restorePersistentStore(userId: string): Promise<void> {
     }
     syncConflicts = persisted.conflicts ?? []
     operationConflicts = persisted.operationConflicts ?? []
+    clearedOperationConflictIds.clear()
+    for (const id of persisted.clearedOperationConflictIds ?? []) {
+      clearedOperationConflictIds.add(id)
+    }
     clearedConflictIds.clear()
     for (const conflictId of persisted.clearedConflictIds ?? []) {
       clearedConflictIds.add(conflictId)
@@ -2202,17 +2213,14 @@ function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
   return changes
 }
 
-export function resolveBlockedOperation(
+export async function resolveBlockedOperation(
   operationId: string,
   resolution: "device" | "server",
-): void {
+): Promise<boolean> {
   const conflict = operationConflicts.find(
     (candidate) => candidate.operationId === operationId,
   )
-  if (!conflict) return
-  operationConflicts = operationConflicts.filter(
-    (candidate) => candidate.operationId !== operationId,
-  )
+  if (!conflict) return false
   if (resolution === "server") {
     for (const record of conflict.records) {
       const current = dirtyState[record.collection].get(record.id)
@@ -2236,8 +2244,18 @@ export function resolveBlockedOperation(
         } else records[record.id] = record.serverValue
       }
     }
+    operationConflicts = operationConflicts.filter(
+      (candidate) => candidate.operationId !== operationId,
+    )
+    clearedOperationConflictIds.add(operationId)
+    schedulePersistence()
+    setSyncStatus(statusFromDirtyState())
+    notifyListeners()
+    await persistCurrentStore()
+    return true
   } else {
     const retryOperationId = newId()
+    let changed = false
     for (const record of conflict.records) {
       const current = dirtyState[record.collection].get(record.id)
       if (current?.revision !== record.dirty.revision) continue
@@ -2251,12 +2269,31 @@ export function resolveBlockedOperation(
         revision: nextRevision++,
         operationId: retryOperationId,
       })
+      changed = true
     }
+    if (!changed) return false
   }
   schedulePersistence()
   setSyncStatus(statusFromDirtyState())
   notifyListeners()
-  if (resolution === "device") void pushDirty()
+  if (pushInFlight && pushInFlightGeneration === storeGeneration) {
+    await pushInFlight
+  }
+  await pushDirty()
+  const retriedConflict = operationConflicts.find((candidate) =>
+    candidate.records.some(
+      (record) => record.dirty.operationId === operationId,
+    ),
+  )
+  if (retriedConflict) return false
+  operationConflicts = operationConflicts.filter(
+    (candidate) => candidate.operationId !== operationId,
+  )
+  clearedOperationConflictIds.add(operationId)
+  schedulePersistence()
+  notifyListeners()
+  await persistCurrentStore()
+  return true
 }
 
 export function useBlockedChanges(treeId: string): BlockedChange[] {
