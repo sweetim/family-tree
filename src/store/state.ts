@@ -2117,7 +2117,7 @@ function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
     )
     if (!conflict) return change
     const fields = (value: unknown) => {
-      if (value === undefined) return [{ label: "Record", value: "Deleted" }]
+      if (value === undefined) return []
       if (!value || typeof value !== "object") {
         return [{ label: "Value", value: String(value) }]
       }
@@ -2128,12 +2128,74 @@ function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
           value: fieldValue == null ? "Not set" : String(fieldValue),
         }))
     }
+    const semanticFields = (
+      side: "device" | "server",
+    ): Array<{ label: string; value: string }> => {
+      const summaries = conflict.records.flatMap((record) => {
+        if (record.collection === "treeMembers") {
+          return [
+            {
+              label: "Tree membership",
+              value:
+                side === "device" && record.dirty.action === "delete"
+                  ? "Removed from this tree"
+                  : side === "server" && record.serverValue
+                    ? "Member of this tree"
+                    : "Not a member of this tree",
+            },
+          ]
+        }
+        if (
+          record.collection === "parentChildRelationships"
+          || record.collection === "treeParentChildRelationships"
+        ) {
+          return [
+            {
+              label: "Parent relationship",
+              value:
+                side === "device" && record.dirty.action === "delete"
+                  ? "Relationship removed"
+                  : side === "server" && record.serverValue
+                    ? "Relationship kept"
+                    : "Relationship not present",
+            },
+          ]
+        }
+        if (record.collection === "treeUnions") {
+          return [
+            {
+              label: "Marriage connection",
+              value:
+                side === "device" && record.dirty.action === "delete"
+                  ? "Connection removed"
+                  : side === "server" && record.serverValue
+                    ? "Connection kept"
+                    : "Connection not present",
+            },
+          ]
+        }
+        return fields(
+          side === "device" ? record.deviceValue : record.serverValue,
+        )
+      })
+      const unique = [
+        ...new Map(
+          summaries.map((summary) => [
+            `${summary.label}:${summary.value}`,
+            summary,
+          ]),
+        ).values(),
+      ]
+      return unique.length > 0
+        ? unique
+        : [{ label: "Result", value: "Details unavailable" }]
+    }
     return {
       ...change,
       reason: conflict.reason,
       retryable: conflict.retryable,
-      device: conflict.records.flatMap((record) => fields(record.deviceValue)),
-      server: conflict.records.flatMap((record) => fields(record.serverValue)),
+      device: semanticFields("device"),
+      server: semanticFields("server"),
     }
   })
   blockedChangesCache.set(treeId, { version: blockedChangesVersion, changes })
