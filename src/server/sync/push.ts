@@ -148,6 +148,31 @@ function isValidMutationId(value: string | null): value is string {
 
 type ConflictResponse = SyncMutationResponse
 
+async function collectAuthoritativeConflictRecords(
+  db: DB,
+  body: SyncPushRequest,
+): Promise<SyncRecordSet> {
+  const changes = await collectMutationChanges(db, body, new Map())
+  const result = emptyRecordSet()
+  for (const records of changes.values()) {
+    for (const collection of Object.keys(result) as Array<
+      keyof SyncRecordSet
+    >) {
+      const existing = new Set(
+        result[collection].map((wire) => JSON.stringify(wire)),
+      )
+      for (const wire of records[collection]) {
+        const key = JSON.stringify(wire)
+        if (!existing.has(key)) {
+          result[collection].push(wire as never)
+          existing.add(key)
+        }
+      }
+    }
+  }
+  return result
+}
+
 function emptyRecordSet(): SyncRecordSet {
   return {
     persons: [],
@@ -1911,9 +1936,7 @@ export async function postSync(request: Request): Promise<Response> {
         const stillAssociated = new Set(
           stillAssociatedRows.map((row) => row.id),
         )
-        const orphanIds = candidateIds.filter(
-          (id) => !stillAssociated.has(id),
-        )
+        const orphanIds = candidateIds.filter((id) => !stillAssociated.has(id))
         if (orphanIds.length > 0) {
           await db
             .update(parentChildRelationships)
@@ -1988,12 +2011,21 @@ export async function postSync(request: Request): Promise<Response> {
         serverTime: serverTime.toISOString(),
       }
       if (mutationId && hasClassifiedRecords(skipped)) {
+        const authoritativeRecords = await collectAuthoritativeConflictRecords(
+          db,
+          body,
+        )
         conflictResponse = {
           applied: emptyAppliedIds(),
           skipped: requestIds(body),
           serverTime: response.serverTime,
           mutationId,
           status: "conflict",
+          conflict: {
+            retryable: true,
+            reason: "revision-mismatch",
+            records: authoritativeRecords,
+          },
         }
         db.rollback()
       }

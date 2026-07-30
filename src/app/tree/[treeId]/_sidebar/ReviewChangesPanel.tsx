@@ -1,5 +1,5 @@
 import { TriangleAlert } from "lucide-react"
-import type { BlockedChange } from "@/store"
+import { type BlockedChange, resolveBlockedOperation } from "@/store"
 
 export function ReviewChangesPanel({
   changes,
@@ -46,8 +46,52 @@ export function ReviewChangesPanel({
               {change.label}
             </span>
             <span className="mt-1 block text-xs text-slate-500">
-              Not saved to the server
+              {change.reason}
             </span>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+              {(["device", "server"] as const).map((side) => (
+                <div
+                  key={side}
+                  className="rounded-lg bg-slate-50 p-3"
+                >
+                  <strong className="text-slate-700">
+                    {side === "device" ? "Your device" : "Server"}
+                  </strong>
+                  {(side === "device" ? change.device : change.server).map(
+                    (field) => (
+                      <div
+                        key={`${field.label}:${field.value}`}
+                        className="mt-2"
+                      >
+                        <span className="block text-slate-400">
+                          {field.label}
+                        </span>
+                        <span className="break-words text-slate-700">
+                          {field.value}
+                        </span>
+                      </div>
+                    ),
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                disabled={!change.retryable}
+                onClick={() => resolveBlockedOperation(change.id, "device")}
+                className="rounded-lg bg-cobalt-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                Keep my change
+              </button>
+              <button
+                type="button"
+                onClick={() => resolveBlockedOperation(change.id, "server")}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
+              >
+                Use server version
+              </button>
+            </div>
           </li>
         ))}
       </ul>

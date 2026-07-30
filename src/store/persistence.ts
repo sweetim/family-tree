@@ -11,6 +11,19 @@ export type PersistedConflict = {
   value: unknown
 }
 
+export type PersistedOperationConflict = {
+  operationId: string
+  reason: string
+  retryable: boolean
+  records: Array<{
+    collection: DirtyCollection
+    id: string
+    dirty: DirtyRecord
+    deviceValue: unknown
+    serverValue: unknown
+  }>
+}
+
 export type PersistedStore = {
   state: GlobalState
   dirty: Record<DirtyCollection, Array<[string, DirtyRecord]>>
@@ -20,6 +33,7 @@ export type PersistedStore = {
   clearedDirtyTokens?: string[]
   conflicts?: PersistedConflict[]
   clearedConflictIds?: string[]
+  operationConflicts?: PersistedOperationConflict[]
 }
 
 const COLLECTIONS: DirtyCollection[] = [
@@ -90,6 +104,14 @@ function mergePersistedStore(
       [...(existing.conflicts ?? []), ...(incoming.conflicts ?? [])]
         .filter((conflict) => !clearedConflictIds.has(conflict.conflictId))
         .map((conflict) => [conflict.conflictId, conflict]),
+    ).values(),
+  ]
+  merged.operationConflicts = [
+    ...new Map(
+      [
+        ...(existing.operationConflicts ?? []),
+        ...(incoming.operationConflicts ?? []),
+      ].map((conflict) => [conflict.operationId, conflict]),
     ).values(),
   ]
 

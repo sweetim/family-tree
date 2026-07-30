@@ -57,8 +57,10 @@ edit rebases that intent on the current server revision.
 
 The account menu displays `saved`, `saving`, `offline`, or `conflict` state.
 When blocked server mutations affect the open tree, its sidebar shows a
-read-only **Review changes** panel grouped by logical user operation. Internal
-record IDs and revisions are not exposed, and blocked intent remains preserved.
+**Review changes** panel grouped by logical user operation. Immutable device and
+server snapshots are persisted for comparison. **Keep my change** rebases the
+whole operation, while **Use server version** discards only unchanged records
+from that operation, preserving edits made after the conflict.
 
 ## Incremental synchronization
 

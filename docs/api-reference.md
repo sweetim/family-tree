@@ -62,7 +62,9 @@ decide write ordering.
 The server serializes duplicate mutation IDs, checks ACL and graph invariants,
 and applies the complete logical mutation in one interactive PostgreSQL
 transaction. If any record conflicts, the transaction rolls back and returns
-`409` with `status: "conflict"`; no prefix is committed. A retry of a committed
+`409` with `status: "conflict"`; no prefix is committed. Conflict responses also
+include `conflict: { retryable, reason, records }`, where `records` contains the
+authoritative server versions needed for comparison and rebasing. A retry of a committed
 mutation returns its stored result with `status: "alreadyApplied"`.
 
 ```ts

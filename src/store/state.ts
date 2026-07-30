@@ -9,6 +9,7 @@ import type {
   SyncPullResponse,
   SyncPushRequest,
   SyncPushResponse,
+  SyncRecordSet,
   ShareRole as SyncShareRole,
   TreeManifestItem,
   TreeManifestResponse,
@@ -25,6 +26,7 @@ import type { NormalizedRelationships, PersonIdentity } from "../types"
 import {
   loadPersistedStore,
   type PersistedConflict,
+  type PersistedOperationConflict,
   type PersistedStore,
   savePersistedStore,
 } from "./persistence"
@@ -82,6 +84,10 @@ export type BlockedChange = {
   id: string
   action: DirtyAction
   label: string
+  reason: string
+  retryable: boolean
+  device: Array<{ label: string; value: string }>
+  server: Array<{ label: string; value: string }>
 }
 type TombstoneClock = { updatedAt: string; revision?: number }
 type TombstoneClocks = Record<DirtyCollection, Map<string, TombstoneClock>>
@@ -183,6 +189,7 @@ const storeInstanceId = newId()
 const mutationIdsByBatch = new Map<string, string>()
 const clearedDirtyTokens = new Set<string>()
 let syncConflicts: PersistedConflict[] = []
+let operationConflicts: PersistedOperationConflict[] = []
 const clearedConflictIds = new Set<string>()
 let persistenceUserId: string | null = null
 let persistenceScheduled = false
@@ -215,6 +222,7 @@ function persistedSnapshot(): PersistedStore {
     clearedDirtyTokens: [...clearedDirtyTokens],
     conflicts: syncConflicts,
     clearedConflictIds: [...clearedConflictIds],
+    operationConflicts,
   }
 }
 
@@ -228,6 +236,7 @@ function persistCurrentStore(): Promise<void> {
       const persisted = await savePersistedStore(userId, snapshot)
       if (!persisted || persistenceUserId !== userId) return
       syncConflicts = persisted.conflicts ?? []
+      operationConflicts = persisted.operationConflicts ?? []
       for (const collection of RECORD_COLLECTIONS) {
         const merged = new Map(persisted.dirty[collection] ?? [])
         for (const [id, current] of dirtyState[collection]) {
@@ -618,7 +627,85 @@ export function blockedChangesForTree(
       : operation.action === "delete"
         ? "Remove family connection"
         : "Update family details"
-    return { id, action: operation.action, label }
+    return {
+      id,
+      action: operation.action,
+      label,
+      reason: "This change conflicts with a newer server version.",
+      retryable: true,
+      device: [],
+      server: [],
+    }
+  })
+}
+
+function valueFor(
+  currentState: GlobalState,
+  collection: DirtyCollection,
+  id: string,
+): unknown {
+  return collection === "trees"
+    ? currentState.index.find((tree) => tree.id === id)
+    : currentState[collection][id]
+}
+
+function wireId(
+  collection: DirtyCollection,
+  wire: Record<string, string>,
+): string {
+  if (collection === "treeMembers") {
+    return treeMemberKey(wire.treeId ?? "", wire.personId ?? "")
+  }
+  if (collection === "treeUnions") {
+    return treeUnionKey(wire.treeId ?? "", wire.unionId ?? "")
+  }
+  if (collection === "treeParentChildRelationships") {
+    return treeParentChildRelationshipKey(
+      wire.treeId ?? "",
+      wire.parentChildRelationshipId ?? "",
+    )
+  }
+  return wire.id ?? ""
+}
+
+function recordSetValue(
+  records: SyncRecordSet,
+  collection: DirtyCollection,
+  id: string,
+): unknown {
+  return records[collection].find(
+    (wire) =>
+      wireId(collection, wire as unknown as Record<string, string>) === id,
+  )
+}
+
+function snapshotOperationConflict(
+  source: DirtyState,
+  operationId: string | undefined,
+  result: SyncMutationResponse,
+): void {
+  const id = operationId ?? "legacy-operation"
+  if (operationConflicts.some((conflict) => conflict.operationId === id)) return
+  const records = RECORD_COLLECTIONS.flatMap((collection) =>
+    [...source[collection]]
+      .filter(([, dirty]) => dirty.operationId === operationId)
+      .map(([recordId, dirty]) => ({
+        collection,
+        id: recordId,
+        dirty: structuredClone(dirty),
+        deviceValue: structuredClone(valueFor(state, collection, recordId)),
+        serverValue: structuredClone(
+          result.conflict
+            ? recordSetValue(result.conflict.records, collection, recordId)
+            : undefined,
+        ),
+      })),
+  )
+  operationConflicts.push({
+    operationId: id,
+    reason: result.conflict?.reason ?? "revision-mismatch",
+    retryable: result.conflict?.retryable ?? false,
+    records,
   })
 }
 
@@ -1346,6 +1433,9 @@ async function runPushLoop(generation: number): Promise<void> {
       acknowledgeApplied(result, dirty)
       clearDirty(result.applied, dirty)
       applyAliases(result)
+      if (result.status === "conflict") {
+        snapshotOperationConflict(dirty, operationId, result)
+      }
       for (const collection of RECORD_COLLECTIONS) {
         for (const id of result.skipped[collection]) {
           const current = dirtyState[collection].get(id)
@@ -1932,6 +2022,7 @@ export function resetStore(): void {
   mutationIdsByBatch.clear()
   clearedDirtyTokens.clear()
   syncConflicts = []
+  operationConflicts = []
   clearedConflictIds.clear()
   treeSyncInFlight.clear()
   persistenceUserId = null
@@ -1978,6 +2069,7 @@ export async function restorePersistentStore(userId: string): Promise<void> {
       clearedDirtyTokens.add(token)
     }
     syncConflicts = persisted.conflicts ?? []
+    operationConflicts = persisted.operationConflicts ?? []
     clearedConflictIds.clear()
     for (const conflictId of persisted.clearedConflictIds ?? []) {
       clearedConflictIds.add(conflictId)
@@ -2018,9 +2110,91 @@ export function useSyncConflictCount(): number {
 function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
   const cached = blockedChangesCache.get(treeId)
   if (cached?.version === blockedChangesVersion) return cached.changes
-  const changes = blockedChangesForTree(state, dirtyState, treeId)
+  const fallback = blockedChangesForTree(state, dirtyState, treeId)
+  const changes = fallback.map((change) => {
+    const conflict = operationConflicts.find(
+      (candidate) => candidate.operationId === change.id,
+    )
+    if (!conflict) return change
+    const fields = (value: unknown) => {
+      if (value === undefined) return [{ label: "Record", value: "Deleted" }]
+      if (!value || typeof value !== "object") {
+        return [{ label: "Value", value: String(value) }]
+      }
+      return Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !["revision", "updatedAt", "ownerId"].includes(key))
+        .map(([label, fieldValue]) => ({
+          label,
+          value: fieldValue == null ? "Not set" : String(fieldValue),
+        }))
+    }
+    return {
+      ...change,
+      reason: conflict.reason,
+      retryable: conflict.retryable,
+      device: conflict.records.flatMap((record) => fields(record.deviceValue)),
+      server: conflict.records.flatMap((record) => fields(record.serverValue)),
+    }
+  })
   blockedChangesCache.set(treeId, { version: blockedChangesVersion, changes })
   return changes
+}
+
+export function resolveBlockedOperation(
+  operationId: string,
+  resolution: "device" | "server",
+): void {
+  const conflict = operationConflicts.find(
+    (candidate) => candidate.operationId === operationId,
+  )
+  if (!conflict) return
+  operationConflicts = operationConflicts.filter(
+    (candidate) => candidate.operationId !== operationId,
+  )
+  if (resolution === "server") {
+    for (const record of conflict.records) {
+      const current = dirtyState[record.collection].get(record.id)
+      if (current?.revision !== record.dirty.revision) continue
+      dirtyState[record.collection].delete(record.id)
+      if (record.collection === "trees") {
+        state.index = state.index.filter((tree) => tree.id !== record.id)
+        if (
+          record.serverValue
+          && !("deletedAt" in (record.serverValue as object))
+        ) {
+          state.index.push(record.serverValue as TreeMeta)
+        }
+      } else {
+        const records = state[record.collection] as Record<string, unknown>
+        if (
+          !record.serverValue
+          || "deletedAt" in (record.serverValue as object)
+        ) {
+          delete records[record.id]
+        } else records[record.id] = record.serverValue
+      }
+    }
+  } else {
+    const retryOperationId = newId()
+    for (const record of conflict.records) {
+      const current = dirtyState[record.collection].get(record.id)
+      if (current?.revision !== record.dirty.revision) continue
+      const serverRevision = (
+        record.serverValue as { revision?: number } | undefined
+      )?.revision
+      dirtyState[record.collection].set(record.id, {
+        ...current,
+        blocked: false,
+        baseRevision: serverRevision,
+        revision: nextRevision++,
+        operationId: retryOperationId,
+      })
+    }
+  }
+  schedulePersistence()
+  setSyncStatus(statusFromDirtyState())
+  notifyListeners()
+  if (resolution === "device") void pushDirty()
 }
 
 export function useBlockedChanges(treeId: string): BlockedChange[] {

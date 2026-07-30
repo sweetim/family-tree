@@ -1417,11 +1417,23 @@ describe("dirty tracking and push wires", () => {
     })
 
     expect(store.blockedChangesForTree(currentState, dirty, "tree")).toEqual([
-      { id: "edit-tim", action: "upsert", label: "Update Tim" },
+      {
+        id: "edit-tim",
+        action: "upsert",
+        label: "Update Tim",
+        reason: "This change conflicts with a newer server version.",
+        retryable: true,
+        device: [],
+        server: [],
+      },
       {
         id: "remove-jane",
         action: "delete",
         label: "Remove family connection",
+        reason: "This change conflicts with a newer server version.",
+        retryable: true,
+        device: [],
+        server: [],
       },
     ])
   })

@@ -222,6 +222,11 @@ export type SyncMutationRequest = {
 export type SyncMutationResponse = SyncPushResponse & {
   mutationId: string
   status: "applied" | "alreadyApplied" | "conflict"
+  conflict?: {
+    retryable: boolean
+    reason: "revision-mismatch"
+    records: SyncRecordSet
+  }
 }
 
 export type TreeManifestItem = TreeRecordWire & {

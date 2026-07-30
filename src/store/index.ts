@@ -53,6 +53,7 @@ export {
   getSnapshot,
   isStoredPhotoMarker,
   resetStore,
+  resolveBlockedOperation,
   resolveNextSyncConflict,
   restorePersistentStore,
   setHydrated,
