@@ -86,9 +86,8 @@ export async function deletePhoto(url: string): Promise<void> {
 }
 
 /**
- * Fetch a stored blob photo. Private stores reject anonymous requests (403),
- * so the service token is sent as a bearer credential; it is harmless for any
- * legacy public URLs.
+ * Fetch a stored blob photo. The SDK uses Vercel OIDC in deployed functions and
+ * falls back to the configured read-write token outside Vercel.
  */
 export async function fetchStoredPhoto(
   url: string,
