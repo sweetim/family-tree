@@ -77,6 +77,7 @@ export type DirtyRecord = {
   operationId?: string
   sourceId?: string
   changedAt?: number
+  conflictId?: string
 }
 export type DirtyMap = Map<string, DirtyRecord>
 export type DirtyState = Record<DirtyCollection, DirtyMap>
@@ -699,6 +700,7 @@ function snapshotOperationConflict(
         collection,
         id: recordId,
         dirty: structuredClone(dirty),
+        conflictId: id,
         deviceValue: structuredClone(valueFor(state, collection, recordId)),
         serverValue: structuredClone(
           result.conflict
@@ -713,6 +715,15 @@ function snapshotOperationConflict(
     retryable: result.conflict?.retryable ?? false,
     records,
   })
+  for (const collection of RECORD_COLLECTIONS) {
+    for (const [recordId, sent] of source[collection]) {
+      if (sent.operationId !== operationId) continue
+      const current = dirtyState[collection].get(recordId)
+      if (current?.revision === sent.revision) {
+        dirtyState[collection].set(recordId, { ...current, conflictId: id })
+      }
+    }
+  }
 }
 
 export function takeDirtyBatch(
@@ -2221,10 +2232,22 @@ export async function resolveBlockedOperation(
     (candidate) => candidate.operationId === operationId,
   )
   if (!conflict) return false
+  const isCurrentConflictRecord = (
+    current: DirtyRecord | undefined,
+    record: PersistedOperationConflict["records"][number],
+  ): current is DirtyRecord =>
+    Boolean(
+      current
+        && (current.conflictId === operationId
+          || (!current.conflictId
+            && !record.conflictId
+            && current.blocked
+            && current.operationId === record.dirty.operationId)),
+    )
   if (resolution === "server") {
     for (const record of conflict.records) {
       const current = dirtyState[record.collection].get(record.id)
-      if (current?.revision !== record.dirty.revision) continue
+      if (!isCurrentConflictRecord(current, record)) continue
       dirtyState[record.collection].delete(record.id)
       if (record.collection === "trees") {
         state.index = state.index.filter((tree) => tree.id !== record.id)
@@ -2258,7 +2281,7 @@ export async function resolveBlockedOperation(
     let changed = false
     for (const record of conflict.records) {
       const current = dirtyState[record.collection].get(record.id)
-      if (current?.revision !== record.dirty.revision) continue
+      if (!isCurrentConflictRecord(current, record)) continue
       const serverRevision = (
         record.serverValue as { revision?: number } | undefined
       )?.revision
@@ -2268,6 +2291,7 @@ export async function resolveBlockedOperation(
         baseRevision: serverRevision,
         revision: nextRevision++,
         operationId: retryOperationId,
+        conflictId: undefined,
       })
       changed = true
     }

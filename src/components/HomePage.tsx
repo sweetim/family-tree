@@ -571,7 +571,7 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
           <span className="hidden text-base font-semibold tracking-tight text-slate-900 sm:inline">
             FamiKi
           </span>
-          <div className="mx-auto w-full max-w-md">
+          <div className="mx-auto w-full min-w-0 max-w-md">
             <PersonSearch
               navigate={navigate}
               treeNameById={treeNameById}

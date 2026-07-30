@@ -19,6 +19,7 @@ export type PersistedOperationConflict = {
     collection: DirtyCollection
     id: string
     dirty: DirtyRecord
+    conflictId?: string
     deviceValue: unknown
     serverValue: unknown
   }>

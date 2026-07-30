@@ -51,7 +51,7 @@ export function AccountMenu() {
   return (
     <div
       ref={ref}
-      className="relative"
+      className="relative shrink-0"
     >
       <button
         type="button"
