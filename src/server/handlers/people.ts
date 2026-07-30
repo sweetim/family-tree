@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm"
 import { getDB } from "../../db"
+import { MINIMUM_SEARCH_LENGTH } from "../limits"
 import { requireSession } from "../session"
 
 type SearchRow = { personId: string; name: string; treeId: string }
@@ -11,7 +12,11 @@ export async function searchPeople(request: Request): Promise<Response> {
 
   const query = new URL(request.url).searchParams.get("query")?.trim() ?? ""
   if (query.length === 0) return Response.json({ results: [] })
-  if (query.length > 100 || query.includes("\0")) {
+  if (
+    query.length < MINIMUM_SEARCH_LENGTH
+    || query.length > 100
+    || query.includes("\0")
+  ) {
     return Response.json({ error: "invalid query" }, { status: 400 })
   }
 

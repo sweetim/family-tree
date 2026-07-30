@@ -31,6 +31,10 @@ owner reviews pending requests from the Share dialog; approving inserts a
 access on their next load. Denying marks the request `denied`; the requester
 may re-request, which reopens the row to `pending`.
 
+Resolution is conditional on an existing pending row. The API never resolves an
+arbitrary user ID, and share-list responses do not expose account IDs or account
+registration state.
+
 ## Roles
 
 `Role` is `owner | editor | viewer`, ordered from strongest to weakest. A

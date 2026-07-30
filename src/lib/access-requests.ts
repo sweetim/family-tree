@@ -105,12 +105,24 @@ export function useOwnerAccessRequests(treeId: string) {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`/api/trees/${treeId}/access-requests`, {
-        credentials: "include",
-      })
-      if (!res.ok) throw new Error(`load failed: ${res.status}`)
-      const data = (await res.json()) as { requests: OwnerAccessRequest[] }
-      setRequests(data.requests)
+      const loaded: OwnerAccessRequest[] = []
+      let cursor: string | undefined
+      do {
+        const parameters = new URLSearchParams({ limit: "100" })
+        if (cursor) parameters.set("cursor", cursor)
+        const res = await fetch(
+          `/api/trees/${encodeURIComponent(treeId)}/access-requests?${parameters}`,
+          { credentials: "include" },
+        )
+        if (!res.ok) throw new Error(`load failed: ${res.status}`)
+        const data = (await res.json()) as {
+          requests: OwnerAccessRequest[]
+          nextCursor?: string
+        }
+        loaded.push(...data.requests)
+        cursor = data.nextCursor
+      } while (cursor)
+      setRequests(loaded)
     } catch (err) {
       console.error(err)
       toast("Couldn't load access requests.", "error")
@@ -127,12 +139,15 @@ export function useOwnerAccessRequests(treeId: string) {
     async (userId: string, action: "approve" | "deny"): Promise<void> => {
       setSubmitting(true)
       try {
-        const res = await fetch(`/api/trees/${treeId}/access-requests`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId, action }),
-        })
+        const res = await fetch(
+          `/api/trees/${encodeURIComponent(treeId)}/access-requests`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, action }),
+          },
+        )
         if (!res.ok) {
           const err = (await res.json().catch(() => ({}))) as {
             error?: string

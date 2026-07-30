@@ -16,7 +16,6 @@ import { useRouter } from "next/navigation"
 import {
   type FormEvent,
   type ReactNode,
-  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -230,24 +229,29 @@ function PersonSearch({
   treeNameById: Map<string, string>
 }) {
   const [query, setQuery] = useState("")
-  const deferredQuery = useDeferredValue(query.trim())
+  const [searchQuery, setSearchQuery] = useState("")
   const [matches, setMatches] = useState<
     Array<{ personId: string; name: string; treeId: string }>
   >([])
   const [status, setStatus] = useState<SearchStatus>("idle")
 
   useEffect(() => {
-    if (!deferredQuery) {
+    const timer = window.setTimeout(() => setSearchQuery(query.trim()), 250)
+    return () => window.clearTimeout(timer)
+  }, [query])
+
+  useEffect(() => {
+    if (searchQuery.length < 3) {
       setMatches([])
       setStatus("idle")
       return
     }
     const controller = new AbortController()
     setStatus("loading")
-    void fetch(
-      `/api/people/search?query=${encodeURIComponent(deferredQuery)}`,
-      { credentials: "include", signal: controller.signal },
-    )
+    void fetch(`/api/people/search?query=${encodeURIComponent(searchQuery)}`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
       .then(async (response) => {
         if (!response.ok) throw new Error(`search failed: ${response.status}`)
         return (await response.json()) as {
@@ -264,11 +268,11 @@ function PersonSearch({
         setStatus("error")
       })
     return () => controller.abort()
-  }, [deferredQuery])
+  }, [searchQuery])
 
   const loading = status === "loading"
   const showPanel =
-    deferredQuery !== ""
+    searchQuery.length >= 3
     && (matches.length > 0 || status === "done" || status === "error")
 
   return (

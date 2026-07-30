@@ -1,5 +1,6 @@
 import type { SyncMutationRequest } from "../../sync/types"
 import { MAX_SYNC_BODY_BYTES, readJsonBody } from "../request"
+import { requireSession } from "../session"
 import { postSync } from "../sync/push"
 import { isValidSyncId, isValidSyncPushRequest } from "../sync-validation"
 
@@ -17,6 +18,9 @@ function isMutationRequest(value: unknown): value is SyncMutationRequest {
 
 /** Idempotent, atomic normalized mutation endpoint. */
 export async function postMutation(request: Request): Promise<Response> {
+  if (!(await requireSession(request))) {
+    return Response.json({ error: "unauthorized" }, { status: 401 })
+  }
   const parsed = await readJsonBody(request, MAX_SYNC_BODY_BYTES)
   if (!parsed.ok) {
     return Response.json(

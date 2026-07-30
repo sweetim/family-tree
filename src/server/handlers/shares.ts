@@ -1,17 +1,28 @@
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, gt } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { treeShares, user } from "../../db/schema"
 import { treeRole } from "../acl"
+import { DEFAULT_LIST_PAGE_SIZE, MAXIMUM_LIST_PAGE_SIZE } from "../limits"
 import { readJsonBody } from "../request"
 import { requireSession } from "../session"
 import { isValidSyncId } from "../sync-validation"
 
 type ShareRow = {
   email: string
-  userId: string | null
   role: "viewer" | "editor"
   createdAt: string
-  pending: boolean
+}
+
+function decodeShareCursor(value: string | null): string | null | undefined {
+  if (!value) return null
+  try {
+    const email = Buffer.from(value, "base64url").toString("utf8")
+    return email && email.length <= 320 && !email.includes("\0")
+      ? email
+      : undefined
+  } catch {
+    return undefined
+  }
 }
 
 async function requireOwner(request: Request, treeId: string) {
@@ -35,22 +46,49 @@ export async function listShares(
   if ("error" in owner)
     return Response.json({ error: owner.error }, { status: owner.status })
   const { db } = owner
+  const url = new URL(request.url)
+  const requestedLimit = Number(
+    url.searchParams.get("limit") ?? DEFAULT_LIST_PAGE_SIZE,
+  )
+  const cursor = decodeShareCursor(url.searchParams.get("cursor"))
+  if (
+    !Number.isSafeInteger(requestedLimit)
+    || requestedLimit < 1
+    || cursor === undefined
+  ) {
+    return Response.json({ error: "invalid pagination" }, { status: 400 })
+  }
+  const limit = Math.min(requestedLimit, MAXIMUM_LIST_PAGE_SIZE)
 
   const rows = await db
     .select()
     .from(treeShares)
-    .where(eq(treeShares.treeId, treeId))
+    .where(
+      and(
+        eq(treeShares.treeId, treeId),
+        cursor ? gt(treeShares.email, cursor) : undefined,
+      ),
+    )
     .orderBy(asc(treeShares.email))
+    .limit(limit + 1)
 
-  const out: ShareRow[] = rows.map((r) => ({
+  const page = rows.slice(0, limit)
+  const out: ShareRow[] = page.map((r) => ({
     email: r.email,
-    userId: r.userId,
     role: r.role as "viewer" | "editor",
     createdAt: r.createdAt.toISOString(),
-    pending: r.userId === null,
   }))
   return Response.json(
-    { shares: out },
+    {
+      shares: out,
+      ...(rows.length > limit && page.at(-1)
+        ? {
+            nextCursor: Buffer.from(page.at(-1)?.email ?? "").toString(
+              "base64url",
+            ),
+          }
+        : {}),
+    },
     { headers: { "cache-control": "private, no-store" } },
   )
 }
@@ -66,7 +104,16 @@ export async function addShare(
   const { db, me } = owner
 
   const parsed = await readJsonBody(request, 16 * 1024)
-  if (!parsed.ok || !parsed.value || typeof parsed.value !== "object") {
+  if (!parsed.ok) {
+    return Response.json(
+      {
+        error:
+          parsed.error === "too-large" ? "payload too large" : "invalid JSON",
+      },
+      { status: parsed.error === "too-large" ? 413 : 400 },
+    )
+  }
+  if (!parsed.value || typeof parsed.value !== "object") {
     return Response.json({ error: "invalid share payload" }, { status: 400 })
   }
   const body = parsed.value as Record<string, unknown>

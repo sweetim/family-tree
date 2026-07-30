@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { type DirtyState, findAncestorTree, type GlobalState } from "./store"
 import { update } from "./store/state"
-import type { SyncPullResponse, SyncRecordSet } from "./sync/types"
+import type {
+  SyncPullResponse,
+  SyncRecordSet,
+  TreeSnapshotResponse,
+} from "./sync/types"
 import { projectTree } from "./types"
 
 const timestamp = "2024-01-01T00:00:00.000Z"
@@ -1280,6 +1284,107 @@ describe("dirty tracking and push wires", () => {
     expect(stamped.unionEvents.event?.updatedAt).not.toBe(timestamp)
     expect([...store.snapshotDirty().unionEvents.keys()]).toEqual(["event"])
     expect([...store.snapshotDirty().trees.keys()]).toEqual([])
+  })
+
+  test("final parent unlink sends only the tree association tombstone", async () => {
+    const store = await freshStore()
+    const previous = relationshipState()
+    delete previous.treeParentChildRelationships['["b","parent"]']
+    const removed = store.removeParentRecords(previous, "a", "kid", "tim")
+    const stamped = store.stampAndEnqueue(previous, removed)
+    const dirty = store.snapshotDirty()
+
+    expect(stamped.parentChildRelationships.parent).toBeUndefined()
+    expect([...dirty.parentChildRelationships]).toEqual([])
+    expect(
+      dirty.treeParentChildRelationships.get('["a","parent"]'),
+    ).toMatchObject({ action: "delete" })
+    expect(
+      store.buildPushWires(stamped, dirty, timestamp).parentChildRelationships,
+    ).toEqual([])
+  })
+
+  test("coalesces a never-synchronized create followed by delete", async () => {
+    const store = await freshStore()
+    const previous = emptyState()
+    const created = store.stampAndEnqueue(previous, {
+      ...previous,
+      persons: {
+        person: { id: "person", name: "Person", updatedAt: timestamp },
+      },
+    })
+    expect(store.snapshotDirty().persons.get("person")).toMatchObject({
+      action: "upsert",
+      baseRevision: undefined,
+    })
+
+    store.stampAndEnqueue(created, { ...created, persons: {} })
+
+    expect([...store.snapshotDirty().persons]).toEqual([])
+  })
+
+  test("assembles snapshot pages before returning", async () => {
+    const store = await freshStore()
+    const base: Omit<TreeSnapshotResponse, "records"> = {
+      tree: {
+        id: "a",
+        name: "A",
+        ownerId: "owner",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      syncVersion: 2,
+      cursor: "change-cursor",
+    }
+    const firstPage: TreeSnapshotResponse = {
+      ...base,
+      records: {
+        persons: [{ id: "person", name: "Person", updatedAt: timestamp }],
+        treeMembers: [],
+        unions: [],
+        unionEvents: [],
+        treeUnions: [],
+        parentChildRelationships: [],
+        treeParentChildRelationships: [],
+      },
+      nextCursor: "next-page",
+    }
+    const secondPage: TreeSnapshotResponse = {
+      ...base,
+      records: {
+        persons: [],
+        treeMembers: [
+          {
+            treeId: "a",
+            personId: "person",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+        unions: [],
+        unionEvents: [],
+        treeUnions: [],
+        parentChildRelationships: [],
+        treeParentChildRelationships: [],
+      },
+    }
+    const originalFetch = globalThis.fetch
+    let calls = 0
+    globalThis.fetch = (async (input) => {
+      calls++
+      if (calls === 1) return Response.json(firstPage)
+      expect(String(input)).toContain("pageCursor=next-page")
+      return Response.json(secondPage)
+    }) as typeof fetch
+
+    try {
+      const snapshot = await store.fetchTreeSnapshot("a")
+      expect(snapshot.records.persons).toHaveLength(1)
+      expect(snapshot.records.treeMembers).toHaveLength(1)
+      expect(calls).toBe(2)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 
   test("an applied response cannot clear a newer edit of the same id", async () => {

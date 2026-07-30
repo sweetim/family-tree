@@ -1,12 +1,22 @@
-import { and, asc, eq, isNull } from "drizzle-orm"
+import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { treeAccessRequests, treeShares, trees, user } from "../../db/schema"
 import { treeRole } from "../acl"
+import { DEFAULT_LIST_PAGE_SIZE, MAXIMUM_LIST_PAGE_SIZE } from "../limits"
 import { readJsonBody } from "../request"
 import { requireSession } from "../session"
 import { isValidSyncId } from "../sync-validation"
 
 const MAX_COMMENT = 500
+
+class AccessRequestResolutionError extends Error {
+  constructor(
+    readonly status: 403 | 404 | 409,
+    message: string,
+  ) {
+    super(message)
+  }
+}
 
 type RequestStatus = {
   status: "pending" | "approved" | "denied"
@@ -25,6 +35,11 @@ export async function getAccessRequest(
   const me = await requireSession(request)
   if (!me) return Response.json({ error: "unauthorized" }, { status: 401 })
   const db = getDB()
+
+  const tree = await db.query.trees.findFirst({
+    where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
+  })
+  if (!tree) return Response.json({ error: "tree not found" }, { status: 404 })
 
   const row = await db.query.treeAccessRequests.findFirst({
     where: and(
@@ -59,7 +74,16 @@ export async function createAccessRequest(
   const db = getDB()
 
   const parsed = await readJsonBody(request, 4 * 1024)
-  if (!parsed.ok || !parsed.value || typeof parsed.value !== "object") {
+  if (!parsed.ok) {
+    return Response.json(
+      {
+        error:
+          parsed.error === "too-large" ? "payload too large" : "invalid JSON",
+      },
+      { status: parsed.error === "too-large" ? 413 : 400 },
+    )
+  }
+  if (!parsed.value || typeof parsed.value !== "object") {
     return Response.json({ error: "invalid payload" }, { status: 400 })
   }
   const body = parsed.value as Record<string, unknown>
@@ -121,7 +145,7 @@ async function requireOwner(request: Request, treeId: string) {
   const db = getDB()
   const role = await treeRole(db, me.id, treeId)
   if (role !== "owner") return { status: 403, error: "forbidden" } as const
-  return { db } as const
+  return { db, me } as const
 }
 
 type OwnerRequestRow = {
@@ -130,6 +154,29 @@ type OwnerRequestRow = {
   name: string
   comment: string
   createdAt: string
+}
+
+type AccessRequestCursor = { createdAt: string; userId: string }
+
+function decodeAccessRequestCursor(
+  value: string | null,
+): AccessRequestCursor | null | undefined {
+  if (!value) return null
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as Partial<AccessRequestCursor>
+    if (
+      typeof parsed.createdAt !== "string"
+      || !Number.isFinite(new Date(parsed.createdAt).getTime())
+      || !isValidSyncId(parsed.userId)
+    ) {
+      return undefined
+    }
+    return parsed as AccessRequestCursor
+  } catch {
+    return undefined
+  }
 }
 
 /** GET /api/trees/:treeId/access-requests — owner lists pending requests. */
@@ -141,6 +188,19 @@ export async function listAccessRequests(
   if ("error" in owner)
     return Response.json({ error: owner.error }, { status: owner.status })
   const { db } = owner
+  const url = new URL(request.url)
+  const requestedLimit = Number(
+    url.searchParams.get("limit") ?? DEFAULT_LIST_PAGE_SIZE,
+  )
+  const cursor = decodeAccessRequestCursor(url.searchParams.get("cursor"))
+  if (
+    !Number.isSafeInteger(requestedLimit)
+    || requestedLimit < 1
+    || cursor === undefined
+  ) {
+    return Response.json({ error: "invalid pagination" }, { status: 400 })
+  }
+  const limit = Math.min(requestedLimit, MAXIMUM_LIST_PAGE_SIZE)
 
   const rows = await db
     .select({
@@ -156,11 +216,22 @@ export async function listAccessRequests(
       and(
         eq(treeAccessRequests.treeId, treeId),
         eq(treeAccessRequests.status, "pending"),
+        cursor
+          ? or(
+              gt(treeAccessRequests.createdAt, new Date(cursor.createdAt)),
+              and(
+                eq(treeAccessRequests.createdAt, new Date(cursor.createdAt)),
+                gt(treeAccessRequests.userId, cursor.userId),
+              ),
+            )
+          : undefined,
       ),
     )
-    .orderBy(asc(treeAccessRequests.createdAt))
+    .orderBy(asc(treeAccessRequests.createdAt), asc(treeAccessRequests.userId))
+    .limit(limit + 1)
 
-  const out: OwnerRequestRow[] = rows.map((r) => ({
+  const page = rows.slice(0, limit)
+  const out: OwnerRequestRow[] = page.map((r) => ({
     userId: r.userId,
     email: r.email,
     name: r.name,
@@ -168,7 +239,19 @@ export async function listAccessRequests(
     createdAt: r.createdAt.toISOString(),
   }))
   return Response.json(
-    { requests: out },
+    {
+      requests: out,
+      ...(rows.length > limit && page.at(-1)
+        ? {
+            nextCursor: Buffer.from(
+              JSON.stringify({
+                createdAt: page.at(-1)?.createdAt.toISOString(),
+                userId: page.at(-1)?.userId,
+              }),
+            ).toString("base64url"),
+          }
+        : {}),
+    },
     { headers: { "cache-control": "private, no-store" } },
   )
 }
@@ -188,7 +271,16 @@ export async function resolveAccessRequest(
   const { db } = owner
 
   const parsed = await readJsonBody(request, 4 * 1024)
-  if (!parsed.ok || !parsed.value || typeof parsed.value !== "object") {
+  if (!parsed.ok) {
+    return Response.json(
+      {
+        error:
+          parsed.error === "too-large" ? "payload too large" : "invalid JSON",
+      },
+      { status: parsed.error === "too-large" ? 413 : 400 },
+    )
+  }
+  if (!parsed.value || typeof parsed.value !== "object") {
     return Response.json({ error: "invalid payload" }, { status: 400 })
   }
   const body = parsed.value as Record<string, unknown>
@@ -208,44 +300,87 @@ export async function resolveAccessRequest(
   }
   const targetUserId = body.userId
 
-  if (action === "approve") {
+  try {
     await db.transaction(async (tx) => {
-      const requester = await tx.query.user.findFirst({
-        where: eq(user.id, targetUserId),
-      })
-      if (!requester) throw new Error("requester not found")
-      await tx
-        .insert(treeShares)
-        .values({
-          treeId,
-          email: requester.email.toLowerCase(),
-          userId: requester.id,
-          role: "viewer",
-        })
-        .onConflictDoUpdate({
-          target: [treeShares.treeId, treeShares.email],
-          set: { role: "viewer", userId: requester.id },
-        })
-      await tx
-        .update(treeAccessRequests)
-        .set({ status: "approved", resolvedAt: new Date() })
+      const lockedTree = await tx.execute<{ id: string }>(sql`
+        SELECT ${trees.id} AS id
+        FROM ${trees}
+        WHERE ${trees.id} = ${treeId}
+          AND ${trees.ownerId} = ${owner.me.id}
+          AND ${trees.deletedAt} IS NULL
+        FOR UPDATE
+      `)
+      if (lockedTree.rows.length === 0) {
+        throw new AccessRequestResolutionError(403, "forbidden")
+      }
+
+      const requestRows = await tx
+        .select({ status: treeAccessRequests.status, requester: user })
+        .from(treeAccessRequests)
+        .innerJoin(user, eq(user.id, treeAccessRequests.userId))
         .where(
           and(
             eq(treeAccessRequests.treeId, treeId),
             eq(treeAccessRequests.userId, targetUserId),
           ),
         )
+        .limit(1)
+      const requestRow = requestRows[0]
+      if (!requestRow) {
+        throw new AccessRequestResolutionError(404, "request not found")
+      }
+      if (requestRow.status !== "pending") {
+        throw new AccessRequestResolutionError(
+          409,
+          "request is already resolved",
+        )
+      }
+
+      const resolved = await tx
+        .update(treeAccessRequests)
+        .set({
+          status: action === "approve" ? "approved" : "denied",
+          resolvedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(treeAccessRequests.treeId, treeId),
+            eq(treeAccessRequests.userId, targetUserId),
+            eq(treeAccessRequests.status, "pending"),
+          ),
+        )
+        .returning({ userId: treeAccessRequests.userId })
+      if (resolved.length === 0) {
+        throw new AccessRequestResolutionError(
+          409,
+          "request is already resolved",
+        )
+      }
+
+      if (action === "approve") {
+        const requester = requestRow.requester
+        await tx
+          .insert(treeShares)
+          .values({
+            treeId,
+            email: requester.email.toLowerCase(),
+            userId: requester.id,
+            role: "viewer",
+          })
+          .onConflictDoUpdate({
+            target: [treeShares.treeId, treeShares.email],
+            set: {
+              userId: requester.id,
+              role: sql`CASE WHEN ${treeShares.role} = 'editor' THEN ${treeShares.role} ELSE 'viewer' END`,
+            },
+          })
+      }
     })
-  } else {
-    await db
-      .update(treeAccessRequests)
-      .set({ status: "denied", resolvedAt: new Date() })
-      .where(
-        and(
-          eq(treeAccessRequests.treeId, treeId),
-          eq(treeAccessRequests.userId, targetUserId),
-        ),
-      )
+  } catch (error) {
+    if (error instanceof AccessRequestResolutionError) {
+      return Response.json({ error: error.message }, { status: error.status })
+    }
+    throw error
   }
 
   return Response.json(

@@ -27,6 +27,7 @@ import {
   loadPersistedStore,
   type PersistedConflict,
   type PersistedOperationConflict,
+  type PersistedPendingMutation,
   type PersistedStore,
   savePersistedStore,
 } from "./persistence"
@@ -66,6 +67,15 @@ const RECORD_COLLECTIONS = [
   "parentChildRelationships",
   "treeParentChildRelationships",
 ] as const
+const SNAPSHOT_RECORD_COLLECTIONS = [
+  "persons",
+  "treeMembers",
+  "unions",
+  "unionEvents",
+  "treeUnions",
+  "parentChildRelationships",
+  "treeParentChildRelationships",
+] as const satisfies readonly (keyof TreeSnapshotResponse["records"])[]
 
 export type DirtyCollection = (typeof RECORD_COLLECTIONS)[number]
 export type DirtyAction = "upsert" | "delete"
@@ -189,6 +199,8 @@ let deviceId = newId()
 const storeInstanceId = newId()
 const mutationIdsByBatch = new Map<string, string>()
 const clearedDirtyTokens = new Set<string>()
+let pendingMutation: PersistedPendingMutation | undefined
+const clearedMutationIds = new Set<string>()
 let syncConflicts: PersistedConflict[] = []
 let operationConflicts: PersistedOperationConflict[] = []
 const clearedOperationConflictIds = new Set<string>()
@@ -226,6 +238,8 @@ function persistedSnapshot(): PersistedStore {
     clearedConflictIds: [...clearedConflictIds],
     operationConflicts,
     clearedOperationConflictIds: [...clearedOperationConflictIds],
+    pendingMutation,
+    clearedMutationIds: [...clearedMutationIds],
   }
 }
 
@@ -282,12 +296,31 @@ function markDirty(
   baseRevision?: number,
   operationId?: string,
 ): void {
+  const current = dirtyState[collection].get(id)
+  const isPending = Boolean(
+    pendingMutation?.dirty[collection].some(
+      ([pendingId, pending]) =>
+        pendingId === id && pending.revision === current?.revision,
+    ),
+  )
+  if (
+    action === "delete"
+    && current?.action === "upsert"
+    && current.baseRevision === undefined
+    && !current.blocked
+    && !isPending
+  ) {
+    const token = dirtyToken(collection, id, current)
+    if (token) clearedDirtyTokens.add(token)
+    dirtyState[collection].delete(id)
+    return
+  }
   dirtyState[collection].set(id, {
     action,
     revision: nextRevision++,
-    baseRevision: dirtyState[collection].get(id)?.blocked
+    baseRevision: current?.blocked
       ? baseRevision
-      : (dirtyState[collection].get(id)?.baseRevision ?? baseRevision),
+      : (current?.baseRevision ?? baseRevision),
     operationId,
     sourceId: storeInstanceId,
     changedAt: Date.now(),
@@ -310,6 +343,7 @@ function stampRecordMap<T extends { updatedAt: string; revision?: number }>(
   collection: Exclude<DirtyCollection, "persons" | "trees">,
   now: string,
   operationId: string,
+  enqueueDeletes = true,
 ): Record<string, T> {
   if (previous === next) return next
   let stamped = next
@@ -325,7 +359,14 @@ function stampRecordMap<T extends { updatedAt: string; revision?: number }>(
   }
   for (const id of Object.keys(previous)) {
     if (!next[id]) {
-      markDirty(collection, id, "delete", previous[id]?.revision, operationId)
+      if (enqueueDeletes) {
+        markDirty(collection, id, "delete", previous[id]?.revision, operationId)
+      } else {
+        const current = dirtyState[collection].get(id)
+        const token = current ? dirtyToken(collection, id, current) : undefined
+        if (token) clearedDirtyTokens.add(token)
+        dirtyState[collection].delete(id)
+      }
     }
   }
   return stamped
@@ -488,6 +529,7 @@ export function stampAndEnqueue(
       "parentChildRelationships",
       now,
       operationId,
+      false,
     ),
     treeParentChildRelationships: stampRecordMap(
       previous.treeParentChildRelationships,
@@ -1110,6 +1152,26 @@ function dirtyBatchKey(dirty: DirtyState): string {
   )
 }
 
+function persistableDirty(
+  dirty: DirtyState,
+): PersistedPendingMutation["dirty"] {
+  return Object.fromEntries(
+    RECORD_COLLECTIONS.map((collection) => [
+      collection,
+      [...dirty[collection]],
+    ]),
+  ) as PersistedPendingMutation["dirty"]
+}
+
+function restoredDirty(dirty: PersistedPendingMutation["dirty"]): DirtyState {
+  return Object.fromEntries(
+    RECORD_COLLECTIONS.map((collection) => [
+      collection,
+      new Map(dirty[collection] ?? []),
+    ]),
+  ) as DirtyState
+}
+
 function firstPendingOperation(source: DirtyState): string | undefined {
   return RECORD_COLLECTIONS.flatMap((collection) => [
     ...source[collection].values(),
@@ -1149,11 +1211,45 @@ function blockOperation(
 }
 
 export async function fetchFullPull(): Promise<SyncPullResponse> {
-  const response = await fetch(`/api/sync?since=${encodeURIComponent(EPOCH)}`, {
-    credentials: "include",
-  })
-  if (!response.ok) throw new Error(`pull failed: ${response.status}`)
-  return (await response.json()) as SyncPullResponse
+  let nextCursor: string | undefined
+  let aggregate: SyncPullResponse | undefined
+  do {
+    const parameters = new URLSearchParams({ since: EPOCH })
+    if (nextCursor) parameters.set("pageCursor", nextCursor)
+    const response = await fetch(`/api/sync?${parameters}`, {
+      credentials: "include",
+    })
+    if (!response.ok) throw new Error(`pull failed: ${response.status}`)
+    const page = (await response.json()) as SyncPullResponse
+    if (aggregate && page.serverTime !== aggregate.serverTime) {
+      throw new Error("sync pull changed while loading")
+    }
+    if (!aggregate) {
+      aggregate = page
+    } else {
+      for (const collection of RECORD_COLLECTIONS) {
+        aggregate.own[collection].push(...(page.own[collection] as never[]))
+      }
+      const sharedByTree = new Map(
+        aggregate.shared.map((shared) => [shared.tree.id, shared]),
+      )
+      for (const sharedPage of page.shared) {
+        const shared = sharedByTree.get(sharedPage.tree.id)
+        if (!shared) {
+          aggregate.shared.push(sharedPage)
+          sharedByTree.set(sharedPage.tree.id, sharedPage)
+          continue
+        }
+        for (const collection of SNAPSHOT_RECORD_COLLECTIONS) {
+          shared[collection].push(...(sharedPage[collection] as never[]))
+        }
+      }
+      aggregate.nextCursor = page.nextCursor
+    }
+    nextCursor = page.nextCursor
+  } while (nextCursor)
+  if (!aggregate) throw new Error("sync pull returned no pages")
+  return aggregate
 }
 
 export async function fetchTreeManifest(): Promise<TreeManifestItem[]> {
@@ -1210,16 +1306,62 @@ export async function fetchTreeSnapshot(
   treeId: string,
   focusPersonId?: string,
 ): Promise<TreeSnapshotResponse> {
-  const path = focusPersonId
+  const basePath = focusPersonId
     ? `/api/trees/${encodeURIComponent(treeId)}/graph?focusPersonId=${encodeURIComponent(focusPersonId)}&radius=3`
     : `/api/trees/${encodeURIComponent(treeId)}/snapshot`
-  const response = await fetch(path, { credentials: "include" })
-  if (!response.ok) {
-    throw Object.assign(new Error(`tree snapshot failed: ${response.status}`), {
-      status: response.status,
-    })
+  let restartCount = 0
+  while (true) {
+    let nextCursor: string | undefined
+    let aggregate: TreeSnapshotResponse | undefined
+    do {
+      const path = nextCursor
+        ? `${basePath}${basePath.includes("?") ? "&" : "?"}pageCursor=${encodeURIComponent(nextCursor)}`
+        : basePath
+      const response = await fetch(path, { credentials: "include" })
+      if (response.status === 409 && restartCount === 0) {
+        restartCount++
+        aggregate = undefined
+        nextCursor = undefined
+        break
+      }
+      if (!response.ok) {
+        throw Object.assign(
+          new Error(`tree snapshot failed: ${response.status}`),
+          { status: response.status },
+        )
+      }
+      const page = (await response.json()) as TreeSnapshotResponse
+      if (
+        aggregate
+        && (page.tree.id !== aggregate.tree.id
+          || page.syncVersion !== aggregate.syncVersion)
+      ) {
+        throw new Error("tree snapshot changed while loading")
+      }
+      if (aggregate) {
+        const current = aggregate
+        aggregate = {
+          ...current,
+          records: Object.fromEntries(
+            SNAPSHOT_RECORD_COLLECTIONS.map((collection) => [
+              collection,
+              [...current.records[collection], ...page.records[collection]],
+            ]),
+          ) as TreeSnapshotResponse["records"],
+          ancestorTrees: [
+            ...(current.ancestorTrees ?? []),
+            ...(page.ancestorTrees ?? []),
+          ],
+          nextCursor: page.nextCursor,
+        }
+      } else {
+        aggregate = page
+      }
+      nextCursor = page.nextCursor
+    } while (nextCursor)
+    if (aggregate && !aggregate.nextCursor) return aggregate
+    if (restartCount > 0) continue
   }
-  return (await response.json()) as TreeSnapshotResponse
 }
 
 export async function deleteTreeOnServer(treeId: string): Promise<void> {
@@ -1402,30 +1544,51 @@ export async function synchronizeTreeFresh(
 async function runPushLoop(generation: number): Promise<void> {
   let authoritativePullNeeded = false
   while (generation === storeGeneration) {
-    const pending = snapshotDirty()
-    const operationId = firstPendingOperation(pending)
-    if (operationExceedsRecordLimits(pending, operationId)) {
-      blockOperation(pending, operationId)
-      return
+    let dirty: DirtyState
+    let request: SyncPushRequest
+    let batchKey: string
+    let mutationId: string
+    let operationId: string | undefined
+    if (pendingMutation) {
+      dirty = restoredDirty(pendingMutation.dirty)
+      request = pendingMutation.records
+      batchKey = pendingMutation.batchKey
+      mutationId = pendingMutation.mutationId
+      operationId = firstPendingOperation(dirty)
+    } else {
+      const pending = snapshotDirty()
+      operationId = firstPendingOperation(pending)
+      if (operationExceedsRecordLimits(pending, operationId)) {
+        blockOperation(pending, operationId)
+        return
+      }
+      dirty = takeDirtyBatch(pending, MAX_SYNC_BATCH_RECORDS)
+      request = buildPushWires(state, dirty, new Date().toISOString())
+      if (
+        RECORD_COLLECTIONS.every(
+          (collection) => request[collection].length === 0,
+        )
+      ) {
+        return
+      }
+      const serializedRequest = JSON.stringify(request)
+      if (
+        new TextEncoder().encode(serializedRequest).byteLength
+        > MAX_SYNC_BATCH_BYTES
+      ) {
+        blockOperation(pending, operationId)
+        return
+      }
+      batchKey = dirtyBatchKey(dirty)
+      mutationId = mutationIdsByBatch.get(batchKey) ?? newId()
+      mutationIdsByBatch.set(batchKey, mutationId)
+      pendingMutation = {
+        batchKey,
+        mutationId,
+        records: request,
+        dirty: persistableDirty(dirty),
+      }
     }
-    const dirty = takeDirtyBatch(pending, MAX_SYNC_BATCH_RECORDS)
-    const request = buildPushWires(state, dirty, new Date().toISOString())
-    if (
-      RECORD_COLLECTIONS.every((collection) => request[collection].length === 0)
-    ) {
-      return
-    }
-    const serializedRequest = JSON.stringify(request)
-    if (
-      new TextEncoder().encode(serializedRequest).byteLength
-      > MAX_SYNC_BATCH_BYTES
-    ) {
-      blockOperation(pending, operationId)
-      return
-    }
-    const batchKey = dirtyBatchKey(dirty)
-    const mutationId = mutationIdsByBatch.get(batchKey) ?? newId()
-    mutationIdsByBatch.set(batchKey, mutationId)
 
     try {
       await persistCurrentStore()
@@ -1445,6 +1608,8 @@ async function runPushLoop(generation: number): Promise<void> {
         throw new Error(`push failed: ${response.status}`)
       }
       if (generation !== storeGeneration) return
+      pendingMutation = undefined
+      clearedMutationIds.add(mutationId)
       mutationIdsByBatch.delete(batchKey)
       schedulePersistence()
       acknowledgeApplied(result, dirty)
@@ -2038,6 +2203,8 @@ export function resetStore(): void {
   deviceId = newId()
   mutationIdsByBatch.clear()
   clearedDirtyTokens.clear()
+  pendingMutation = undefined
+  clearedMutationIds.clear()
   syncConflicts = []
   operationConflicts = []
   clearedOperationConflictIds.clear()
@@ -2085,6 +2252,11 @@ export async function restorePersistentStore(userId: string): Promise<void> {
     clearedDirtyTokens.clear()
     for (const token of persisted.clearedDirtyTokens ?? []) {
       clearedDirtyTokens.add(token)
+    }
+    pendingMutation = persisted.pendingMutation
+    clearedMutationIds.clear()
+    for (const id of persisted.clearedMutationIds ?? []) {
+      clearedMutationIds.add(id)
     }
     syncConflicts = persisted.conflicts ?? []
     operationConflicts = persisted.operationConflicts ?? []

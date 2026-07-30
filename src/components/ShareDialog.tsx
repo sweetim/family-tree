@@ -4,9 +4,7 @@ import { useOwnerAccessRequests } from "@/lib/access-requests"
 import { useShares } from "@/lib/shares"
 
 /**
- * Modal for a tree owner to manage shares. Lists current shares (with a
- * "pending" badge for emails that haven't signed in yet), and lets the owner
- * add a new email with viewer/editor role or revoke an existing share.
+ * Modal for a tree owner to manage shares and access requests.
  */
 export function ShareDialog({
   treeId,
@@ -141,7 +139,6 @@ export function ShareDialog({
                     </p>
                     <p className="text-[11px] uppercase tracking-wide text-slate-400">
                       {share.role}
-                      {share.pending ? " · pending sign-in" : ""}
                     </p>
                   </div>
                   <button

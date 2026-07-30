@@ -19,15 +19,19 @@ people or relationships. Results use stable keyset pagination.
 
 `GET /api/trees/[treeId]/snapshot` returns one selected tree and its active
 normalized graph. It also returns an opaque change cursor pinned to the tree's
-current sync version. Other accessible trees are not included.
+current sync version. Responses are capped at 6 MiB and return `nextCursor`
+when another page is required. Clients assemble every page before treating the
+snapshot as authoritative. A version change between pages returns `409` and
+requires a restart. Other accessible trees are not included.
 
 `GET /api/trees/[treeId]/graph?focusPersonId=<id>&radius=<0-6>` returns at
 most 300 people in a relationship neighborhood around one member. The response
 sets `partial: true` and identifies boundary people. Person deep links use this
 bounded query; the main tree canvas uses the selected-tree snapshot.
 
-`GET /api/people/search?query=<text>` searches accessible identities without
-loading their trees and returns at most eight results.
+`GET /api/people/search?query=<text>` accepts queries of 3-100 characters,
+searches accessible identities without loading their trees, and returns at most
+eight results.
 
 ## Changes
 
@@ -35,6 +39,8 @@ loading their trees and returns at most eight results.
 normalized change batches after the supplied cursor. The work and payload scale
 with committed changes rather than tree size. Responses contain `cursor` and
 `hasMore`; clients continue until `hasMore` is false.
+Pages are also capped at 6 MiB. An individual historical batch that cannot fit
+causes `410 resetRequired` rather than an oversized response.
 
 Change rows and mutation receipts are retained for 30 days. A cursor older than
 retained history receives `410 { resetRequired: true }`; the client then fetches
@@ -92,12 +98,18 @@ Payloads are limited to 5 MiB, 2,000 records per collection, and 5,000 records
 overall. IDs, text, dates, photos, enums, exact keys, and duplicate collection
 keys are validated before database or Blob work.
 
+Writes are serialized by parent-graph, union, and tree scope. A tree may contain
+at most 10,000 active members and 20,000 active relationship, association, and
+event records. A mutation that would increase an over-limit count returns a
+non-retryable `409` conflict.
+
 ## Shares
 
-`GET`, `POST`, and `DELETE /api/trees/[treeId]/shares` are owner-only. Requests
-use bounded JSON parsing, normalized email addresses, deterministic ordering,
-and strict roles. Pending shares are reconciled during manifest loading, which
-also closes the share/user-creation race.
+`GET`, `POST`, and `DELETE /api/trees/[treeId]/shares` are owner-only. List
+responses use `cursor` and `limit` keyset pagination. Requests use bounded JSON
+parsing, normalized email addresses, deterministic ordering, and strict roles.
+Responses do not expose internal user IDs or whether an invited email already
+has an account. Pending shares are reconciled during manifest loading.
 
 ## Access requests
 
@@ -107,9 +119,11 @@ request and requires a session, a non-deleted tree, no existing role, and a
 non-empty comment of at most 500 characters.
 
 `GET /api/trees/[treeId]/access-requests` (owner-only) lists pending requests
-with the requester's name, email, comment, and timestamp. `POST` (owner-only)
-resolves one with `{ userId, action: "approve" | "deny" }`; `approve` inserts a
-`viewer` share and marks the request `approved` in one transaction.
+with the requester's name, email, comment, and timestamp using cursor pagination.
+`POST` (owner-only) resolves one with `{ userId, action: "approve" | "deny" }`.
+The request must exist and still be pending; missing requests return `404` and
+already-resolved requests return `409`. Approval preserves an existing editor
+role and marks the request `approved` in the same transaction.
 
 ## Photos
 
@@ -119,9 +133,9 @@ and `nosniff`. Blob URLs are never exposed in sync DTOs.
 
 ## Bulk pull and deletion
 
-`GET /api/sync?since=<iso>` returns an authoritative full pull across every
-tree the account can access; the client uses it to reconcile after incremental
-change synchronization reports divergent or skipped records. `DELETE
+`GET /api/sync?since=<iso>` returns an authoritative, 6 MiB paginated full pull
+across every tree the account can access. The client follows `nextCursor` and
+applies the result only after all pages arrive. `DELETE
 /api/trees/[treeId]` is owner-only and atomically tombstones a tree and its
 tree-local records. Writes go through `POST /api/mutations`, so revisions,
 atomicity, idempotency, and change records cannot be bypassed.

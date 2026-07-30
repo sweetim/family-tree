@@ -19,6 +19,7 @@ import type {
   SyncRecordSet,
   TreeRecordWire,
 } from "../../sync/types"
+import { MAX_RESPONSE_PAGE_BYTES } from "../limits"
 import { requireSession } from "../session"
 import {
   activeDependencyIds,
@@ -41,6 +42,173 @@ type SharedTreeMetadata = {
   tree: typeof trees.$inferSelect
   role: "viewer" | "editor"
   ownerEmail: string | null
+}
+
+type PullPageCursor = { since: string; cutoff: string; offset: number }
+type PullCollection = keyof SyncRecordSet
+type PullPageItem =
+  | {
+      scope: "own"
+      collection: PullCollection
+      value: SyncRecordSet[PullCollection][number]
+    }
+  | { scope: "shared-tree"; treeId: string }
+  | {
+      scope: "shared"
+      treeId: string
+      collection: Exclude<PullCollection, "trees">
+      value: SyncRecordSet[Exclude<PullCollection, "trees">][number]
+    }
+
+const PULL_COLLECTIONS = [
+  "persons",
+  "trees",
+  "treeMembers",
+  "unions",
+  "unionEvents",
+  "treeUnions",
+  "parentChildRelationships",
+  "treeParentChildRelationships",
+] as const satisfies readonly PullCollection[]
+
+function emptyRecordSet(): SyncRecordSet {
+  return { ...emptyTreeRecords(), trees: [] }
+}
+
+function pullWireKey(value: object): string {
+  const wire = value as Record<string, unknown>
+  return JSON.stringify([
+    wire.id ?? "",
+    wire.treeId ?? "",
+    wire.personId ?? "",
+    wire.unionId ?? "",
+    wire.parentChildRelationshipId ?? "",
+  ])
+}
+
+function encodePullCursor(cursor: PullPageCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url")
+}
+
+function decodePullCursor(
+  value: string | null,
+): PullPageCursor | null | undefined {
+  if (!value) return null
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as Partial<PullPageCursor>
+    if (
+      typeof parsed.since !== "string"
+      || typeof parsed.cutoff !== "string"
+      || !Number.isFinite(new Date(parsed.since).getTime())
+      || !Number.isFinite(new Date(parsed.cutoff).getTime())
+      || !Number.isSafeInteger(parsed.offset)
+      || (parsed.offset ?? -1) < 0
+    ) {
+      return undefined
+    }
+    return parsed as PullPageCursor
+  } catch {
+    return undefined
+  }
+}
+
+function paginatePull(
+  body: SyncPullResponse,
+  cursor: PullPageCursor | null,
+  since: string,
+): SyncPullResponse {
+  const items: PullPageItem[] = []
+  for (const collection of PULL_COLLECTIONS) {
+    const records = [...body.own[collection]].sort((first, second) =>
+      pullWireKey(first).localeCompare(pullWireKey(second)),
+    )
+    for (const value of records) {
+      items.push({ scope: "own", collection, value })
+    }
+  }
+  const sharedById = new Map(
+    body.shared.map((shared) => [shared.tree.id, shared]),
+  )
+  for (const shared of [...body.shared].sort((first, second) =>
+    first.tree.id.localeCompare(second.tree.id),
+  )) {
+    items.push({ scope: "shared-tree", treeId: shared.tree.id })
+    for (const collection of PULL_COLLECTIONS) {
+      if (collection === "trees") continue
+      const records = [...shared[collection]].sort((first, second) =>
+        pullWireKey(first).localeCompare(pullWireKey(second)),
+      )
+      for (const value of records) {
+        items.push({
+          scope: "shared",
+          treeId: shared.tree.id,
+          collection,
+          value,
+        })
+      }
+    }
+  }
+
+  const offset = cursor?.offset ?? 0
+  const pageItems: PullPageItem[] = []
+  let estimatedBytes = 1_024
+  for (const item of items.slice(offset)) {
+    const itemBytes = new TextEncoder().encode(JSON.stringify(item)).byteLength
+    if (
+      pageItems.length > 0
+      && estimatedBytes + itemBytes > MAX_RESPONSE_PAGE_BYTES
+    ) {
+      break
+    }
+    pageItems.push(item)
+    estimatedBytes += itemBytes
+  }
+
+  const own = emptyRecordSet()
+  const pageShared = new Map<string, SharedTreeWire>()
+  const ensureShared = (treeId: string): SharedTreeWire | undefined => {
+    const current = pageShared.get(treeId)
+    if (current) return current
+    const source = sharedById.get(treeId)
+    if (!source) return undefined
+    const created: SharedTreeWire = {
+      ...emptyTreeRecords(),
+      tree: source.tree,
+      role: source.role,
+      ownerEmail: source.ownerEmail,
+    }
+    pageShared.set(treeId, created)
+    return created
+  }
+  for (const item of pageItems) {
+    if (item.scope === "own") {
+      ;(own[item.collection] as Array<typeof item.value>).push(item.value)
+    } else if (item.scope === "shared-tree") {
+      ensureShared(item.treeId)
+    } else {
+      const shared = ensureShared(item.treeId)
+      if (shared) {
+        ;(shared[item.collection] as Array<typeof item.value>).push(item.value)
+      }
+    }
+  }
+  const nextOffset = offset + pageItems.length
+  return {
+    own,
+    shared: [...pageShared.values()],
+    serverTime: body.serverTime,
+    ...(nextOffset < items.length
+      ? {
+          nextCursor: encodePullCursor({
+            since,
+            cutoff: body.serverTime,
+            offset: nextOffset,
+          }),
+        }
+      : {}),
+  }
 }
 
 const personSyncSelection = {
@@ -527,7 +695,15 @@ export async function loadAncestorTreeLinks(
 
 /** GET /api/sync?since=<iso> with query count independent of tree count. */
 export async function getSync(request: Request): Promise<Response> {
-  const sinceParam = new URL(request.url).searchParams.get("since")
+  const searchParams = new URL(request.url).searchParams
+  const sinceParam = searchParams.get("since")
+  const pageCursor = decodePullCursor(searchParams.get("pageCursor"))
+  if (
+    pageCursor === undefined
+    || (pageCursor && pageCursor.since !== sinceParam)
+  ) {
+    return Response.json({ error: "invalid sync cursor" }, { status: 400 })
+  }
   const requestTime = new Date()
   if (sinceParam && !isReasonableClientTimestamp(sinceParam, requestTime)) {
     return Response.json({ error: "invalid since timestamp" }, { status: 400 })
@@ -536,7 +712,7 @@ export async function getSync(request: Request): Promise<Response> {
   if (!me) return Response.json({ error: "unauthorized" }, { status: 401 })
 
   const since = sinceParam ? new Date(sinceParam) : new Date(0)
-  const cutoff = new Date()
+  const cutoff = pageCursor ? new Date(pageCursor.cutoff) : new Date()
   const db = getDB()
   const [ownedTreeRows, ownedPersonRows, sharedMetadataRows] =
     await Promise.all([
@@ -625,11 +801,15 @@ export async function getSync(request: Request): Promise<Response> {
       ownerEmail: metadata.ownerEmail,
     }
   })
-  const body: SyncPullResponse = {
-    own,
-    shared,
-    serverTime: cutoff.toISOString(),
-  }
+  const body = paginatePull(
+    {
+      own,
+      shared,
+      serverTime: cutoff.toISOString(),
+    },
+    pageCursor,
+    sinceParam ?? new Date(0).toISOString(),
+  )
   return Response.json(body, {
     headers: { "cache-control": "private, no-store" },
   })

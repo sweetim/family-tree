@@ -1,8 +1,9 @@
-import { and, asc, eq, gt, min } from "drizzle-orm"
+import { and, asc, eq, gt, inArray, min, sql } from "drizzle-orm"
 import { getDB } from "../../db"
 import { syncChanges, trees } from "../../db/schema"
 import type { SyncChangePage, SyncRecordSet } from "../../sync/types"
 import { treeRole } from "../acl"
+import { MAX_RESPONSE_PAGE_BYTES } from "../limits"
 import { requireSession } from "../session"
 import { decodeSyncCursor, encodeSyncCursor } from "../sync/cursor"
 import { isValidSyncId } from "../sync-validation"
@@ -56,8 +57,12 @@ export async function getChanges(request: Request): Promise<Response> {
     )
   }
 
-  const rows = await db
-    .select()
+  const metadata = await db
+    .select({
+      version: syncChanges.version,
+      mutationId: syncChanges.mutationId,
+      bytes: sql<number>`octet_length(${syncChanges.records}::text)`,
+    })
     .from(syncChanges)
     .where(
       and(eq(syncChanges.treeId, treeId), gt(syncChanges.version, version)),
@@ -67,15 +72,41 @@ export async function getChanges(request: Request): Promise<Response> {
   const treeVersion = treeRows[0]?.version ?? version
   if (
     version < treeVersion
-    && (rows.length === 0 || rows[0]?.version !== version + 1)
+    && (metadata.length === 0 || metadata[0]?.version !== version + 1)
   ) {
     return Response.json(
       { error: "reset required", resetRequired: true },
       { status: 410 },
     )
   }
-  const hasMore = rows.length > limit
-  const page = rows.slice(0, limit)
+  const selectedVersions: number[] = []
+  let selectedBytes = 512
+  for (const row of metadata.slice(0, limit)) {
+    const rowBytes = Number(row.bytes) + row.mutationId.length + 256
+    if (selectedBytes + rowBytes > MAX_RESPONSE_PAGE_BYTES) break
+    selectedVersions.push(row.version)
+    selectedBytes += rowBytes
+  }
+  if (metadata.length > 0 && selectedVersions.length === 0) {
+    return Response.json(
+      { error: "reset required", resetRequired: true },
+      { status: 410 },
+    )
+  }
+  const page =
+    selectedVersions.length > 0
+      ? await db
+          .select()
+          .from(syncChanges)
+          .where(
+            and(
+              eq(syncChanges.treeId, treeId),
+              inArray(syncChanges.version, selectedVersions),
+            ),
+          )
+          .orderBy(asc(syncChanges.version))
+      : []
+  const hasMore = metadata.length > selectedVersions.length
   const currentVersion = page.at(-1)?.version ?? treeVersion
   const body: SyncChangePage = {
     treeId,

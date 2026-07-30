@@ -18,24 +18,29 @@ for conflict resolution.
 
 Account bootstrap restores the account's IndexedDB snapshot, then fetches the
 paginated `/api/trees` manifest. The home page therefore loads only metadata
-and counts. Opening a main tree fetches that tree's snapshot. A person deep link
-fetches a bounded radius-three graph, and cross-tree member selectors load the
-selected tree on demand.
+and counts. Opening a main tree fetches that tree's byte-paginated snapshot. A
+person deep link fetches a bounded radius-three graph, and cross-tree member
+selectors load the selected tree on demand. Snapshot pages are assembled before
+one authoritative store update, preventing intermediate pages from pruning
+records.
 
 People search is server-side and bounded, so search does not require all family
 graphs in memory.
 
 ## Durable outbox
 
-Optimistic state, dirty records, base revisions, stable device ID, mutation
-retry IDs, and local revision counters are stored per account in IndexedDB.
+Optimistic state, dirty records, base revisions, stable device ID, the exact
+active mutation body and ID, and local revision counters are stored per account
+in IndexedDB.
 Reload, browser restart, network failure, or an interrupted response therefore
 does not discard pending intent.
 
-Pushes are serialized. A stable mutation ID is persisted before the request.
-Retries use the same ID and receive `alreadyApplied` when the first response was
-lost after commit. Network failures remain pending and retry on a 15-second
-timer, browser focus, and the `online` event.
+Pushes are serialized. The exact body and stable mutation ID are persisted
+before the request. Retries cannot reuse an idempotency key for newer local
+content and receive `alreadyApplied` when the first response was lost after
+commit. Network failures remain pending and retry on a 15-second timer, browser
+focus, and the `online` event. A create deleted before it was sent is coalesced
+locally; a create already sent is acknowledged before its delete is transmitted.
 
 IndexedDB writes merge dirty records transactionally across tabs. If two tabs
 edit the same record offline, both values are retained and the account menu
@@ -67,7 +72,7 @@ from that operation, preserving edits made after the conflict.
 Each loaded tree stores an opaque cursor. Polling, focus, and online refreshes
 request `/api/changes` and merge only committed batches after that cursor.
 Change rows include authoritative revisions and tombstones. Cursor pages are
-bounded to 100 batches.
+bounded to 100 batches and 6 MiB.
 
 If history has expired, the server returns `410 resetRequired` and the client
 reloads only that tree. If access was revoked, it refreshes the manifest and
@@ -87,6 +92,11 @@ batch, so other clients remove the connections and member together.
 Parent relationship collisions return canonical fact and association aliases.
 The store remaps records, keys, revisions, and queued work immediately, avoiding
 the former remove/re-add/remove identity mismatch.
+
+Global parent-fact deletion is server-owned. Removing the final tree association
+optimistically hides the fact locally, while the server tombstones it only after
+confirming no active association remains. Tree deletion uses the same orphan
+cleanup.
 
 ## Photos
 

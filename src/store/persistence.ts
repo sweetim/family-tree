@@ -1,3 +1,4 @@
+import type { SyncPushRequest } from "../sync/types"
 import type { DirtyCollection, DirtyRecord, GlobalState } from "./state"
 
 const DATABASE_NAME = "family-tree-sync-v2"
@@ -25,6 +26,13 @@ export type PersistedOperationConflict = {
   }>
 }
 
+export type PersistedPendingMutation = {
+  batchKey: string
+  mutationId: string
+  records: SyncPushRequest
+  dirty: Record<DirtyCollection, Array<[string, DirtyRecord]>>
+}
+
 export type PersistedStore = {
   state: GlobalState
   dirty: Record<DirtyCollection, Array<[string, DirtyRecord]>>
@@ -36,6 +44,8 @@ export type PersistedStore = {
   clearedConflictIds?: string[]
   operationConflicts?: PersistedOperationConflict[]
   clearedOperationConflictIds?: string[]
+  pendingMutation?: PersistedPendingMutation
+  clearedMutationIds?: string[]
 }
 
 const COLLECTIONS: DirtyCollection[] = [
@@ -104,6 +114,7 @@ function mergePersistedStore(
   const clearedOperationConflictIds = new Set(
     incoming.clearedOperationConflictIds ?? [],
   )
+  const clearedMutationIds = new Set(incoming.clearedMutationIds ?? [])
   merged.conflicts = [
     ...new Map(
       [...(existing.conflicts ?? []), ...(incoming.conflicts ?? [])]
@@ -172,6 +183,11 @@ function mergePersistedStore(
       ...incoming.mutationIdsByBatch,
     ]),
   ]
+  const pendingMutation = incoming.pendingMutation ?? existing.pendingMutation
+  merged.pendingMutation =
+    pendingMutation && !clearedMutationIds.has(pendingMutation.mutationId)
+      ? pendingMutation
+      : undefined
   merged.nextRevision = Math.max(existing.nextRevision, incoming.nextRevision)
   merged.clearedDirtyTokens = [
     ...new Set([
@@ -189,6 +205,12 @@ function mergePersistedStore(
     ...new Set([
       ...(existing.clearedOperationConflictIds ?? []),
       ...(incoming.clearedOperationConflictIds ?? []),
+    ]),
+  ]
+  merged.clearedMutationIds = [
+    ...new Set([
+      ...(existing.clearedMutationIds ?? []),
+      ...(incoming.clearedMutationIds ?? []),
     ]),
   ]
   return merged

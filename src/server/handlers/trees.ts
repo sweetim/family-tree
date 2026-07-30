@@ -9,12 +9,15 @@ import {
   user,
 } from "../../db/schema"
 import type {
+  AncestorTreeLink,
+  SyncRecordSet,
   TreeManifestItem,
   TreeManifestResponse,
   TreeRecordWire,
   TreeSnapshotResponse,
 } from "../../sync/types"
 import { treeRole } from "../acl"
+import { MAX_RESPONSE_PAGE_BYTES } from "../limits"
 import { requireSession } from "../session"
 import { encodeSyncCursor } from "../sync/cursor"
 import {
@@ -29,6 +32,162 @@ const DEFAULT_PAGE_SIZE = 50
 const MAXIMUM_PAGE_SIZE = 100
 
 type ManifestCursor = { createdAt: string; id: string }
+type SnapshotMode = "snapshot" | "graph"
+type SnapshotPageCursor = {
+  treeId: string
+  syncVersion: number
+  mode: SnapshotMode
+  offset: number
+  focusPersonId?: string
+  radius?: number
+}
+type SnapshotRecords = Omit<SyncRecordSet, "trees">
+type SnapshotRecordCollection = keyof SnapshotRecords
+type SnapshotPageItem =
+  | {
+      kind: "record"
+      collection: SnapshotRecordCollection
+      value: SnapshotRecords[SnapshotRecordCollection][number]
+    }
+  | { kind: "ancestor"; value: AncestorTreeLink }
+
+const SNAPSHOT_COLLECTIONS = [
+  "persons",
+  "treeMembers",
+  "unions",
+  "unionEvents",
+  "treeUnions",
+  "parentChildRelationships",
+  "treeParentChildRelationships",
+] as const satisfies readonly SnapshotRecordCollection[]
+
+function emptySnapshotRecords(): SnapshotRecords {
+  return {
+    persons: [],
+    treeMembers: [],
+    unions: [],
+    unionEvents: [],
+    treeUnions: [],
+    parentChildRelationships: [],
+    treeParentChildRelationships: [],
+  }
+}
+
+function snapshotWireKey(value: object): string {
+  const wire = value as Record<string, unknown>
+  return JSON.stringify([
+    wire.id ?? "",
+    wire.treeId ?? "",
+    wire.personId ?? "",
+    wire.unionId ?? "",
+    wire.parentChildRelationshipId ?? "",
+  ])
+}
+
+function encodeSnapshotCursor(cursor: SnapshotPageCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url")
+}
+
+function decodeSnapshotCursor(
+  value: string | null,
+  expected: Omit<SnapshotPageCursor, "syncVersion" | "offset">,
+): SnapshotPageCursor | null | undefined {
+  if (!value) return null
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as Partial<SnapshotPageCursor>
+    if (
+      parsed.treeId !== expected.treeId
+      || parsed.mode !== expected.mode
+      || parsed.focusPersonId !== expected.focusPersonId
+      || parsed.radius !== expected.radius
+      || !Number.isSafeInteger(parsed.syncVersion)
+      || (parsed.syncVersion ?? -1) < 0
+      || !Number.isSafeInteger(parsed.offset)
+      || (parsed.offset ?? -1) < 0
+    ) {
+      return undefined
+    }
+    return parsed as SnapshotPageCursor
+  } catch {
+    return undefined
+  }
+}
+
+function paginateSnapshot(
+  body: TreeSnapshotResponse,
+  pageCursor: SnapshotPageCursor | null,
+  mode: SnapshotMode,
+  focusPersonId?: string,
+  radius?: number,
+): TreeSnapshotResponse {
+  const items: SnapshotPageItem[] = []
+  for (const collection of SNAPSHOT_COLLECTIONS) {
+    const records = [...body.records[collection]].sort((first, second) =>
+      snapshotWireKey(first).localeCompare(snapshotWireKey(second)),
+    )
+    for (const value of records) {
+      items.push({ kind: "record", collection, value })
+    }
+  }
+  for (const value of [...(body.ancestorTrees ?? [])].sort((first, second) =>
+    `${first.personId}\0${first.treeId}`.localeCompare(
+      `${second.personId}\0${second.treeId}`,
+    ),
+  )) {
+    items.push({ kind: "ancestor", value })
+  }
+
+  const offset = pageCursor?.offset ?? 0
+  const pageItems: SnapshotPageItem[] = []
+  let estimatedBytes = 2_048
+  for (const item of items.slice(offset)) {
+    const itemBytes = new TextEncoder().encode(JSON.stringify(item)).byteLength
+    if (
+      pageItems.length > 0
+      && estimatedBytes + itemBytes > MAX_RESPONSE_PAGE_BYTES
+    ) {
+      break
+    }
+    pageItems.push(item)
+    estimatedBytes += itemBytes
+  }
+
+  const records = emptySnapshotRecords()
+  const ancestorTrees: AncestorTreeLink[] = []
+  for (const item of pageItems) {
+    if (item.kind === "ancestor") ancestorTrees.push(item.value)
+    else {
+      ;(records[item.collection] as Array<typeof item.value>).push(item.value)
+    }
+  }
+  const nextOffset = offset + pageItems.length
+  return {
+    ...body,
+    records,
+    ancestorTrees,
+    ...(nextOffset < items.length
+      ? {
+          nextCursor: encodeSnapshotCursor({
+            treeId: body.tree.id,
+            syncVersion: body.syncVersion,
+            mode,
+            offset: nextOffset,
+            ...(focusPersonId ? { focusPersonId } : {}),
+            ...(radius !== undefined ? { radius } : {}),
+          }),
+        }
+      : { nextCursor: undefined }),
+  }
+}
+
+function snapshotChanged(): Response {
+  return Response.json(
+    { error: "snapshot changed", restartRequired: true },
+    { status: 409 },
+  )
+}
 
 function parseLimit(value: string | null): number | null {
   if (value === null) return DEFAULT_PAGE_SIZE
@@ -92,6 +251,14 @@ export async function deleteTree(
     WITH server_clock AS MATERIALIZED (
       SELECT CURRENT_TIMESTAMP AS value
     ),
+    parent_graph_lock AS MATERIALIZED (
+      SELECT pg_advisory_xact_lock(7091885217057541735)
+    ),
+    tree_graph_lock AS MATERIALIZED (
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${`sync-tree:${treeId}`}, 0)
+      )
+    ),
     target_tree AS MATERIALIZED (
       UPDATE ${trees}
       SET "deleted_at" = (SELECT value FROM server_clock),
@@ -100,7 +267,15 @@ export async function deleteTree(
       WHERE ${trees.id} = ${treeId}
         AND ${trees.ownerId} = ${me.id}
         AND ${trees.deletedAt} IS NULL
+        AND EXISTS (SELECT 1 FROM parent_graph_lock)
+        AND EXISTS (SELECT 1 FROM tree_graph_lock)
       RETURNING ${trees.id} AS id
+    ),
+    affected_parent_relationships AS MATERIALIZED (
+      SELECT ${treeParentChildRelationships.parentChildRelationshipId} AS id
+      FROM ${treeParentChildRelationships}
+      WHERE ${treeParentChildRelationships.treeId} IN (SELECT id FROM target_tree)
+        AND ${treeParentChildRelationships.deletedAt} IS NULL
     ),
     tombstoned_memberships AS (
       UPDATE ${treeMembers}
@@ -135,6 +310,22 @@ export async function deleteTree(
       DELETE FROM ${treeShares}
       WHERE ${treeShares.treeId} IN (SELECT id FROM target_tree)
       RETURNING ${treeShares.treeId}
+    ),
+    tombstoned_orphan_parent_relationships AS (
+      UPDATE parent_child_relationships AS relationship
+      SET deleted_at = (SELECT value FROM server_clock),
+          updated_at = (SELECT value FROM server_clock),
+          revision = relationship.revision + 1
+      WHERE relationship.id IN (SELECT id FROM affected_parent_relationships)
+        AND relationship.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM tree_parent_child_relationships AS association
+          WHERE association.parent_child_relationship_id = relationship.id
+            AND association.tree_id NOT IN (SELECT id FROM target_tree)
+            AND association.deleted_at IS NULL
+        )
+      RETURNING relationship.id
     )
     SELECT id FROM target_tree
   `)
@@ -263,6 +454,13 @@ export async function getTreeSnapshot(
   if (!isValidSyncId(treeId)) {
     return Response.json({ error: "invalid tree id" }, { status: 400 })
   }
+  const pageCursor = decodeSnapshotCursor(
+    new URL(request.url).searchParams.get("pageCursor"),
+    { treeId, mode: "snapshot" },
+  )
+  if (pageCursor === undefined) {
+    return Response.json({ error: "invalid snapshot cursor" }, { status: 400 })
+  }
 
   const db = getDB()
   const role = await treeRole(db, me.id, treeId)
@@ -275,6 +473,9 @@ export async function getTreeSnapshot(
     .limit(1)
   const row = rows[0]
   if (!row) return Response.json({ error: "tree not found" }, { status: 404 })
+  if (pageCursor && pageCursor.syncVersion !== row.tree.syncVersion) {
+    return snapshotChanged()
+  }
 
   const records = (await loadActiveRecordsByTree(db, [treeId])).get(treeId)
   const ancestorTrees = await loadAncestorTreeLinks(
@@ -283,24 +484,34 @@ export async function getTreeSnapshot(
     treeId,
     (records?.persons ?? []).map((person) => person.id),
   )
-  const body: TreeSnapshotResponse = {
-    tree: treeToWire(row.tree, role, row.ownerEmail) as TreeRecordWire,
-    records: records ?? {
-      persons: [],
-      treeMembers: [],
-      unions: [],
-      unionEvents: [],
-      treeUnions: [],
-      parentChildRelationships: [],
-      treeParentChildRelationships: [],
-    },
-    ancestorTrees,
-    syncVersion: row.tree.syncVersion,
-    cursor: encodeSyncCursor({
-      treeId,
-      version: row.tree.syncVersion,
-    }),
+  const currentTree = await db.query.trees.findFirst({
+    where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
+  })
+  if (!currentTree || currentTree.syncVersion !== row.tree.syncVersion) {
+    return snapshotChanged()
   }
+  const body = paginateSnapshot(
+    {
+      tree: treeToWire(row.tree, role, row.ownerEmail) as TreeRecordWire,
+      records: records ?? {
+        persons: [],
+        treeMembers: [],
+        unions: [],
+        unionEvents: [],
+        treeUnions: [],
+        parentChildRelationships: [],
+        treeParentChildRelationships: [],
+      },
+      ancestorTrees,
+      syncVersion: row.tree.syncVersion,
+      cursor: encodeSyncCursor({
+        treeId,
+        version: row.tree.syncVersion,
+      }),
+    },
+    pageCursor,
+    "snapshot",
+  )
   return Response.json(body, {
     headers: { "cache-control": "private, no-store" },
   })
@@ -325,6 +536,15 @@ export async function getTreeGraph(
   ) {
     return Response.json({ error: "invalid graph query" }, { status: 400 })
   }
+  const pageCursor = decodeSnapshotCursor(url.searchParams.get("pageCursor"), {
+    treeId,
+    mode: "graph",
+    focusPersonId,
+    radius,
+  })
+  if (pageCursor === undefined) {
+    return Response.json({ error: "invalid graph cursor" }, { status: 400 })
+  }
 
   const db = getDB()
   const role = await treeRole(db, me.id, treeId)
@@ -339,12 +559,23 @@ export async function getTreeGraph(
   if (!treeRow) {
     return Response.json({ error: "tree not found" }, { status: 404 })
   }
+  if (pageCursor && pageCursor.syncVersion !== treeRow.tree.syncVersion) {
+    return snapshotChanged()
+  }
 
   const reachable = await db.execute<{ personId: string; depth: number }>(sql`
     WITH RECURSIVE edges AS (
       SELECT u.first_person_id AS first_id, u.second_person_id AS second_id
       FROM tree_unions tu
       INNER JOIN unions u ON u.id = tu.union_id AND u.deleted_at IS NULL
+      INNER JOIN tree_members first_member
+        ON first_member.tree_id = tu.tree_id
+        AND first_member.person_id = u.first_person_id
+        AND first_member.deleted_at IS NULL
+      INNER JOIN tree_members second_member
+        ON second_member.tree_id = tu.tree_id
+        AND second_member.person_id = u.second_person_id
+        AND second_member.deleted_at IS NULL
       WHERE tu.tree_id = ${treeId} AND tu.deleted_at IS NULL
       UNION
       SELECT r.parent_person_id AS first_id, r.child_person_id AS second_id
@@ -352,12 +583,28 @@ export async function getTreeGraph(
       INNER JOIN parent_child_relationships r
         ON r.id = tr.parent_child_relationship_id
         AND r.deleted_at IS NULL
+      INNER JOIN tree_members parent_member
+        ON parent_member.tree_id = tr.tree_id
+        AND parent_member.person_id = r.parent_person_id
+        AND parent_member.deleted_at IS NULL
+      INNER JOIN tree_members child_member
+        ON child_member.tree_id = tr.tree_id
+        AND child_member.person_id = r.child_person_id
+        AND child_member.deleted_at IS NULL
       WHERE tr.tree_id = ${treeId} AND tr.deleted_at IS NULL
       UNION
       SELECT second_id, first_id FROM (
         SELECT u.first_person_id AS first_id, u.second_person_id AS second_id
         FROM tree_unions tu
         INNER JOIN unions u ON u.id = tu.union_id AND u.deleted_at IS NULL
+        INNER JOIN tree_members first_member
+          ON first_member.tree_id = tu.tree_id
+          AND first_member.person_id = u.first_person_id
+          AND first_member.deleted_at IS NULL
+        INNER JOIN tree_members second_member
+          ON second_member.tree_id = tu.tree_id
+          AND second_member.person_id = u.second_person_id
+          AND second_member.deleted_at IS NULL
         WHERE tu.tree_id = ${treeId} AND tu.deleted_at IS NULL
         UNION
         SELECT r.parent_person_id, r.child_person_id
@@ -365,6 +612,14 @@ export async function getTreeGraph(
         INNER JOIN parent_child_relationships r
           ON r.id = tr.parent_child_relationship_id
           AND r.deleted_at IS NULL
+        INNER JOIN tree_members parent_member
+          ON parent_member.tree_id = tr.tree_id
+          AND parent_member.person_id = r.parent_person_id
+          AND parent_member.deleted_at IS NULL
+        INNER JOIN tree_members child_member
+          ON child_member.tree_id = tr.tree_id
+          AND child_member.person_id = r.child_person_id
+          AND child_member.deleted_at IS NULL
         WHERE tr.tree_id = ${treeId} AND tr.deleted_at IS NULL
       ) forward_edges
     ),
@@ -398,20 +653,36 @@ export async function getTreeGraph(
     personIds,
   )
   const maximumDepth = Math.max(...reachable.rows.map((row) => row.depth))
-  const body: TreeSnapshotResponse = {
-    tree: treeToWire(treeRow.tree, role, treeRow.ownerEmail) as TreeRecordWire,
-    records,
-    ancestorTrees,
-    syncVersion: treeRow.tree.syncVersion,
-    cursor: encodeSyncCursor({
-      treeId,
-      version: treeRow.tree.syncVersion,
-    }),
-    partial: true,
-    boundaryPersonIds: reachable.rows
-      .filter((row) => row.depth === maximumDepth)
-      .map((row) => row.personId),
+  const currentTree = await db.query.trees.findFirst({
+    where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
+  })
+  if (!currentTree || currentTree.syncVersion !== treeRow.tree.syncVersion) {
+    return snapshotChanged()
   }
+  const body = paginateSnapshot(
+    {
+      tree: treeToWire(
+        treeRow.tree,
+        role,
+        treeRow.ownerEmail,
+      ) as TreeRecordWire,
+      records,
+      ancestorTrees,
+      syncVersion: treeRow.tree.syncVersion,
+      cursor: encodeSyncCursor({
+        treeId,
+        version: treeRow.tree.syncVersion,
+      }),
+      partial: true,
+      boundaryPersonIds: reachable.rows
+        .filter((row) => row.depth === maximumDepth)
+        .map((row) => row.personId),
+    },
+    pageCursor,
+    "graph",
+    focusPersonId,
+    radius,
+  )
   return Response.json(body, {
     headers: { "cache-control": "private, no-store" },
   })

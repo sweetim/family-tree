@@ -33,6 +33,11 @@ import {
   normalizePhoto,
   normalizePhotoUpdate,
 } from "../blob"
+import {
+  MAX_RESPONSE_PAGE_BYTES,
+  MAX_TREE_MEMBERS,
+  MAX_TREE_RELATED_RECORDS,
+} from "../limits"
 import { MAX_SYNC_BODY_BYTES, readJsonBody } from "../request"
 import { requireSession } from "../session"
 import {
@@ -152,15 +157,162 @@ function isValidMutationId(value: string | null): value is string {
   return Boolean(value && isValidSyncId(value))
 }
 
-type ConflictResponse = SyncMutationResponse
+function mutationTouchesParentGraph(body: SyncPushRequest): boolean {
+  return (
+    body.parentChildRelationships.length > 0
+    || body.treeParentChildRelationships.length > 0
+    || body.persons.some((wire) => "deletedAt" in wire)
+    || body.trees.some((wire) => "deletedAt" in wire)
+    || body.treeMembers.some((wire) => "deletedAt" in wire)
+  )
+}
+
+async function lockMutationGraph(
+  db: DB,
+  body: SyncPushRequest,
+): Promise<string[]> {
+  if (mutationTouchesParentGraph(body)) {
+    await db.execute(sql`SELECT pg_advisory_xact_lock(7091885217057541735)`)
+  }
+  const unionIds = [
+    ...new Set([
+      ...body.unions.map((wire) => wire.id),
+      ...body.unionEvents.flatMap((wire) =>
+        "unionId" in wire ? [wire.unionId] : [],
+      ),
+      ...body.treeUnions.map((wire) => wire.unionId),
+    ]),
+  ].sort()
+  for (const unionId of unionIds) {
+    await db.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`sync-union:${unionId}`}, 0))`,
+    )
+  }
+  const associatedTrees =
+    unionIds.length > 0
+      ? await db
+          .select({ treeId: treeUnions.treeId })
+          .from(treeUnions)
+          .where(
+            and(
+              inArray(treeUnions.unionId, unionIds),
+              isNull(treeUnions.deletedAt),
+            ),
+          )
+      : []
+  const treeIds = [
+    ...new Set([
+      ...body.trees.map((wire) => wire.id),
+      ...body.treeMembers.map((wire) => wire.treeId),
+      ...body.treeUnions.map((wire) => wire.treeId),
+      ...body.treeParentChildRelationships.map((wire) => wire.treeId),
+      ...associatedTrees.map((row) => row.treeId),
+    ]),
+  ].sort()
+  for (const treeId of treeIds) {
+    await db.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`sync-tree:${treeId}`}, 0))`,
+    )
+  }
+  return treeIds
+}
+
+type TreeUsage = { members: number; relatedRecords: number }
+
+async function loadTreeUsage(
+  db: DB,
+  treeIds: string[],
+): Promise<Map<string, TreeUsage>> {
+  if (treeIds.length === 0) return new Map()
+  const values = sql.join(
+    treeIds.map((treeId) => sql`${treeId}`),
+    sql`, `,
+  )
+  const result = await db.execute<{
+    treeId: string
+    members: string | number
+    relatedRecords: string | number
+  }>(sql`
+    SELECT scope.tree_id AS "treeId",
+      (
+        SELECT count(*)
+        FROM tree_members AS membership
+        WHERE membership.tree_id = scope.tree_id
+          AND membership.deleted_at IS NULL
+      ) AS members,
+      (
+        2 * (
+          SELECT count(*)
+          FROM tree_unions AS association
+          INNER JOIN unions AS relationship
+            ON relationship.id = association.union_id
+            AND relationship.deleted_at IS NULL
+          WHERE association.tree_id = scope.tree_id
+            AND association.deleted_at IS NULL
+        )
+        + (
+          SELECT count(*)
+          FROM tree_unions AS association
+          INNER JOIN unions AS relationship
+            ON relationship.id = association.union_id
+            AND relationship.deleted_at IS NULL
+          INNER JOIN union_events AS event
+            ON event.union_id = relationship.id
+            AND event.deleted_at IS NULL
+          WHERE association.tree_id = scope.tree_id
+            AND association.deleted_at IS NULL
+        )
+        + 2 * (
+          SELECT count(*)
+          FROM tree_parent_child_relationships AS association
+          INNER JOIN parent_child_relationships AS relationship
+            ON relationship.id = association.parent_child_relationship_id
+            AND relationship.deleted_at IS NULL
+          WHERE association.tree_id = scope.tree_id
+            AND association.deleted_at IS NULL
+        )
+      ) AS "relatedRecords"
+    FROM unnest(ARRAY[${values}]::text[]) AS scope(tree_id)
+  `)
+  return new Map(
+    result.rows.map((row) => [
+      row.treeId,
+      {
+        members: Number(row.members),
+        relatedRecords: Number(row.relatedRecords),
+      },
+    ]),
+  )
+}
 
 async function collectAuthoritativeConflictRecords(
   db: DB,
+  userId: string,
   body: SyncPushRequest,
 ): Promise<SyncRecordSet> {
   const changes = await collectMutationChanges(db, body, new Map())
   const result = emptyRecordSet()
-  for (const records of changes.values()) {
+  const treeIds = [...changes.keys()]
+  const readableTreeIds = new Set<string>()
+  if (treeIds.length > 0) {
+    const rows = await db
+      .select({ id: trees.id })
+      .from(trees)
+      .leftJoin(
+        treeShares,
+        and(eq(treeShares.treeId, trees.id), eq(treeShares.userId, userId)),
+      )
+      .where(
+        and(
+          inArray(trees.id, treeIds),
+          isNull(trees.deletedAt),
+          or(eq(trees.ownerId, userId), eq(treeShares.userId, userId)),
+        ),
+      )
+    for (const row of rows) readableTreeIds.add(row.id)
+  }
+
+  const append = (records: SyncRecordSet) => {
     for (const collection of Object.keys(result) as Array<
       keyof SyncRecordSet
     >) {
@@ -176,6 +328,39 @@ async function collectAuthoritativeConflictRecords(
       }
     }
   }
+
+  for (const [treeId, records] of changes) {
+    if (readableTreeIds.has(treeId)) append(records)
+  }
+
+  const requestedPersonIds = [...new Set(body.persons.map((wire) => wire.id))]
+  const requestedTreeIds = [...new Set(body.trees.map((wire) => wire.id))]
+  const [ownedPeople, ownedTrees] = await Promise.all([
+    requestedPersonIds.length > 0
+      ? db
+          .select()
+          .from(persons)
+          .where(
+            and(
+              inArray(persons.id, requestedPersonIds),
+              eq(persons.ownerId, userId),
+            ),
+          )
+      : [],
+    requestedTreeIds.length > 0
+      ? db
+          .select()
+          .from(trees)
+          .where(
+            and(inArray(trees.id, requestedTreeIds), eq(trees.ownerId, userId)),
+          )
+      : [],
+  ])
+  append({
+    ...emptyRecordSet(),
+    persons: ownedPeople.map(personToWire),
+    trees: ownedTrees.map((tree) => treeToWire(tree, "owner")),
+  })
   return result
 }
 
@@ -410,9 +595,12 @@ async function collectMutationChanges(
         treeParentRelationshipToWire(row),
       )
     }
+    const candidateRelationship = parentsById.get(row.parentChildRelationshipId)
     const relationship =
-      !row.deletedAt || deletedPersonIds.length > 0
-        ? parentsById.get(row.parentChildRelationshipId)
+      !row.deletedAt
+      || deletedPersonIds.length > 0
+      || (explicit && Boolean(candidateRelationship?.deletedAt))
+        ? candidateRelationship
         : undefined
     if (
       relationship
@@ -814,7 +1002,16 @@ export async function postSync(request: Request): Promise<Response> {
     return Response.json({ error: "invalid mutation id" }, { status: 400 })
   }
   const rootDb = getDB()
-  let conflictResponse: ConflictResponse | undefined
+  let conflict:
+    | {
+        mutationId: string
+        serverTime: string
+        skipped: SyncAppliedIds
+        retryable: boolean
+        reason: NonNullable<SyncMutationResponse["conflict"]>["reason"]
+        limit?: NonNullable<SyncMutationResponse["conflict"]>["limit"]
+      }
+    | undefined
   let committedResponse: Response | undefined
   const uploadedPhotos = new Set<string>()
   const photosToDeleteAfterCommit = new Set<string>()
@@ -843,6 +1040,8 @@ export async function postSync(request: Request): Promise<Response> {
           )
         }
       }
+      const quotaTreeIds = await lockMutationGraph(db, body)
+      const usageBefore = await loadTreeUsage(db, quotaTreeIds)
       const serverTime = new Date()
       const treeRoleCache = new Map<string, Promise<Role | null>>()
       const personRoleCache = new Map<string, Promise<Role | null>>()
@@ -1174,6 +1373,20 @@ export async function postSync(request: Request): Promise<Response> {
           )
           .returning({ id: trees.id })
         if (rows.length > 0) {
+          const affectedParents = await db
+            .select({
+              id: treeParentChildRelationships.parentChildRelationshipId,
+            })
+            .from(treeParentChildRelationships)
+            .where(
+              and(
+                eq(treeParentChildRelationships.treeId, wire.id),
+                isNull(treeParentChildRelationships.deletedAt),
+              ),
+            )
+          for (const row of affectedParents) {
+            orphanCandidateRelationshipIds.add(row.id)
+          }
           await Promise.all([
             db
               .update(treeMembers)
@@ -2009,6 +2222,63 @@ export async function postSync(request: Request): Promise<Response> {
         }
       }
 
+      const usageAfter = await loadTreeUsage(db, quotaTreeIds)
+      let quotaViolation:
+        | {
+            treeId: string
+            reason: "tree-member-limit" | "tree-related-record-limit"
+            maximum: number
+            current: number
+          }
+        | undefined
+      for (const treeId of quotaTreeIds) {
+        const before = usageBefore.get(treeId) ?? {
+          members: 0,
+          relatedRecords: 0,
+        }
+        const after = usageAfter.get(treeId) ?? before
+        if (
+          after.members > MAX_TREE_MEMBERS
+          && after.members > before.members
+        ) {
+          quotaViolation = {
+            treeId,
+            reason: "tree-member-limit",
+            maximum: MAX_TREE_MEMBERS,
+            current: after.members,
+          }
+          break
+        }
+        if (
+          after.relatedRecords > MAX_TREE_RELATED_RECORDS
+          && after.relatedRecords > before.relatedRecords
+        ) {
+          quotaViolation = {
+            treeId,
+            reason: "tree-related-record-limit",
+            maximum: MAX_TREE_RELATED_RECORDS,
+            current: after.relatedRecords,
+          }
+          break
+        }
+      }
+      if (quotaViolation) {
+        if (!mutationId) throw new Error("tree record limit exceeded")
+        conflict = {
+          mutationId,
+          serverTime: serverTime.toISOString(),
+          skipped: requestIds(body),
+          retryable: false,
+          reason: quotaViolation.reason,
+          limit: {
+            treeId: quotaViolation.treeId,
+            maximum: quotaViolation.maximum,
+            current: quotaViolation.current,
+          },
+        }
+        db.rollback()
+      }
+
       if (mutationId && !hasClassifiedRecords(skipped)) {
         const changesByTree = await collectMutationChanges(
           db,
@@ -2026,12 +2296,17 @@ export async function postSync(request: Request): Promise<Response> {
             .returning({ version: trees.syncVersion })
           const version = versionRows[0]?.version
           if (version === undefined) continue
-          await db.insert(syncChanges).values({
-            treeId,
-            version,
-            mutationId,
-            records,
-          })
+          if (
+            new TextEncoder().encode(JSON.stringify(records)).byteLength
+            <= MAX_RESPONSE_PAGE_BYTES
+          ) {
+            await db.insert(syncChanges).values({
+              treeId,
+              version,
+              mutationId,
+              records,
+            })
+          }
         }
         const retentionCutoff = new Date(
           serverTime.getTime() - 30 * 24 * 60 * 60 * 1000,
@@ -2067,21 +2342,12 @@ export async function postSync(request: Request): Promise<Response> {
         serverTime: serverTime.toISOString(),
       }
       if (mutationId && hasClassifiedRecords(skipped)) {
-        const authoritativeRecords = await collectAuthoritativeConflictRecords(
-          db,
-          body,
-        )
-        conflictResponse = {
-          applied: emptyAppliedIds(),
-          skipped: requestIds(body),
-          serverTime: response.serverTime,
+        conflict = {
           mutationId,
-          status: "conflict",
-          conflict: {
-            retryable: true,
-            reason: "revision-mismatch",
-            records: authoritativeRecords,
-          },
+          serverTime: response.serverTime,
+          skipped: requestIds(body),
+          retryable: true,
+          reason: "revision-mismatch",
         }
         db.rollback()
       }
@@ -2108,7 +2374,23 @@ export async function postSync(request: Request): Promise<Response> {
       return committedResponse
     }
     await Promise.all([...uploadedPhotos].map(deletePhoto))
-    if (conflictResponse) {
+    if (conflict) {
+      const authoritativeRecords = conflict.retryable
+        ? await collectAuthoritativeConflictRecords(rootDb, me.id, body)
+        : emptyRecordSet()
+      const conflictResponse: SyncMutationResponse = {
+        applied: emptyAppliedIds(),
+        skipped: conflict.skipped,
+        serverTime: conflict.serverTime,
+        mutationId: conflict.mutationId,
+        status: "conflict",
+        conflict: {
+          retryable: conflict.retryable,
+          reason: conflict.reason,
+          records: authoritativeRecords,
+          ...(conflict.limit ? { limit: conflict.limit } : {}),
+        },
+      }
       return Response.json(conflictResponse, {
         status: 409,
         headers: { "cache-control": "private, no-store" },

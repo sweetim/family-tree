@@ -158,6 +158,7 @@ export type SyncPullResponse = {
   own: SyncRecordSet
   shared: SharedTreeWire[]
   serverTime: string
+  nextCursor?: string
 }
 
 export type PersonPushRecordWire = Omit<
@@ -224,8 +225,16 @@ export type SyncMutationResponse = SyncPushResponse & {
   status: "applied" | "alreadyApplied" | "conflict"
   conflict?: {
     retryable: boolean
-    reason: "revision-mismatch"
+    reason:
+      | "revision-mismatch"
+      | "tree-member-limit"
+      | "tree-related-record-limit"
     records: SyncRecordSet
+    limit?: {
+      treeId: string
+      maximum: number
+      current: number
+    }
   }
 }
 

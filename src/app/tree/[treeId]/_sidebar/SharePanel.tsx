@@ -178,7 +178,6 @@ export function SharePanel({
                   </p>
                   <p className="text-[11px] uppercase tracking-wide text-slate-400">
                     {share.role}
-                    {share.pending ? " · pending sign-in" : ""}
                   </p>
                 </div>
                 <button

@@ -3,9 +3,7 @@ import { useToast } from "@/components/Toast"
 
 export type Share = {
   email: string
-  userId: string | null
   role: "viewer" | "editor"
-  pending: boolean
 }
 
 /**
@@ -23,12 +21,24 @@ export function useShares(treeId: string) {
   async function refresh() {
     setLoading(true)
     try {
-      const res = await fetch(`/api/trees/${treeId}/shares`, {
-        credentials: "include",
-      })
-      if (!res.ok) throw new Error(`load failed: ${res.status}`)
-      const data = (await res.json()) as { shares: Share[] }
-      setShares(data.shares)
+      const loaded: Share[] = []
+      let cursor: string | undefined
+      do {
+        const parameters = new URLSearchParams({ limit: "100" })
+        if (cursor) parameters.set("cursor", cursor)
+        const res = await fetch(
+          `/api/trees/${encodeURIComponent(treeId)}/shares?${parameters}`,
+          { credentials: "include" },
+        )
+        if (!res.ok) throw new Error(`load failed: ${res.status}`)
+        const data = (await res.json()) as {
+          shares: Share[]
+          nextCursor?: string
+        }
+        loaded.push(...data.shares)
+        cursor = data.nextCursor
+      } while (cursor)
+      setShares(loaded)
     } catch (err) {
       console.error(err)
       toast("Couldn't load shares.", "error")
@@ -47,12 +57,15 @@ export function useShares(treeId: string) {
   ): Promise<boolean> {
     setSubmitting(true)
     try {
-      const res = await fetch(`/api/trees/${treeId}/shares`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, role }),
-      })
+      const res = await fetch(
+        `/api/trees/${encodeURIComponent(treeId)}/shares`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, role }),
+        },
+      )
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string }
         throw new Error(err.error ?? `add failed: ${res.status}`)
@@ -77,7 +90,7 @@ export function useShares(treeId: string) {
     setSubmitting(true)
     try {
       const res = await fetch(
-        `/api/trees/${treeId}/shares?email=${encodeURIComponent(targetEmail)}`,
+        `/api/trees/${encodeURIComponent(treeId)}/shares?email=${encodeURIComponent(targetEmail)}`,
         { method: "DELETE", credentials: "include" },
       )
       if (!res.ok) throw new Error(`remove failed: ${res.status}`)
