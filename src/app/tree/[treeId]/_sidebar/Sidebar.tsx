@@ -6,11 +6,12 @@ import {
   Plus,
   Settings,
   Share2,
+  TriangleAlert,
   Users,
 } from "lucide-react"
 import Link from "next/link"
 import { AccountMenu } from "@/components/AccountMenu"
-import type { FamilyStore, TreeMeta } from "@/store"
+import { type FamilyStore, type TreeMeta, useBlockedChanges } from "@/store"
 import { AddForm } from "./AddForm"
 import { ChoosePanel } from "./ChoosePanel"
 import { CreateFamilyPanel } from "./CreateFamilyPanel"
@@ -20,6 +21,7 @@ import { LinkParentPanel } from "./LinkParentPanel"
 import { LinkSpousePanel } from "./LinkSpousePanel"
 import { MarriagePanel } from "./MarriagePanel"
 import { ReadonlyDetails } from "./ReadonlyDetails"
+import { ReviewChangesPanel } from "./ReviewChangesPanel"
 import { SettingsPanel } from "./SettingsPanel"
 import { SharePanel } from "./SharePanel"
 import { primaryBtn, type SidebarState } from "./shared"
@@ -39,6 +41,7 @@ interface Props {
   onSelect: (id: string) => void
   onAddRoot: () => void
   onOpenSettings: () => void
+  onOpenReviewChanges: () => void
   onClose: () => void
   onToggleEditMode: () => void
   onOpenShare: () => void
@@ -60,6 +63,7 @@ export function Sidebar({
   onSelect,
   onAddRoot,
   onOpenSettings,
+  onOpenReviewChanges,
   onClose,
   onToggleEditMode,
   onOpenShare,
@@ -69,6 +73,7 @@ export function Sidebar({
 }: Props) {
   const count = Object.keys(family.people).length
   const readOnly = family.readOnly
+  const blockedChanges = useBlockedChanges(treeId)
   const editingPerson =
     state.mode === "edit" ? family.people[state.personId] : undefined
   const linkParentPerson =
@@ -116,24 +121,19 @@ export function Sidebar({
         <h1 className="mt-2 text-lg font-bold tracking-tight text-slate-800">
           {treeName}
         </h1>
-        <span
-          className="mt-2 inline-flex items-center gap-1 rounded-full bg-cobalt-50 px-2.5 py-1 text-xs font-medium text-cobalt-700"
-          aria-busy={loading}
-        >
-          <Users className="h-3.5 w-3.5" />
-          {loading ? (
-            <>
-              <span
-                aria-hidden="true"
-                className="h-3 w-4 animate-pulse rounded bg-cobalt-200"
-              />
-              <span aria-hidden="true">members</span>
-              <span className="sr-only">Loading member count</span>
-            </>
-          ) : (
-            `${count} members`
-          )}
-        </span>
+        {loading ? (
+          <span
+            className="mt-2 inline-block h-6 w-28 animate-pulse rounded-full bg-slate-200"
+            aria-busy="true"
+          >
+            <span className="sr-only">Loading member count</span>
+          </span>
+        ) : (
+          <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-cobalt-50 px-2.5 py-1 text-xs font-medium text-cobalt-700">
+            <Users className="h-3.5 w-3.5" />
+            {`${count} members`}
+          </span>
+        )}
       </div>
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
@@ -143,6 +143,11 @@ export function Sidebar({
           <SharePanel
             treeId={treeId}
             treeName={treeName}
+            onClose={onClose}
+          />
+        ) : state.mode === "reviewChanges" ? (
+          <ReviewChangesPanel
+            changes={blockedChanges}
             onClose={onClose}
           />
         ) : state.mode === "settings" ? (
@@ -264,6 +269,18 @@ export function Sidebar({
           loading ? "pointer-events-none opacity-60" : ""
         }`}
       >
+        {blockedChanges.length > 0 && (
+          <button
+            type="button"
+            onClick={onOpenReviewChanges}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 shadow-soft ring-1 ring-amber-200 transition-all hover:bg-amber-100 active:scale-95"
+          >
+            <TriangleAlert className="h-4 w-4" /> Review changes
+            <span className="rounded-full bg-amber-200/70 px-1.5 py-0.5 text-xs tabular-nums">
+              {blockedChanges.length}
+            </span>
+          </button>
+        )}
         {!readOnly && (
           <button
             aria-label={

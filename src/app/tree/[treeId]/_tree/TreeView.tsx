@@ -440,6 +440,11 @@ export function TreeView({
             setDrawerOpen(true)
             setSidebarHidden(false)
           }}
+          onOpenReviewChanges={() => {
+            setSidebar({ mode: "reviewChanges" })
+            setDrawerOpen(true)
+            setSidebarHidden(false)
+          }}
           onOpenShare={() => {
             setSidebar({ mode: "share" })
             setDrawerOpen(true)

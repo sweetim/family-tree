@@ -78,6 +78,11 @@ export type DirtyRecord = {
 }
 export type DirtyMap = Map<string, DirtyRecord>
 export type DirtyState = Record<DirtyCollection, DirtyMap>
+export type BlockedChange = {
+  id: string
+  action: DirtyAction
+  label: string
+}
 type TombstoneClock = { updatedAt: string; revision?: number }
 type TombstoneClocks = Record<DirtyCollection, Map<string, TombstoneClock>>
 
@@ -238,7 +243,7 @@ function persistCurrentStore(): Promise<void> {
         }
       }
       setSyncStatus(statusFromDirtyState())
-      for (const listener of listeners) listener()
+      notifyListeners()
     })
   return persistenceWrite
 }
@@ -484,11 +489,22 @@ const listeners = new Set<() => void>()
 let hydrated = false
 let notificationsSuppressed = false
 let syncStatus: SyncStatus = "saved"
+let blockedChangesVersion = 0
+const blockedChangesCache = new Map<
+  string,
+  { version: number; changes: BlockedChange[] }
+>()
+
+function notifyListeners(): void {
+  blockedChangesVersion++
+  blockedChangesCache.clear()
+  for (const listener of listeners) listener()
+}
 
 function setSyncStatus(value: SyncStatus): void {
   if (syncStatus === value) return
   syncStatus = value
-  for (const listener of listeners) listener()
+  notifyListeners()
 }
 
 function statusFromDirtyState(): SyncStatus {
@@ -515,7 +531,7 @@ export function update(
   if (next === previous) return
   state = options?.remote ? next : stampAndEnqueue(previous, next)
   if (!notificationsSuppressed) {
-    for (const listener of listeners) listener()
+    notifyListeners()
   }
   schedulePersistence()
   if (!options?.remote) setSyncStatus("saving")
@@ -533,6 +549,77 @@ export function snapshotDirty(): DirtyState {
       new Map(dirtyState[collection]),
     ]),
   ) as DirtyState
+}
+
+export function blockedChangesForTree(
+  currentState: GlobalState,
+  currentDirtyState: DirtyState,
+  treeId: string,
+): BlockedChange[] {
+  const operations = new Map<
+    string,
+    { action: DirtyAction; labels: Set<string> }
+  >()
+  const personName = (personId: string): string | undefined =>
+    currentState.persons[personId]?.name
+
+  for (const collection of RECORD_COLLECTIONS) {
+    for (const [id, record] of currentDirtyState[collection]) {
+      if (!record.blocked) continue
+      if (
+        (collection === "treeMembers"
+          || collection === "treeUnions"
+          || collection === "treeParentChildRelationships")
+        && parseAssociationKey(id)[0] !== treeId
+      ) {
+        continue
+      }
+
+      const operationId = record.operationId ?? `${collection}:${id}`
+      const operation = operations.get(operationId) ?? {
+        action: record.action,
+        labels: new Set<string>(),
+      }
+      operations.set(operationId, operation)
+
+      if (collection === "persons") {
+        const name = personName(id)
+        if (name) operation.labels.add(name)
+      } else if (collection === "trees") {
+        const tree = currentState.index.find((item) => item.id === id)
+        if (tree?.name) operation.labels.add(tree.name)
+      } else if (collection === "treeMembers") {
+        const name = personName(parseAssociationKey(id)[1])
+        if (name) operation.labels.add(name)
+      } else if (collection === "parentChildRelationships") {
+        const relationship = currentState.parentChildRelationships[id]
+        const parent = relationship
+          ? personName(relationship.parentPersonId)
+          : undefined
+        const child = relationship
+          ? personName(relationship.childPersonId)
+          : undefined
+        if (parent && child) operation.labels.add(`${parent} and ${child}`)
+      } else if (collection === "unions") {
+        const union = currentState.unions[id]
+        const first = union ? personName(union.firstPersonId) : undefined
+        const second = union ? personName(union.secondPersonId) : undefined
+        if (first && second) operation.labels.add(`${first} and ${second}`)
+      }
+    }
+  }
+
+  return [...operations].map(([id, operation]) => {
+    const subject = [...operation.labels].slice(0, 2).join(", ")
+    const label = subject
+      ? operation.action === "delete"
+        ? `Remove ${subject}`
+        : `Update ${subject}`
+      : operation.action === "delete"
+        ? "Remove family connection"
+        : "Update family details"
+    return { id, action: operation.action, label }
+  })
 }
 
 export function takeDirtyBatch(
@@ -1804,7 +1891,7 @@ export function applyFullPull(pull: SyncPullResponse): void {
   } finally {
     notificationsSuppressed = false
   }
-  for (const listener of listeners) listener()
+  notifyListeners()
 }
 
 // ---------------------------------------------------------------------------
@@ -1831,7 +1918,7 @@ export function subscribe(listener: () => void): () => void {
 export function setHydrated(value: boolean): void {
   if (hydrated === value) return
   hydrated = value
-  for (const listener of listeners) listener()
+  notifyListeners()
 }
 
 export function resetStore(): void {
@@ -1903,7 +1990,7 @@ export async function restorePersistentStore(userId: string): Promise<void> {
       : RECORD_COLLECTIONS.some((collection) => dirtyState[collection].size > 0)
         ? "saving"
         : "saved"
-    for (const listener of listeners) listener()
+    notifyListeners()
   })()
   await persistenceRestore
 }
@@ -1925,6 +2012,22 @@ export function useSyncConflictCount(): number {
     subscribe,
     () => syncConflicts.length,
     () => syncConflicts.length,
+  )
+}
+
+function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
+  const cached = blockedChangesCache.get(treeId)
+  if (cached?.version === blockedChangesVersion) return cached.changes
+  const changes = blockedChangesForTree(state, dirtyState, treeId)
+  blockedChangesCache.set(treeId, { version: blockedChangesVersion, changes })
+  return changes
+}
+
+export function useBlockedChanges(treeId: string): BlockedChange[] {
+  return useSyncExternalStore(
+    subscribe,
+    () => getBlockedChangesSnapshot(treeId),
+    () => getBlockedChangesSnapshot(treeId),
   )
 }
 
@@ -1989,12 +2092,12 @@ export function resolveNextSyncConflict(
     })
     setSyncStatus("saving")
     schedulePersistence()
-    for (const listener of listeners) listener()
+    notifyListeners()
     void pushDirty()
   } else {
     setSyncStatus(statusFromDirtyState())
     schedulePersistence()
-    for (const listener of listeners) listener()
+    notifyListeners()
   }
 }
 

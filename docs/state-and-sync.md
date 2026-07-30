@@ -56,6 +56,9 @@ base, and are marked blocked rather than silently discarded. A subsequent user
 edit rebases that intent on the current server revision.
 
 The account menu displays `saved`, `saving`, `offline`, or `conflict` state.
+When blocked server mutations affect the open tree, its sidebar shows a
+read-only **Review changes** panel grouped by logical user operation. Internal
+record IDs and revisions are not exposed, and blocked intent remains preserved.
 
 ## Incremental synchronization
 

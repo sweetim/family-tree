@@ -1393,6 +1393,39 @@ describe("dirty tracking and push wires", () => {
     expect(batch.trees.size).toBe(0)
   })
 
+  test("groups blocked records into user-facing operations", async () => {
+    const store = await freshStore()
+    const currentState = relationshipState()
+    const dirty = store.snapshotDirty()
+    dirty.persons.set("tim", {
+      action: "upsert",
+      revision: 1,
+      operationId: "edit-tim",
+      blocked: true,
+    })
+    dirty.treeMembers.set(store.treeMemberKey("tree", "tim"), {
+      action: "upsert",
+      revision: 2,
+      operationId: "edit-tim",
+      blocked: true,
+    })
+    dirty.treeMembers.set(store.treeMemberKey("tree", "jane"), {
+      action: "delete",
+      revision: 3,
+      operationId: "remove-jane",
+      blocked: true,
+    })
+
+    expect(store.blockedChangesForTree(currentState, dirty, "tree")).toEqual([
+      { id: "edit-tim", action: "upsert", label: "Update Tim" },
+      {
+        id: "remove-jane",
+        action: "delete",
+        label: "Remove family connection",
+      },
+    ])
+  })
+
   test("keeps stored photos without returning blob URLs in push commands", async () => {
     const store = await freshStore()
     store.applyFullPull(

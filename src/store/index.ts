@@ -33,6 +33,7 @@ export {
 export { mergePersonRecords } from "./reconcile"
 export { seedData, type TreeSeed } from "./seed"
 export type {
+  BlockedChange,
   DirtyState,
   GlobalState,
   SyncStatus,
@@ -43,6 +44,7 @@ export {
   applyRemote,
   applyTreeManifest,
   applyTreeSnapshot,
+  blockedChangesForTree,
   buildPushWires,
   clearDirty,
   fetchFullPull,
@@ -63,6 +65,7 @@ export {
   treeMemberKey,
   treeParentChildRelationshipKey,
   treeUnionKey,
+  useBlockedChanges,
   useHydrated,
   useSyncConflictCount,
   useSyncStatus,

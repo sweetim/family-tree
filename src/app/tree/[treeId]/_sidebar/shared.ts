@@ -38,6 +38,7 @@ export type SidebarState =
   | { mode: "createFamily"; personId: string }
   | { mode: "settings" }
   | { mode: "share" }
+  | { mode: "reviewChanges" }
 
 export type Fields = {
   name: string
