@@ -29,7 +29,7 @@ export type ViewSettings = {
 
 const STORAGE_KEY = "family-tree:view-settings"
 const DEFAULTS: ViewSettings = {
-  minimap: true,
+  minimap: false,
   marriageYears: true,
   showAllFamilies: false,
   highlightBloodline: false,
