@@ -11,15 +11,25 @@ export function ReviewChangesPanel({
 }) {
   const [expandedId, setExpandedId] = useState<string>()
   const [resolvingId, setResolvingId] = useState<string>()
-  const [errorId, setErrorId] = useState<string>()
+  const [error, setError] = useState<{ id: string; message: string }>()
 
   async function resolve(change: BlockedChange, side: "device" | "server") {
     setResolvingId(change.id)
-    setErrorId(undefined)
-    const resolved = await resolveBlockedOperation(change.id, side)
+    setError(undefined)
+    const result = await resolveBlockedOperation(change.id, side)
     setResolvingId(undefined)
-    if (resolved) setExpandedId(undefined)
-    else setErrorId(change.id)
+    if (result === "resolved") setExpandedId(undefined)
+    else {
+      setError({
+        id: change.id,
+        message:
+          result === "offline"
+            ? "You are offline. Reconnect and try again."
+            : result === "conflict"
+              ? "The server changed again. Review the refreshed versions."
+              : "This saved conflict is outdated. Close and reopen this tree to refresh it.",
+      })
+    }
   }
 
   return (
@@ -116,10 +126,9 @@ export function ReviewChangesPanel({
                     </button>
                   ))}
                 </div>
-                {errorId === change.id && (
+                {error?.id === change.id && (
                   <p className="mt-3 text-xs font-medium text-red-600">
-                    This change could not be applied. Review the latest versions
-                    and try again.
+                    {error.message}
                   </p>
                 )}
               </div>

@@ -2227,11 +2227,11 @@ function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
 export async function resolveBlockedOperation(
   operationId: string,
   resolution: "device" | "server",
-): Promise<boolean> {
+): Promise<"resolved" | "stale" | "conflict" | "offline"> {
   const conflict = operationConflicts.find(
     (candidate) => candidate.operationId === operationId,
   )
-  if (!conflict) return false
+  if (!conflict) return "stale"
   const isCurrentConflictRecord = (
     current: DirtyRecord | undefined,
     record: PersistedOperationConflict["records"][number],
@@ -2240,9 +2240,9 @@ export async function resolveBlockedOperation(
       current
         && (current.conflictId === operationId
           || (!current.conflictId
-            && !record.conflictId
             && current.blocked
-            && current.operationId === record.dirty.operationId)),
+            && (current.operationId === record.dirty.operationId
+              || current.sourceId === record.dirty.sourceId))),
     )
   if (resolution === "server") {
     for (const record of conflict.records) {
@@ -2275,7 +2275,7 @@ export async function resolveBlockedOperation(
     setSyncStatus(statusFromDirtyState())
     notifyListeners()
     await persistCurrentStore()
-    return true
+    return "resolved"
   } else {
     const retryOperationId = newId()
     let changed = false
@@ -2295,7 +2295,7 @@ export async function resolveBlockedOperation(
       })
       changed = true
     }
-    if (!changed) return false
+    if (!changed) return "stale"
   }
   schedulePersistence()
   setSyncStatus(statusFromDirtyState())
@@ -2304,12 +2304,11 @@ export async function resolveBlockedOperation(
     await pushInFlight
   }
   await pushDirty()
-  const retriedConflict = operationConflicts.find((candidate) =>
-    candidate.records.some(
-      (record) => record.dirty.operationId === operationId,
-    ),
+  if (syncStatus === "offline") return "offline"
+  const retriedConflict = operationConflicts.find(
+    (candidate) => candidate.operationId !== operationId,
   )
-  if (retriedConflict) return false
+  if (retriedConflict) return "conflict"
   operationConflicts = operationConflicts.filter(
     (candidate) => candidate.operationId !== operationId,
   )
@@ -2317,7 +2316,7 @@ export async function resolveBlockedOperation(
   schedulePersistence()
   notifyListeners()
   await persistCurrentStore()
-  return true
+  return "resolved"
 }
 
 export function useBlockedChanges(treeId: string): BlockedChange[] {
