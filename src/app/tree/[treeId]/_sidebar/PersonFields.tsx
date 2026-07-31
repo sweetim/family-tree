@@ -118,7 +118,7 @@ export function PersonFields({
             <X className="h-3.5 w-3.5" /> Remove photo
           </button>
         )}
-        <p className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+        <p className="pointer-coarse:hidden inline-flex items-center gap-1 text-[11px] text-slate-400">
           <Clipboard className="h-3 w-3" /> Paste an image (Ctrl/Cmd+V)
         </p>
         {photoError && <p className="text-xs text-red-500">{photoError}</p>}
