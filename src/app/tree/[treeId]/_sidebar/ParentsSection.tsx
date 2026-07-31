@@ -3,6 +3,7 @@ import { useMemo, useState } from "react"
 import { Section } from "@/components/Section"
 import { type FamilyStore, type TreeMeta, useTreePeople } from "@/store"
 import { descendantsOf, type Person } from "@/types"
+import { GenderIcon } from "./GenderIcon"
 import { chipX, inputCls } from "./shared"
 
 export function ParentsSection({
@@ -92,9 +93,10 @@ export function ParentsSection({
           >
             <button
               type="button"
-              className="text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
+              className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
               onClick={() => onSelect(par.id)}
             >
+              <GenderIcon gender={par.gender} />
               {par.name}
             </button>
             <div className="flex items-center gap-2">

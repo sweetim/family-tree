@@ -21,6 +21,7 @@ import {
   type FamilyData,
   type Person,
 } from "@/types"
+import { GenderIcon } from "./GenderIcon"
 import { ParentsSection } from "./ParentsSection"
 import { PersonFields } from "./PersonFields"
 import {
@@ -219,9 +220,10 @@ export function EditForm({
               >
                 <button
                   type="button"
-                  className="text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
                   onClick={() => onSelect(s.id)}
                 >
+                  <GenderIcon gender={s.gender} />
                   {s.name}
                 </button>
                 <input
@@ -287,6 +289,7 @@ export function EditForm({
                 key={c.id}
                 className={chip}
               >
+                <GenderIcon gender={c.gender} />
                 <button
                   type="button"
                   className="font-medium hover:text-cobalt-700 hover:underline"

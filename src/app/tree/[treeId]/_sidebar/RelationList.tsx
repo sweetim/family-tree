@@ -1,4 +1,5 @@
 import type { Person } from "@/types"
+import { GenderIcon } from "./GenderIcon"
 
 export function RelationList({
   people,
@@ -20,8 +21,9 @@ export function RelationList({
             key={p.id}
             type="button"
             onClick={() => onSelect(p.id)}
-            className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-cobalt-50 hover:text-cobalt-700"
+            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-cobalt-50 hover:text-cobalt-700"
           >
+            <GenderIcon gender={p.gender} />
             {p.name}
             {year && !Number.isNaN(year) && (
               <span className="ml-1 text-slate-400">· {year}</span>
