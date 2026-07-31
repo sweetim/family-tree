@@ -65,7 +65,7 @@ export function ShareDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
           >
             <X className="h-5 w-5" />
           </button>
@@ -146,7 +146,7 @@ export function ShareDialog({
                     onClick={() => remove(share.email)}
                     disabled={submitting}
                     title="Revoke access"
-                    className="rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

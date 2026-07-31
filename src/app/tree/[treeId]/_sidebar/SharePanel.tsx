@@ -185,7 +185,7 @@ export function SharePanel({
                   onClick={() => remove(share.email)}
                   disabled={submitting}
                   title="Revoke access"
-                  className="rounded-lg p-1.5 text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>

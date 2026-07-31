@@ -109,7 +109,7 @@ export function Sidebar({
           <Link
             href="/"
             title="Home"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
           >
             <ChevronLeft className="h-6 w-6" />
           </Link>

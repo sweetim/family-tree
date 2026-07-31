@@ -356,15 +356,23 @@
 
 /* React Flow controls/minimap match the new palette. */
 .react-flow__controls-button {
+  width: 40px;
+  height: 40px;
   border-radius: 0.5rem;
   background-color: #ffffff;
-  border-bottom: 1px solid #e2e8f0;
   color: #475569;
+}
+.react-flow__controls-button svg {
+  width: 20px;
+  height: 20px;
 }
 .react-flow__controls-button:hover {
   background-color: #f8fafc;
 }
 .react-flow__controls {
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background-color: #f1f5f9;
   border-radius: 0.75rem;
   box-shadow: var(--shadow-soft);
   overflow: hidden;

@@ -96,7 +96,7 @@ export function PersonFields({
               <Upload className="h-7 w-7 text-slate-300" />
             </div>
           )}
-          <label className="absolute bottom-0 right-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-cobalt-600 text-white shadow-soft transition-colors hover:bg-cobalt-700">
+          <label className="absolute bottom-0 right-0 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-cobalt-600 text-white shadow-soft transition-colors hover:bg-cobalt-700">
             <Upload className="h-3.5 w-3.5" />
             <input
               type="file"
