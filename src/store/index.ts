@@ -7,6 +7,7 @@ export {
   countMembers,
   createTreeWithRootMember,
   deleteTreeById,
+  useAncestorParents,
   useAncestorTree,
   useFamily,
   useFamilyAll,

@@ -230,6 +230,7 @@ export function Sidebar({
         ) : editingPerson ? (
           <ReadonlyDetails
             family={family}
+            treeId={treeId}
             person={editingPerson}
             onSelect={onSelect}
           />

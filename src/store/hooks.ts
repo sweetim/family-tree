@@ -178,6 +178,55 @@ export function useAncestorTree(
   }, [graph, links, personId, currentTreeId])
 }
 
+const NO_PARENTS: Person[] = []
+
+/**
+ * A person's parents that live in their "ancestor family" — another tree that
+ * contains both them and at least one parent — so the read-only sidebar can
+ * surface those parents even when the current tree has none. The ancestor tree
+ * is loaded on demand (mirroring {@link useMembersOf}); until it resolves,
+ * `parents` is empty. Returns `ancestorTree` so callers can link into it.
+ */
+export function useAncestorParents(
+  personId: string,
+  currentTreeId: string,
+): { ancestorTree: TreeMeta | undefined; parents: Person[] } {
+  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const ancestorTree = useAncestorTree(personId, currentTreeId)
+  const ancestorTreeId = ancestorTree?.id
+  const loaded = ancestorTreeId
+    ? graph.index.find((tree) => tree.id === ancestorTreeId)?.loaded
+    : true
+  useEffect(() => {
+    if (!ancestorTreeId || loaded) return
+    let cancelled = false
+    void fetchTreeSnapshot(ancestorTreeId)
+      .then((snapshot) => {
+        if (!cancelled) applyTreeSnapshot(snapshot)
+      })
+      .catch((error: unknown) => console.error(error))
+    return () => {
+      cancelled = true
+    }
+  }, [ancestorTreeId, loaded])
+
+  const people = useMemo(
+    () =>
+      ancestorTreeId ? projectTree(graph.persons, graph, ancestorTreeId) : {},
+    [graph, ancestorTreeId],
+  )
+  const parents = useMemo(() => {
+    if (!ancestorTreeId) return NO_PARENTS
+    const projected = people[personId]
+    if (!projected) return NO_PARENTS
+    return projected.parents
+      .map((link) => people[link.id])
+      .filter((person): person is Person => !!person)
+  }, [people, personId, ancestorTreeId])
+
+  return { ancestorTree, parents }
+}
+
 export function useMembersOf(
   treeId: string | undefined,
 ): { id: string; name: string }[] {

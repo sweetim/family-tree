@@ -37,7 +37,7 @@ Private folders are prefixed `_` so Next.js excludes them from routing.
 | `EditForm` | `_sidebar/EditForm.tsx:37` | Edit a person: spouses/parents/children, marriage date per spouse, cross-tree marriage, same-person merge. |
 | `MarriagePanel` | `_sidebar/MarriagePanel.tsx:11` | Focused editor for one couple's marriage date, opened by clicking a union dot (`TreeActions.editMarriage`). Date field only. |
 | `PersonFields` | `_sidebar/PersonFields.tsx:28` | Reusable fields: name/gender/dates/birthplace/photo, with clipboard-paste crop. |
-| `ReadonlyDetails` | `_sidebar/ReadonlyDetails.tsx:12` | Read-only person view (viewers / not editable). |
+| `ReadonlyDetails` | `_sidebar/ReadonlyDetails.tsx:12` | Read-only person view (viewers / not editable). When the person has no parents in the current tree but does in their ancestor family (another tree), the Parents section shows those cross-tree parents (`useAncestorParents`, loaded on demand) as read-only chips — clicking one opens it in the ancestor tree. |
 | `RelationList` | `_sidebar/RelationList.tsx:3` | Renders a relationship list section. |
 | `SettingsPanel` | `_sidebar/SettingsPanel.tsx:7` | Tree/view settings (e.g. minimap toggle via `useViewSettings`). |
 | `SharePanel` | `_sidebar/SharePanel.tsx:14` | Sidebar panel for owner tree sharing — invite by email + role (viewer/editor), revoke. Same functionality as `ShareDialog`, styled as a sidebar panel; uses the shared `useShares` hook. |

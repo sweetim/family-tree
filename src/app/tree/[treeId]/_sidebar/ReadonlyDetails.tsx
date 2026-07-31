@@ -1,8 +1,9 @@
 import { Baby, Heart, MapPin, Users } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { PersonAvatar } from "@/components/PersonAvatar"
 import { Section } from "@/components/Section"
 import { personPhotoSrc } from "@/lib/image"
-import type { FamilyStore } from "@/store"
+import { type FamilyStore, useAncestorParents } from "@/store"
 import { childrenOf, type Person } from "@/types"
 import { RelationList } from "./RelationList"
 
@@ -13,14 +14,18 @@ function yearOf(iso: string): string {
 
 export function ReadonlyDetails({
   family,
+  treeId,
   person,
   onSelect,
 }: {
   family: FamilyStore
+  treeId: string
   person: Person
   onSelect: (id: string) => void
 }) {
   const { people } = family
+  const router = useRouter()
+  const navigate = (to: string) => router.push(to)
   const spouses = person.spouseIds
     .map((id) => people[id])
     .filter((p): p is Person => !!p)
@@ -28,6 +33,13 @@ export function ReadonlyDetails({
     .map((link) => people[link.id])
     .filter((p): p is Person => !!p)
   const children = childrenOf(people, person.id)
+  // When this tree has none of the person's parents, surface the parents that
+  // live in their ancestor family (another tree) so they're not hidden behind a
+  // bare "None".
+  const { ancestorTree, parents: ancestorParents } = useAncestorParents(
+    person.id,
+    treeId,
+  )
 
   const deceased = !!person.dod
   const photoSrc = personPhotoSrc(person)
@@ -86,12 +98,21 @@ export function ReadonlyDetails({
       <Section
         title="Parents"
         icon={Users}
-        count={parents.length}
+        count={parents.length || ancestorParents.length}
       >
-        <RelationList
-          people={parents}
-          onSelect={onSelect}
-        />
+        {parents.length > 0 ? (
+          <RelationList
+            people={parents}
+            onSelect={onSelect}
+          />
+        ) : ancestorParents.length > 0 && ancestorTree ? (
+          <RelationList
+            people={ancestorParents}
+            onSelect={(id) => navigate(`/tree/${ancestorTree.id}/p/${id}`)}
+          />
+        ) : (
+          <p className="text-xs text-slate-400">None</p>
+        )}
       </Section>
       <Section
         title="Spouses"
