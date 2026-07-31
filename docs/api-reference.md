@@ -128,8 +128,10 @@ role and marks the request `approved` in the same transaction.
 ## Photos
 
 `GET /api/person-photo/[personId]` authorizes every request and returns
-`private, no-store` image responses with content-type allowlisting, byte limits,
-and `nosniff`. Blob URLs are never exposed in sync DTOs.
+`private, max-age=31536000, immutable` image responses (cacheable because the
+proxy URL carries a `?v={updatedAt}` version token), with content-type
+allowlisting, byte limits, and `nosniff`. Blob URLs are never exposed in sync
+DTOs.
 
 ## Bulk pull and deletion
 

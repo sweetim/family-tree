@@ -2,6 +2,13 @@
 
 import { useEffect, useRef, useState } from "react"
 
+// React Flow's onlyRenderVisibleElements unmounts cards that scroll out of
+// view, so a card returning to view would otherwise reload its avatar (and
+// flicker) even though the browser cache holds the bytes. Remembering which
+// srcs have already loaded lets a remounted avatar render at full opacity
+// immediately. The set is per-page-session and bounded by the people viewed.
+const loadedSrcs = new Set<string>()
+
 export function PersonAvatar({
   src,
   alt,
@@ -13,7 +20,7 @@ export function PersonAvatar({
   className: string
   onError?: () => void
 }) {
-  const [loaded, setLoaded] = useState(false)
+  const [loaded, setLoaded] = useState(() => loadedSrcs.has(src))
   const [failed, setFailed] = useState(false)
   const imgRef = useRef<HTMLImageElement>(null)
   // Keep the latest onError without adding it to the effect deps (avoids
@@ -22,6 +29,14 @@ export function PersonAvatar({
   onErrorRef.current = onError
 
   useEffect(() => {
+    // Already loaded earlier this session: skip the loading pulse so a
+    // remounted avatar doesn't flicker. The recreated <img> still fires onLoad
+    // (from the browser cache) to re-confirm.
+    if (loadedSrcs.has(src)) {
+      setLoaded(true)
+      setFailed(false)
+      return
+    }
     setLoaded(false)
     setFailed(false)
     // For an instantly-decodable image (inline data URL or a cached response),
@@ -31,6 +46,7 @@ export function PersonAvatar({
     if (!img?.complete) return
     if (img.naturalWidth > 0) {
       setLoaded(true)
+      loadedSrcs.add(src)
     } else {
       setFailed(true)
       onErrorRef.current?.()
@@ -47,7 +63,10 @@ export function PersonAvatar({
         ref={imgRef}
         src={src}
         alt={alt}
-        onLoad={() => setLoaded(true)}
+        onLoad={() => {
+          setLoaded(true)
+          loadedSrcs.add(src)
+        }}
         onError={() => {
           setFailed(true)
           onError?.()

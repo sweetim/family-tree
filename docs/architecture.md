@@ -66,7 +66,7 @@ fetches a metadata-only tree manifest. Selected trees load on demand.
 | `/api/mutations` | POST | Atomic, idempotent mutations. |
 | `/api/people/search` | GET | Bounded accessible-person search. |
 | `/api/trees/[treeId]/shares` | GET, POST, DELETE | Owner-only share management. |
-| `/api/person-photo/[personId]` | GET | Authorized no-store image proxy. |
+| `/api/person-photo/[personId]` | GET | Authorized, version-cached image proxy (`?v={updatedAt}`). |
 
 The normalized protocol transports exactly `persons`, `trees`, `treeMembers`,
 `unions`, `unionEvents`, `treeUnions`, `parentChildRelationships`, and

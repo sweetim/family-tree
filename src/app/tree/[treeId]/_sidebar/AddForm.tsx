@@ -8,9 +8,9 @@ import {
   type Fields,
   fieldsFrom,
   ghostBtn,
-  inputCls,
   labelCls,
   primaryBtn,
+  selectCls,
   toInput,
 } from "./shared"
 
@@ -101,7 +101,7 @@ export function AddForm({
               id="field-other-parent"
               value={otherParentId}
               onChange={(e) => setOtherParentId(e.target.value)}
-              className={inputCls}
+              className={selectCls}
             >
               <option value="">None (single parent)</option>
               {parent.spouseIds

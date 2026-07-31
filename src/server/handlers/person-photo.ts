@@ -95,7 +95,11 @@ export async function getPersonPhoto(
     status: upstream.status,
     headers: {
       "content-type": contentType,
-      "cache-control": "private, no-store",
+      // Cacheable by URL: the proxy URL includes ?v={updatedAt}, so a changed
+      // photo is a different URL and always re-fetched. `private` keeps it
+      // browser-only (no shared CDN). Lets React Flow's off-screen node culling
+      // reuse the browser cache instead of re-downloading on remount.
+      "cache-control": "private, max-age=31536000, immutable",
       "x-content-type-options": "nosniff",
     },
   })

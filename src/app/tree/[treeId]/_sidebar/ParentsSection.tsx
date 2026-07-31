@@ -4,7 +4,7 @@ import { Section } from "@/components/Section"
 import { type FamilyStore, type TreeMeta, useTreePeople } from "@/store"
 import { descendantsOf, type Person } from "@/types"
 import { GenderIcon } from "./GenderIcon"
-import { chipX, inputCls } from "./shared"
+import { chipX, selectCls } from "./shared"
 
 export function ParentsSection({
   family,
@@ -130,7 +130,7 @@ export function ParentsSection({
               family.addParent(person.id, id)
             }
           }}
-          className={inputCls}
+          className={selectCls}
         >
           <option value="">+ Link existing person as parent…</option>
           {coupleCandidates.length > 0 && (
@@ -162,7 +162,7 @@ export function ParentsSection({
           <select
             value={parentLinkTreeId}
             onChange={(e) => setParentLinkTreeId(e.target.value)}
-            className={inputCls}
+            className={selectCls}
           >
             <option value="">+ Add parent from another tree…</option>
             {otherTrees.map((t) => (
@@ -186,7 +186,7 @@ export function ParentsSection({
                 )
                 setParentLinkTreeId("")
               }}
-              className={inputCls}
+              className={selectCls}
             >
               <option value="">
                 {linkCandidates.length > 0 || linkCoupleCandidates.length > 0

@@ -32,6 +32,7 @@ import {
   ghostBtn,
   inputCls,
   primaryBtn,
+  selectCls,
   toInput,
 } from "./shared"
 
@@ -252,7 +253,7 @@ export function EditForm({
               onChange={(e) =>
                 e.target.value && family.linkSpouse(person.id, e.target.value)
               }
-              className={inputCls}
+              className={selectCls}
             >
               <option value="">+ Link existing person as spouse…</option>
               {linkable.map((p) => (
@@ -306,7 +307,7 @@ export function EditForm({
               onChange={(e) =>
                 e.target.value && family.addParent(e.target.value, person.id)
               }
-              className={inputCls}
+              className={selectCls}
             >
               <option value="">+ Link existing person as child…</option>
               {childCandidates.map((p) => (
@@ -325,6 +326,7 @@ export function EditForm({
           title="Other families"
           icon={Network}
           count={memberTrees.length}
+          defaultOpen={false}
         >
           <div className="flex flex-wrap gap-1.5">
             {memberTrees.length === 0 && (
@@ -359,7 +361,7 @@ export function EditForm({
               <select
                 value={linkTreeId}
                 onChange={(e) => setLinkTreeId(e.target.value)}
-                className={inputCls}
+                className={selectCls}
               >
                 <option value="">+ Marry someone in another tree…</option>
                 {otherTrees.map((t) => (
@@ -383,7 +385,7 @@ export function EditForm({
                     )
                     setLinkTreeId("")
                   }}
-                  className={inputCls}
+                  className={selectCls}
                 >
                   <option value="">
                     {linkCandidates.length > 0
@@ -417,6 +419,7 @@ export function EditForm({
           <Section
             title="Same person in another family"
             icon={GitMerge}
+            defaultOpen={false}
           >
             <p className="text-xs leading-relaxed text-slate-400">
               Is this {person.name} the same person as someone in another tree?
@@ -425,7 +428,7 @@ export function EditForm({
             <select
               value={mergeTreeId}
               onChange={(e) => setMergeTreeId(e.target.value)}
-              className={inputCls}
+              className={selectCls}
             >
               <option value="">Choose a tree…</option>
               {mergeTrees.map((t) => (
@@ -460,7 +463,7 @@ export function EditForm({
                   setMergeTreeId("")
                   onClose()
                 }}
-                className={inputCls}
+                className={selectCls}
               >
                 <option value="">
                   {mergeCandidates.length > 0

@@ -13,6 +13,7 @@ export const chip =
   "inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 py-1 pl-3 pr-1 text-xs text-slate-700"
 export const chipX =
   "flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-red-100 hover:text-red-600"
+export const selectCls = `${inputCls} pr-9 select-chevron`
 
 export type SidebarState =
   | { mode: "idle" }

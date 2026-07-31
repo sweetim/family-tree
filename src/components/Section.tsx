@@ -5,13 +5,20 @@ type SectionProps = {
   title: string
   icon: ComponentType<{ className?: string }>
   count?: number
+  defaultOpen?: boolean
   children: ReactNode
 }
 
-export function Section({ title, icon: Icon, count, children }: SectionProps) {
+export function Section({
+  title,
+  icon: Icon,
+  count,
+  defaultOpen = true,
+  children,
+}: SectionProps) {
   return (
     <details
-      open
+      open={defaultOpen}
       className="group rounded-xl border border-slate-200 bg-white"
     >
       <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 [&::-webkit-details-marker]:hidden">

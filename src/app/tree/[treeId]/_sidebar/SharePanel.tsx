@@ -2,7 +2,7 @@ import { Copy, Loader2, Trash2 } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 import { useToast } from "@/components/Toast"
 import { useShares } from "@/lib/shares"
-import { inputCls, labelCls } from "./shared"
+import { inputCls, labelCls, selectCls } from "./shared"
 
 /**
  * Sidebar panel version of tree sharing for the tree's owner. Mirrors
@@ -133,7 +133,7 @@ export function SharePanel({
           <select
             value={role}
             onChange={(e) => setRole(e.target.value as "viewer" | "editor")}
-            className={inputCls}
+            className={selectCls}
           >
             <option value="viewer">Viewer (read-only)</option>
             <option value="editor">Editor (can add/edit people)</option>

@@ -282,51 +282,65 @@ export function Sidebar({
             </span>
           </button>
         )}
-        {!readOnly && (
+        <div className="flex items-stretch">
+          {!readOnly && (
+            <>
+              <button
+                aria-label={
+                  startingEditMode
+                    ? "Refreshing tree before editing"
+                    : editable
+                      ? "Done editing"
+                      : "Edit tree"
+                }
+                aria-busy={startingEditMode}
+                type="button"
+                disabled={startingEditMode}
+                onClick={onToggleEditMode}
+                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium shadow-soft ring-1 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-70 ${
+                  editable
+                    ? "bg-cobalt-600 text-white ring-cobalt-600 hover:bg-cobalt-700"
+                    : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                {startingEditMode ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                ) : editable ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Pencil className="h-4 w-4" />
+                )}
+                {startingEditMode ? "Syncing" : editable ? "Done" : "Edit"}
+              </button>
+              <div
+                aria-hidden="true"
+                className="my-1 mx-2 w-px self-stretch bg-slate-200"
+              />
+            </>
+          )}
+          {canShare && (
+            <>
+              <button
+                type="button"
+                onClick={onOpenShare}
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 active:scale-95"
+              >
+                <Share2 className="h-4 w-4" /> Share
+              </button>
+              <div
+                aria-hidden="true"
+                className="my-1 mx-2 w-px self-stretch bg-slate-200"
+              />
+            </>
+          )}
           <button
-            aria-label={
-              startingEditMode
-                ? "Refreshing tree before editing"
-                : editable
-                  ? "Done editing"
-                  : "Edit tree"
-            }
-            aria-busy={startingEditMode}
             type="button"
-            disabled={startingEditMode}
-            onClick={onToggleEditMode}
-            className={`inline-flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium shadow-soft ring-1 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-70 ${
-              editable
-                ? "bg-cobalt-600 text-white ring-cobalt-600 hover:bg-cobalt-700"
-                : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
-            }`}
+            onClick={onOpenSettings}
+            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 active:scale-95"
           >
-            {startingEditMode ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            ) : editable ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Pencil className="h-4 w-4" />
-            )}
-            {startingEditMode ? "Syncing" : editable ? "Done" : "Edit"}
+            <Settings className="h-4 w-4" /> Settings
           </button>
-        )}
-        {canShare && (
-          <button
-            type="button"
-            onClick={onOpenShare}
-            className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
-          >
-            <Share2 className="h-4 w-4" /> Share
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
-        >
-          <Settings className="h-4 w-4" /> Settings
-        </button>
+        </div>
       </div>
     </aside>
   )

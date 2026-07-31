@@ -4,7 +4,7 @@ import { Section } from "@/components/Section"
 import { type FamilyStore, type TreeMeta, useMembersOf } from "@/store"
 import type { Person } from "@/types"
 import { BackToChoose } from "./BackToChoose"
-import { ghostBtn, inputCls, relFromLink } from "./shared"
+import { ghostBtn, selectCls, relFromLink } from "./shared"
 
 export function LinkSpousePanel({
   family,
@@ -73,7 +73,7 @@ export function LinkSpousePanel({
             family.linkSpouse(person.id, event.target.value)
             onClose()
           }}
-          className={inputCls}
+          className={selectCls}
         >
           <option value="">
             {currentCandidates.length > 0
@@ -100,7 +100,7 @@ export function LinkSpousePanel({
             <select
               value={linkTreeId}
               onChange={(event) => setLinkTreeId(event.target.value)}
-              className={inputCls}
+              className={selectCls}
             >
               <option value="">Choose a family...</option>
               {otherTrees.map((tree) => (
@@ -124,7 +124,7 @@ export function LinkSpousePanel({
                   )
                   onClose()
                 }}
-                className={inputCls}
+                className={selectCls}
               >
                 <option value="">
                   {otherTreeCandidates.length > 0
