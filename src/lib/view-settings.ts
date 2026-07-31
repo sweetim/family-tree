@@ -25,6 +25,11 @@ export type ViewSettings = {
    * and dim married-in spouses, so the bloodline stands out at a glance.
    */
   highlightBloodline: boolean
+  /**
+   * Show a badge on each person card for every other family tree they
+   * belong to. Off (default): the badges are hidden on the canvas.
+   */
+  showOtherTrees: boolean
 }
 
 const STORAGE_KEY = "family-tree:view-settings"
@@ -33,6 +38,7 @@ const DEFAULTS: ViewSettings = {
   marriageYears: true,
   showAllFamilies: false,
   highlightBloodline: false,
+  showOtherTrees: false,
 }
 
 function load(): ViewSettings {

@@ -185,7 +185,7 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
                 <span className="truncate">{person.birthplace}</span>
               </p>
             )}
-            {!!otherTrees.length && (
+            {settings.showOtherTrees && !!otherTrees.length && (
               <div className="mt-1.5 flex flex-wrap justify-center gap-1">
                 {otherTrees.map((t) => (
                   <button

@@ -47,7 +47,7 @@ export async function searchPeople(request: Request): Promise<Response> {
         AND s.user_id = ${me.id}
       WHERE p.deleted_at IS NULL
         AND (t.owner_id = ${me.id} OR s.user_id = ${me.id})
-        AND lower(p.name) LIKE ${pattern} ESCAPE '\'
+        AND lower(p.name) LIKE ${pattern} ESCAPE '\\'
       ORDER BY p.id, m.created_at, m.tree_id
     ) candidate
     ORDER BY lower(candidate.name), candidate."personId"
