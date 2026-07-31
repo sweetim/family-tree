@@ -82,6 +82,48 @@ export function PersonFields({
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-col items-center gap-2">
+        <div className="relative">
+          {previewSrc ? (
+            // biome-ignore lint/performance/noImgElement: data-URL preview of a just-cropped photo, or the auth-checked proxy for a stored one
+            <img
+              src={previewSrc}
+              alt="preview"
+              className="h-24 w-24 rounded-full object-cover ring-2 ring-cobalt-100"
+            />
+          ) : (
+            <div className="flex h-24 w-24 items-center justify-center rounded-full bg-slate-100 ring-2 ring-slate-200">
+              <Upload className="h-7 w-7 text-slate-300" />
+            </div>
+          )}
+          <label className="absolute bottom-0 right-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-cobalt-600 text-white shadow-soft transition-colors hover:bg-cobalt-700">
+            <Upload className="h-3.5 w-3.5" />
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                startCrop(e.target.files?.[0])
+                e.target.value = ""
+              }}
+              className="hidden"
+            />
+          </label>
+        </div>
+        {fields.photo && (
+          <button
+            type="button"
+            onClick={() => onChange({ ...fields, photo: undefined })}
+            className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 transition-colors hover:text-red-600"
+          >
+            <X className="h-3.5 w-3.5" /> Remove photo
+          </button>
+        )}
+        <p className="inline-flex items-center gap-1 text-[11px] text-slate-400">
+          <Clipboard className="h-3 w-3" /> Paste an image (Ctrl/Cmd+V)
+        </p>
+        {photoError && <p className="text-xs text-red-500">{photoError}</p>}
+      </div>
+
       <div>
         <label
           htmlFor="field-name"
@@ -173,52 +215,6 @@ export function PersonFields({
           placeholder="e.g. Singapore"
           className={inputCls}
         />
-      </div>
-
-      <div>
-        <span className={labelCls}>Photo</span>
-        <div className="flex items-center gap-3">
-          {previewSrc ? (
-            // biome-ignore lint/performance/noImgElement: data-URL preview of a just-cropped photo, or the auth-checked proxy for a stored one
-            <img
-              src={previewSrc}
-              alt="preview"
-              className="h-12 w-12 rounded-full object-cover ring-2 ring-cobalt-100"
-            />
-          ) : (
-            <div className="h-12 w-12 rounded-full bg-slate-100 ring-2 ring-slate-200" />
-          )}
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-cobalt-50 px-3 py-1.5 text-xs font-medium text-cobalt-600 transition-colors hover:bg-cobalt-100">
-              <Upload className="h-3.5 w-3.5" /> Upload
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => {
-                  startCrop(e.target.files?.[0])
-                  e.target.value = ""
-                }}
-                className="hidden"
-              />
-            </label>
-            {fields.photo && (
-              <button
-                type="button"
-                onClick={() => onChange({ ...fields, photo: undefined })}
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-red-600"
-              >
-                <X className="h-3.5 w-3.5" /> Remove
-              </button>
-            )}
-          </div>
-        </div>
-        <p className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-slate-400">
-          <Clipboard className="h-3 w-3" /> You can also paste an image from
-          your clipboard (Ctrl/Cmd+V).
-        </p>
-        {photoError && (
-          <p className="mt-1 text-xs text-red-500">{photoError}</p>
-        )}
       </div>
 
       {cropSrc && (
