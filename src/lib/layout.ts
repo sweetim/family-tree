@@ -355,27 +355,11 @@ function computePositions(
   return pos
 }
 
-/**
- * Classic genealogy layout:
- *
- *   father ──●── mother          couple joined by a horizontal line
- *            │                    through a "union" dot
- *       ┌────┴────┐
- *     son A     son B ──●── wife  children hang from a shared bus
- *                       │         below the union
- *                   daughter C
- *
- * Siblings run eldest → youngest left to right; partners are always
- * adjacent so the marriage line never crosses another card.
- */
-export function buildFlow(
-  people: FamilyData,
-  selectedId?: string,
-  linking?: { sourceId: string; eligible: Set<string> },
-): { nodes: FlowNode[]; edges: FlowEdge[] } {
-  // Collect couples: married pairs, co-parents of any child, plus any pair
-  // with a recorded union (so a divorced couple stays connected by a dashed
-  // line instead of disappearing once it leaves `spouseIds`).
+/** Couples joined on the canvas: married pairs, co-parents of any shared
+ *  child, plus any pair with a recorded union (so a divorced couple stays
+ *  connected by a dashed line instead of disappearing once it leaves
+ *  `spouseIds`). */
+function collectCouples(people: FamilyData): Map<string, [string, string]> {
   const couples = new Map<string, [string, string]>()
   for (const p of Object.values(people)) {
     for (const sid of p.spouseIds) {
@@ -403,10 +387,48 @@ export function buildFlow(
       couples.set(key, [p.id, partnerId].sort() as [string, string])
     }
   }
+  return couples
+}
+
+export type TreeLayout = {
+  couples: Map<string, [string, string]>
+  positions: Map<string, { x: number; y: number }>
+}
+
+/**
+ * Expensive, people-only layout: couple detection plus the recursive
+ * positioner (which runs the generation-rank fixpoint). Memoize on `people`
+ * alone so selecting a card or toggling click-to-connect never re-runs it.
+ */
+export function computeTreeLayout(people: FamilyData): TreeLayout {
+  const couples = collectCouples(people)
+  const positions = computePositions(people, couples)
+  return { couples, positions }
+}
+
+/**
+ * Classic genealogy layout:
+ *
+ *   father ──●── mother          couple joined by a horizontal line
+ *            │                    through a "union" dot
+ *       ┌────┴────┐
+ *     son A     son B ──●── wife  children hang from a shared bus
+ *                       │         below the union
+ *                   daughter C
+ *
+ * Siblings run eldest → youngest left to right; partners are always
+ * adjacent so the marriage line never crosses another card.
+ */
+export function buildFlow(
+  people: FamilyData,
+  layout: TreeLayout,
+  selectedId?: string,
+  linking?: { sourceId: string; eligible: Set<string> },
+): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  const { couples } = layout
+  const pos = layout.positions
 
   const unionId = (a: string, b: string) => `u:${pairKey(a, b)}`
-
-  const pos = computePositions(people, couples)
 
   const nodes: FlowNode[] = []
 

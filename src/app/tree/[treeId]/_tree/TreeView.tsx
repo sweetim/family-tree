@@ -16,7 +16,12 @@ import { PersonNode } from "@/components/PersonNode"
 import { useToast } from "@/components/Toast"
 import { UnionNode } from "@/components/UnionNode"
 import { useSession } from "@/lib/auth-client"
-import { buildFlow, type FlowEdge, type FlowNode } from "@/lib/layout"
+import {
+  buildFlow,
+  computeTreeLayout,
+  type FlowEdge,
+  type FlowNode,
+} from "@/lib/layout"
 import {
   type LinkKind,
   type TreeActions,
@@ -220,13 +225,18 @@ export function TreeView({
   }, [targetKind, targetSourceId, targetSource, family.people])
 
   const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
+  // Layout (positions + couples) depends only on the rendered people, so it is
+  // memoized separately from selection. Selecting a card or toggling
+  // click-to-connect re-runs the cheap node/edge decoration below, never the
+  // expensive rank fixpoint / recursive positioner.
+  const layout = useMemo(() => computeTreeLayout(renderPeople), [renderPeople])
   const { nodes, edges } = useMemo(() => {
     const linking =
       targetSourceId && linkEligible
         ? { sourceId: targetSourceId, eligible: linkEligible }
         : undefined
-    return buildFlow(renderPeople, selectedId, linking)
-  }, [renderPeople, selectedId, targetSourceId, linkEligible])
+    return buildFlow(renderPeople, layout, selectedId, linking)
+  }, [renderPeople, layout, selectedId, targetSourceId, linkEligible])
 
   const actions = useMemo<TreeActions>(
     () => ({
@@ -505,6 +515,7 @@ export function TreeView({
             fitView
             fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
             minZoom={0.1}
+            onlyRenderVisibleElements
             nodesConnectable={false}
             nodesDraggable={false}
             proOptions={{ hideAttribution: true }}

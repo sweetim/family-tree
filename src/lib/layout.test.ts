@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { FamilyData, Person } from "../types"
-import { buildFlow } from "./layout"
+import { buildFlow, computeTreeLayout } from "./layout"
 
 const PERSON = (id: string, gender: Person["gender"]): Person => ({
   id,
@@ -14,7 +14,7 @@ const PERSON = (id: string, gender: Person["gender"]): Person => ({
 /** Build positions -> a 0-based rank per person, derived from the laid-out
  *  y so the test does not hardcode layout constants. */
 function ranksOf(people: FamilyData): Map<string, number> {
-  const { nodes } = buildFlow(people)
+  const { nodes } = buildFlow(people, computeTreeLayout(people))
   const ys = [
     ...new Set(
       nodes

@@ -77,7 +77,7 @@ The normalized protocol transports exactly `persons`, `trees`, `treeMembers`,
 ```text
 GlobalState normalized maps
     -> projectTree(persons, relationships, treeId)
-    -> buildFlow(people, settings)
+    -> computeTreeLayout(people) -> buildFlow(people, layout, selectedId?, linking?)
     -> React Flow with PersonNode and UnionNode
 ```
 

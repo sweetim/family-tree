@@ -1,7 +1,7 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react"
 import { ArrowLeftRight, MapPin, Network, Plus } from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
+import { memo, useEffect, useState } from "react"
 import { personPhotoSrc } from "../lib/image"
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
 import { useTreeActions } from "../lib/tree-actions"
@@ -62,7 +62,7 @@ const CARD_BORDER: Record<string, string> = {
   default: "border-slate-200",
 }
 
-export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
+function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
   const { person, linkState, marriedIn, rootFounder } = data
   const { openChoose, readOnly } = useTreeActions()
   const { settings } = useViewSettings()
@@ -291,3 +291,20 @@ export function PersonNode({ data, selected }: NodeProps<PersonNodeType>) {
     </div>
   )
 }
+
+/**
+ * React Flow rebuilds every node object when selection changes, so a shallow
+ * prop check would re-render all cards on each click. Comparing only the
+ * fields that affect this card's output keeps re-renders to the cards whose
+ * `selected` actually toggled. Context/store hooks still bypass this, as
+ * intended, for real data changes.
+ */
+export const PersonNode = memo(
+  PersonNodeBase,
+  (prev, next) =>
+    prev.selected === next.selected
+    && prev.data.person === next.data.person
+    && prev.data.linkState === next.data.linkState
+    && prev.data.marriedIn === next.data.marriedIn
+    && prev.data.rootFounder === next.data.rootFounder,
+)

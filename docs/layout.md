@@ -30,8 +30,11 @@ overlap.
   - Children are grouped by their "unit" (`pairKey` for two visible parents, the
     lone parent id otherwise), sorted eldest-first then insertion order.
 
-`buildFlow(people, selectedId?, linking?)` — `src/lib/layout.ts:240`. Turns the
-positioned tree into React Flow nodes + edges:
+`buildFlow(people, layout, selectedId?, linking?)` — `src/lib/layout.ts`. Turns
+the positioned tree into React Flow nodes + edges. The expensive positioning is
+split into `computeTreeLayout(people)` (couple detection + the recursive
+positioner), memoized on `people` alone so selecting a card or toggling
+click-to-connect re-runs only the cheap node/edge decoration here:
 
 - **Couples** = married pairs **plus** co-parents of any child. Union dots are
   nodes keyed `u:<pairKey>`, placed centered between partners.

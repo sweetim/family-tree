@@ -490,13 +490,14 @@ export function EditForm({
             title: "Remove from tree",
             message: `Remove ${person.name} from this tree?`,
             confirmText: "Remove",
+            tone: "danger",
           })
           if (confirmed && getEditingSession(treeId) === editingSession) {
             family.removeFromTree(person.id, treeId)
             onClose()
           }
         }}
-        className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
+        className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-600 transition-all hover:bg-red-50 active:scale-95"
       >
         <Trash2 className="h-4 w-4" /> Remove from tree
       </button>

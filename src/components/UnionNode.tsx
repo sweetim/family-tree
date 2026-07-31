@@ -1,4 +1,5 @@
 import { Handle, Position } from "@xyflow/react"
+import { memo } from "react"
 import { useTreeActions } from "@/lib/tree-actions"
 import { useViewSettings } from "@/lib/view-settings"
 
@@ -25,7 +26,7 @@ function formatDate(iso: string): string {
  * - In edit mode, clicking the dot opens the couple's marriage editor via
  *   `TreeActions.editMarriage`.
  */
-export function UnionNode({
+function UnionNodeBase({
   data,
 }: {
   data: {
@@ -94,3 +95,18 @@ export function UnionNode({
     </button>
   )
 }
+
+/**
+ * Union nodes are rebuilt by `buildFlow` on every selection change; comparing
+ * only the data fields that affect the dot avoids re-rendering them all on
+ * each click.
+ */
+export const UnionNode = memo(
+  UnionNodeBase,
+  (prev, next) =>
+    prev.data.date === next.data.date
+    && prev.data.a === next.data.a
+    && prev.data.b === next.data.b
+    && prev.data.statusType === next.data.statusType
+    && prev.data.divorceDate === next.data.divorceDate,
+)
