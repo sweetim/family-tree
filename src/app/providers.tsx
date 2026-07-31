@@ -117,13 +117,13 @@ function ServerDataBootstrap() {
     }
     const synchronize = () => {
       void synchronizePending()
-      if (treeId && editingTreeId !== treeId) return
+      if (!treeId || editingTreeId !== treeId) return
       void fetchTreeManifest()
         .then((manifest) => {
           if (!cancelled) applyTreeManifest(manifest)
         })
         .catch(console.error)
-      if (treeId) void synchronizeTree(treeId)
+      void synchronizeTree(treeId)
     }
     const interval = window.setInterval(synchronize, 15_000)
     window.addEventListener("online", synchronize)
