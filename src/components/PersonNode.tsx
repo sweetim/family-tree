@@ -71,7 +71,7 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
   const { treeId } = useParams<{ treeId: string }>()
   const otherTrees = useMemberTrees(person.id).filter((t) => t.id !== treeId)
   const ancestorTree = useAncestorTree(person.id, treeId)
-  const parentAddVisible = !linkState && !readOnly && person.parents.length < 2
+  const showsAncestorBadge = !!ancestorTree && person.parents.length === 0
   const deceased = !!person.dod
   const age = person.dob ? ageOf(person.dob, person.dod) : null
   const genderKey = person.gender ?? "unknown"
@@ -185,7 +185,7 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
                 <span className="truncate">{person.birthplace}</span>
               </p>
             )}
-            {settings.showOtherTrees && !!otherTrees.length && (
+            {settings.showOtherTrees && readOnly && !!otherTrees.length && (
               <div className="mt-1.5 flex flex-wrap justify-center gap-1">
                 {otherTrees.map((t) => (
                   <button
@@ -207,12 +207,8 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
         </div>
       </div>
 
-      {ancestorTree && person.parents.length === 0 && (
-        <div
-          className={`absolute left-1/2 -translate-x-1/2 ${
-            parentAddVisible ? "-top-10" : "-top-3.5"
-          }`}
-        >
+      {showsAncestorBadge && (
+        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
           <button
             type="button"
             title={`Ancestor family: ${ancestorTree.name}`}
@@ -230,7 +226,7 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
 
       {!linkState && !readOnly && (
         <>
-          {person.parents.length < 2 && (
+          {person.parents.length < 2 && !showsAncestorBadge && (
             <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
               <button
                 type="button"
