@@ -118,22 +118,24 @@ export function Sidebar({
             <AccountMenu />
           </div>
         </div>
-        <h1 className="mt-2 text-lg font-bold tracking-tight text-slate-800">
-          {treeName}
-        </h1>
-        {loading ? (
-          <span
-            className="mt-2 inline-block h-6 w-28 animate-pulse rounded-full bg-slate-200"
-            aria-busy="true"
-          >
-            <span className="sr-only">Loading member count</span>
-          </span>
-        ) : (
-          <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-cobalt-50 px-2.5 py-1 text-xs font-medium text-cobalt-700">
-            <Users className="h-3.5 w-3.5" />
-            {`${count} members`}
-          </span>
-        )}
+        <div className="mt-2 flex items-center gap-2">
+          <h1 className="min-w-0 truncate text-lg font-bold tracking-tight text-slate-800">
+            {treeName}
+          </h1>
+          {loading ? (
+            <span
+              className="ml-auto inline-block h-6 w-28 shrink-0 animate-pulse rounded-full bg-slate-200"
+              aria-busy="true"
+            >
+              <span className="sr-only">Loading member count</span>
+            </span>
+          ) : (
+            <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-cobalt-50 px-2.5 py-1 text-xs font-medium text-cobalt-700">
+              <Users className="h-3.5 w-3.5" />
+              {`${count} members`}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
