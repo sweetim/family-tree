@@ -728,6 +728,81 @@ function recordSetValue(
   )
 }
 
+function applyAuthoritativeConflictRecords(
+  records: PersistedOperationConflict["records"],
+): void {
+  const remote = {
+    persons: [] as PersonWire[],
+    trees: [] as TreeWire[],
+    treeMembers: [] as TreeMemberWire[],
+    unions: [] as UnionWire[],
+    unionEvents: [] as UnionEventWire[],
+    treeUnions: [] as TreeUnionWire[],
+    parentChildRelationships: [] as ParentChildRelationshipWire[],
+    treeParentChildRelationships: [] as TreeParentChildRelationshipWire[],
+  }
+  const missing: Array<{ collection: DirtyCollection; id: string }> = []
+  for (const record of records) {
+    if (record.serverValue === undefined) {
+      missing.push(record)
+      continue
+    }
+    switch (record.collection) {
+      case "persons":
+        remote.persons.push(record.serverValue as PersonWire)
+        break
+      case "trees":
+        remote.trees.push(record.serverValue as TreeWire)
+        break
+      case "treeMembers":
+        remote.treeMembers.push(record.serverValue as TreeMemberWire)
+        break
+      case "unions":
+        remote.unions.push(record.serverValue as UnionWire)
+        break
+      case "unionEvents":
+        remote.unionEvents.push(record.serverValue as UnionEventWire)
+        break
+      case "treeUnions":
+        remote.treeUnions.push(record.serverValue as TreeUnionWire)
+        break
+      case "parentChildRelationships":
+        remote.parentChildRelationships.push(
+          record.serverValue as ParentChildRelationshipWire,
+        )
+        break
+      case "treeParentChildRelationships":
+        remote.treeParentChildRelationships.push(
+          record.serverValue as TreeParentChildRelationshipWire,
+        )
+        break
+    }
+  }
+  if (missing.length > 0) {
+    update(
+      (previous) => {
+        let next = previous
+        for (const record of missing) {
+          if (valueFor(next, record.collection, record.id) === undefined) {
+            continue
+          }
+          if (next === previous) next = makeDraft(previous)
+          if (record.collection === "trees") {
+            next.index = next.index.filter((tree) => tree.id !== record.id)
+          } else {
+            delete (next[record.collection] as Record<string, unknown>)[
+              record.id
+            ]
+          }
+        }
+        return next
+      },
+      { remote: true },
+    )
+  }
+  applyRemote(remote)
+}
+
 function snapshotOperationConflict(
   source: DirtyState,
   operationId: string | undefined,
@@ -1567,7 +1642,19 @@ export async function synchronizeTreeFresh(
   const existing = treeSyncInFlight.get(treeId)
   if (existing) await existing
   if (signal?.aborted) return
-  return synchronizeTree(treeId)
+  const generation = storeGeneration
+  const synchronization = (async () => {
+    const snapshot = await fetchTreeSnapshot(treeId)
+    if (generation !== storeGeneration || signal?.aborted) return
+    applyTreeSnapshot(snapshot)
+    setSyncStatus(statusFromDirtyState())
+  })().finally(() => {
+    if (treeSyncInFlight.get(treeId) === synchronization) {
+      treeSyncInFlight.delete(treeId)
+    }
+  })
+  treeSyncInFlight.set(treeId, synchronization)
+  return synchronization
 }
 
 async function runPushLoop(generation: number): Promise<void> {
@@ -2322,6 +2409,10 @@ export function useSyncStatus(): SyncStatus {
   )
 }
 
+export function getSyncStatus(): SyncStatus {
+  return syncStatus
+}
+
 export function useSyncConflictCount(): number {
   return useSyncExternalStore(
     subscribe,
@@ -2483,6 +2574,7 @@ export async function resolveBlockedOperation(
       return "offline"
     }
     let cleared = 0
+    const clearedKeys = new Set<string>()
     for (const record of currentRecords) {
       const current = dirtyState[record.collection].get(record.id)
       if (!matchesCapturedIntent(current, record.dirty)) continue
@@ -2490,6 +2582,7 @@ export async function resolveBlockedOperation(
       if (token) clearedDirtyTokens.add(token)
       dirtyState[record.collection].delete(record.id)
       cleared++
+      clearedKeys.add(JSON.stringify([record.collection, record.id]))
     }
     if (cleared === 0) return "stale"
     if (conflict) {
@@ -2497,6 +2590,11 @@ export async function resolveBlockedOperation(
         (candidate) => candidate.operationId !== operationId,
       )
       clearedOperationConflictIds.add(operationId)
+      applyAuthoritativeConflictRecords(
+        conflict.records.filter((record) =>
+          clearedKeys.has(JSON.stringify([record.collection, record.id])),
+        ),
+      )
     }
     applyTreeSnapshot(snapshot)
     schedulePersistence()

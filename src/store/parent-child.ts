@@ -17,19 +17,17 @@ function parentRelationshipForPair(
   childPersonId: string,
   treeId?: string,
 ): ParentChildRelationship | undefined {
-  const associatedIds = treeId
-    ? new Set(
-        Object.values(graph.treeParentChildRelationships)
-          .filter((association) => association.treeId === treeId)
-          .map((association) => association.parentChildRelationshipId),
-      )
-    : undefined
+  const associatedIds = new Set(
+    Object.values(graph.treeParentChildRelationships)
+      .filter((association) => !treeId || association.treeId === treeId)
+      .map((association) => association.parentChildRelationshipId),
+  )
   return Object.values(graph.parentChildRelationships)
     .filter(
       (relationship) =>
         relationship.parentPersonId === parentPersonId
         && relationship.childPersonId === childPersonId
-        && (!associatedIds || associatedIds.has(relationship.id)),
+        && associatedIds.has(relationship.id),
     )
     .sort(
       (first, second) =>

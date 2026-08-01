@@ -53,6 +53,7 @@ export {
   fetchTreeManifest,
   fetchTreeSnapshot,
   getSnapshot,
+  getSyncStatus,
   isStoredPhotoMarker,
   resetStore,
   resolveBlockedOperation,

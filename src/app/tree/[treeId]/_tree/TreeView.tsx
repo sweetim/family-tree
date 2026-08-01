@@ -36,6 +36,8 @@ import { useViewSettings } from "@/lib/view-settings"
 import {
   applyTreeManifest,
   fetchTreeManifest,
+  getSyncStatus,
+  synchronizePending,
   synchronizeTreeFresh,
   type TreeMeta,
   useFamily,
@@ -165,6 +167,16 @@ function TreeCanvas({
     editModeAbort.current = abortController
     setStartingEditMode(true)
     try {
+      const stopForConflict = () => {
+        if (getSyncStatus() !== "conflict") return false
+        setSidebar({ mode: "reviewChanges" })
+        setDrawerOpen(true)
+        setSidebarHidden(false)
+        toast("Review conflicting changes before editing.", "error")
+        return true
+      }
+      await synchronizePending()
+      if (request !== editModeRequest.current || stopForConflict()) return
       const manifest = await fetchTreeManifest()
       if (request !== editModeRequest.current) return
       applyTreeManifest(manifest)
@@ -174,7 +186,7 @@ function TreeCanvas({
         return
       }
       await synchronizeTreeFresh(tree.id, abortController.signal)
-      if (request !== editModeRequest.current) return
+      if (request !== editModeRequest.current || stopForConflict()) return
       setEditingTreeId(tree.id)
     } catch (error) {
       if (request !== editModeRequest.current) return
