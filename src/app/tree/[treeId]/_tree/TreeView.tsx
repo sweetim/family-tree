@@ -5,6 +5,7 @@ import {
   type Edge,
   type EdgeMouseHandler,
   getNodesBounds,
+  getViewportForBounds,
   MiniMap,
   type NodeMouseHandler,
   Panel,
@@ -13,7 +14,7 @@ import {
   useReactFlow,
 } from "@xyflow/react"
 import { Link2, Menu, PanelLeftOpen, X } from "lucide-react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
 import { PersonNode } from "@/components/PersonNode"
 import { useToast } from "@/components/Toast"
@@ -44,6 +45,9 @@ import { ancestorsOf, descendantsOf } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
 
 const nodeTypes = { person: PersonNode, union: UnionNode }
+
+const nextFrame = () =>
+  new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
 export function TreeView({
   tree,
@@ -100,7 +104,7 @@ function TreeCanvas({
   const editModeRequest = useRef(0)
   const editModeAbort = useRef<AbortController | null>(null)
   const editMode = editingTreeId === tree.id
-  const { getNodes, getViewport, setViewport } = useReactFlow()
+  const { fitView, getNodes, getViewport, setViewport } = useReactFlow()
   const [printing, setPrinting] = useState(false)
 
   // Follow cross-tree jumps that land on this already-mounted tree.
@@ -268,39 +272,48 @@ function TreeCanvas({
   // (independent of the on-screen canvas, so nothing gets clipped by a narrower
   // print page), disables culling so off-screen nodes render, then hands off to
   // the browser's print dialog ("Save as PDF"). The viewport is restored after.
-  function exportPdf() {
-    const nodes = getNodes()
-    if (nodes.length === 0) return
-    const bounds = getNodesBounds(nodes)
-    const previous = getViewport()
+  const exportPdf = useCallback(async () => {
     // A4/Letter landscape printable area (10mm margin) in CSS px — fits both.
     const targetWidth = 960
     const targetHeight = 700
-    const padding = 24
-    const zoom = Math.min(
-      (targetWidth - padding * 2) / bounds.width,
-      (targetHeight - padding * 2) / bounds.height,
-    )
+    const previous = getViewport()
     setPrinting(true)
-    setViewport({
-      x: (targetWidth - bounds.width * zoom) / 2 - bounds.x * zoom,
-      y: (targetHeight - bounds.height * zoom) / 2 - bounds.y * zoom,
-      zoom,
-    })
+    try {
+      const bounds = getNodesBounds(getNodes())
+      if (bounds.width > 0 && bounds.height > 0) {
+        const viewport = getViewportForBounds(
+          bounds,
+          targetWidth,
+          targetHeight,
+          0.1,
+          2,
+          0.1,
+        )
+        await setViewport(viewport)
+      } else {
+        await fitView({ padding: 0.15, duration: 0 })
+      }
+    } catch (error) {
+      console.error("Failed to fit tree for PDF export", error)
+      try {
+        await fitView({ padding: 0.15, duration: 0 })
+      } catch {
+        // Ignore — still open the print dialog below.
+      }
+    }
+    // Let the new viewport + the culling toggle paint before snapshotting.
+    await nextFrame()
+    await nextFrame()
     const done = () => {
       document.body.classList.remove("exporting-pdf")
       setPrinting(false)
-      setViewport(previous)
+      void setViewport(previous)
       window.removeEventListener("afterprint", done)
     }
     window.addEventListener("afterprint", done)
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        document.body.classList.add("exporting-pdf")
-        window.print()
-      }),
-    )
-  }
+    document.body.classList.add("exporting-pdf")
+    window.print()
+  }, [fitView, getNodes, getViewport, setViewport])
 
   const actions = useMemo<TreeActions>(
     () => ({
@@ -581,7 +594,7 @@ function TreeCanvas({
               fitView
               fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
               minZoom={0.1}
-              onlyRenderVisibleElements
+              onlyRenderVisibleElements={!printing}
               nodesConnectable={false}
               nodesDraggable={false}
               proOptions={{ hideAttribution: true }}

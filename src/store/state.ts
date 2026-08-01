@@ -2515,6 +2515,20 @@ export async function resolveBlockedOperation(
         (candidate) => candidate.operationId !== operationId,
       )
     }
+    // Refresh the optimistic-concurrency base from a live snapshot so the retry
+    // targets the server's current revision, not the one captured when the
+    // conflict was first detected. The device version is kept; only the base
+    // revision is refreshed. When the fetch fails (offline) the captured
+    // revision is used and the push/offline handling below takes over.
+    let freshRecords: SyncRecordSet | undefined
+    let freshTreeRevision: number | undefined
+    try {
+      const snapshot = await fetchTreeSnapshot(treeId)
+      freshRecords = { trees: [], ...snapshot.records }
+      freshTreeRevision = snapshot.tree.revision
+    } catch {
+      freshRecords = undefined
+    }
     let requeued = 0
     for (const record of currentRecords) {
       const current = dirtyState[record.collection].get(record.id)
@@ -2524,9 +2538,18 @@ export async function resolveBlockedOperation(
           candidate.collection === record.collection
           && candidate.id === record.id,
       )
-      const serverRevision = (
+      const capturedRevision = (
         conflictRecord?.serverValue as { revision?: number } | undefined
       )?.revision
+      const freshRevision = freshRecords
+        ? record.collection === "trees" && record.id === treeId
+          ? freshTreeRevision
+          : (
+              recordSetValue(freshRecords, record.collection, record.id) as
+                | { revision?: number }
+                | undefined
+            )?.revision
+        : undefined
       if (
         conflictRecord
         && current.action === "delete"
@@ -2540,7 +2563,7 @@ export async function resolveBlockedOperation(
       dirtyState[record.collection].set(record.id, {
         ...current,
         blocked: false,
-        baseRevision: conflictRecord ? serverRevision : current.baseRevision,
+        baseRevision: freshRevision ?? capturedRevision ?? current.baseRevision,
         revision: nextRevision++,
         operationId,
         conflictId: undefined,

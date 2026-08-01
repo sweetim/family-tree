@@ -383,9 +383,13 @@
 }
 
 /* Print-to-PDF export of the tree (triggered from Settings → Export to PDF).
-   Scoped to body.exporting-pdf so these rules never affect the screen. */
+   Scoped to body.exporting-pdf so these rules never affect the screen.
+   The canvas is sized to a fixed page box that matches the transform computed
+   in TreeView.exportPdf, so the whole tree fits without being clipped by a
+   narrower print page. */
 @media print {
   @page {
+    size: A4 landscape;
     margin: 10mm;
   }
 
@@ -395,8 +399,8 @@
     print-color-adjust: exact;
   }
 
-  /* Hide every non-canvas element: sidebar, controls, minimap, attribution,
-     the click-to-connect banner, and the dotted canvas background. */
+  /* Hide every non-canvas element: sidebar, drawer overlay, controls, minimap,
+     attribution, the click-to-connect banner, and the dotted background. */
   body.exporting-pdf aside,
   body.exporting-pdf .react-flow__controls,
   body.exporting-pdf .react-flow__minimap,
@@ -407,12 +411,15 @@
   }
 
   body.exporting-pdf .app-bg {
+    display: block !important;
+    height: auto !important;
     background: #ffffff !important;
   }
 
-  /* Keep the canvas at its on-screen size so the fitView transform that framed
-     the whole tree stays valid; the browser paginates larger trees. */
+  /* Fixed page box (A4/Letter landscape printable area) matching exportPdf's
+     target so the fitted transform maps the whole tree onto the page. */
   body.exporting-pdf .react-flow {
-    height: 100dvh;
+    width: 960px !important;
+    height: 700px !important;
   }
 }

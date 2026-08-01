@@ -1,4 +1,3 @@
-import { useReactFlow } from "@xyflow/react"
 import {
   Download,
   GitBranch,
@@ -11,6 +10,7 @@ import {
 } from "lucide-react"
 import { type ReactNode, useRef } from "react"
 import { useToast } from "@/components/Toast"
+import { useTreeActions } from "@/lib/tree-actions"
 import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import { useViewSettings } from "@/lib/view-settings"
 import { type FamilyStore, isStoredPhotoMarker, normalizeImport } from "@/store"
@@ -70,23 +70,7 @@ export function SettingsPanel({
   const importRef = useRef<HTMLInputElement>(null)
   const toast = useToast()
   const { getEditingSession } = useTreeEditMode()
-  const { fitView } = useReactFlow()
-
-  function exportPdf() {
-    const cleanup = () => {
-      document.body.classList.remove("exporting-pdf")
-      window.removeEventListener("afterprint", cleanup)
-    }
-    window.addEventListener("afterprint", cleanup)
-    // Frame the entire tree so every node renders before the browser snapshots.
-    fitView({ padding: 0.15, duration: 0 })
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        document.body.classList.add("exporting-pdf")
-        window.print()
-      }),
-    )
-  }
+  const { exportPdf } = useTreeActions()
 
   function exportJson() {
     const people = Object.fromEntries(
@@ -207,7 +191,8 @@ export function SettingsPanel({
           <Printer className="h-4 w-4" /> Export to PDF
         </button>
         <p className="text-xs leading-relaxed text-slate-500">
-          Print the whole tree as a PDF — choose “Save as PDF” in the dialog.
+          Print the whole tree to a single landscape page — choose “Save as PDF”
+          in the dialog.
         </p>
         <input
           ref={importRef}

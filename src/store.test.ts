@@ -1708,4 +1708,178 @@ describe("dirty tracking and push wires", () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  test("device resolution rebases the retry on a fresh server snapshot", async () => {
+    const store = await freshStore()
+    store.applyFullPull(
+      fullPull({
+        persons: [
+          { id: "tim", name: "Tim", revision: 1, updatedAt: timestamp },
+        ],
+        trees: [
+          {
+            id: "tree",
+            name: "Tree",
+            createdAt: timestamp,
+            revision: 1,
+            updatedAt: timestamp,
+            ownerId: "owner",
+          },
+        ],
+        treeMembers: [
+          {
+            treeId: "tree",
+            personId: "tim",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      }),
+    )
+    const noIds = {
+      persons: [],
+      trees: [],
+      treeMembers: [],
+      unions: [],
+      unionEvents: [],
+      treeUnions: [],
+      parentChildRelationships: [],
+      treeParentChildRelationships: [],
+    }
+    const emptyRecords = { ...noIds }
+    let mutations = 0
+    let retryBody:
+      | { records: { persons: Array<{ id: string; revision?: number }> } }
+      | undefined
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (url === "/api/mutations") {
+        mutations++
+        if (mutations === 1) {
+          return new Response(
+            JSON.stringify({
+              applied: noIds,
+              skipped: { ...noIds, persons: ["tim"] },
+              serverTime: timestamp,
+              mutationId: "conflict-mutation",
+              status: "conflict",
+              conflict: {
+                retryable: true,
+                reason: "revision-mismatch",
+                records: {
+                  ...emptyRecords,
+                  persons: [
+                    {
+                      id: "tim",
+                      name: "Server",
+                      revision: 2,
+                      updatedAt: timestamp,
+                    },
+                  ],
+                },
+              },
+            }),
+            { status: 409 },
+          )
+        }
+        retryBody = JSON.parse(String(init?.body))
+        return new Response(
+          JSON.stringify({
+            applied: { ...noIds, persons: ["tim"] },
+            skipped: noIds,
+            serverTime: timestamp,
+            mutationId: "retry-mutation",
+            status: "applied",
+          }),
+        )
+      }
+      if (url.startsWith("/api/trees/tree/snapshot")) {
+        return new Response(
+          JSON.stringify({
+            tree: {
+              id: "tree",
+              name: "Tree",
+              ownerId: "owner",
+              createdAt: timestamp,
+              updatedAt: timestamp,
+              revision: 1,
+            },
+            records: {
+              ...emptyRecords,
+              persons: [
+                {
+                  id: "tim",
+                  name: "Server",
+                  revision: 3,
+                  updatedAt: timestamp,
+                },
+              ],
+              treeMembers: [
+                {
+                  treeId: "tree",
+                  personId: "tim",
+                  createdAt: timestamp,
+                  updatedAt: timestamp,
+                },
+              ],
+            },
+            syncVersion: 1,
+            cursor: "snapshot-cursor",
+          }),
+        )
+      }
+      if (url.startsWith("/api/sync")) {
+        return new Response(
+          JSON.stringify(
+            fullPull({
+              persons: [
+                {
+                  id: "tim",
+                  name: "Server",
+                  revision: 2,
+                  updatedAt: timestamp,
+                },
+              ],
+            }),
+          ),
+        )
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    try {
+      update((previous) => ({
+        ...previous,
+        persons: {
+          ...previous.persons,
+          tim: {
+            id: "tim",
+            name: "Local",
+            revision: previous.persons.tim?.revision,
+            updatedAt: previous.persons.tim?.updatedAt,
+          },
+        },
+      }))
+      const operationId = store.snapshotDirty().persons.get("tim")?.operationId
+      if (!operationId) throw new Error("expected dirty operation id")
+
+      await store.synchronizePending()
+      expect(store.snapshotDirty().persons.get("tim")?.blocked).toBe(true)
+
+      const result = await store.resolveBlockedOperation(
+        operationId,
+        "device",
+        "tree",
+      )
+      expect(result).toBe("resolved")
+      expect(mutations).toBe(2)
+      expect(retryBody?.records.persons[0]).toMatchObject({
+        id: "tim",
+        revision: 3,
+      })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
