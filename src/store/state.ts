@@ -2664,6 +2664,7 @@ export async function resolveBlockedOperation(
   operationId: string,
   resolution: "device" | "server",
   treeId: string,
+  attempt = 0,
 ): Promise<"resolved" | "stale" | "conflict" | "offline" | "unresolvable"> {
   const conflict = operationConflicts.find(
     (candidate) => candidate.operationId === operationId,
@@ -2953,7 +2954,16 @@ export async function resolveBlockedOperation(
           (record) => !attemptedBases.has(`${record.collection}:${record.id}`),
         )
       if (recreatedMissingDependency) {
-        return resolveBlockedOperation(operationId, "device", treeId)
+        // Recurse once to push the freshly-minted relationship id. If that
+        // still misses its dependency, minting more ids cannot help — stop so
+        // we never loop snapshot→mutation→sync indefinitely.
+        if (attempt >= 1) return "unresolvable"
+        return resolveBlockedOperation(
+          operationId,
+          "device",
+          treeId,
+          attempt + 1,
+        )
       }
       // The rebased mutation was refused too. If the server reports the same
       // revisions this attempt already sent — or reports none at all — nothing
