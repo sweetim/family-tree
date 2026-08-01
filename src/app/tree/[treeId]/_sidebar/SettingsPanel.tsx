@@ -1,4 +1,5 @@
 import {
+  CalendarDays,
   Download,
   GitBranch,
   Heart,
@@ -135,6 +136,13 @@ export function SettingsPanel({
           description="Show each marriage's year on the canvas. Hover a union dot for the full date."
           checked={settings.marriageYears}
           onChange={(checked) => update({ marriageYears: checked })}
+        />
+        <SettingToggle
+          icon={<CalendarDays className="h-4 w-4" />}
+          title="Age"
+          description="Show each living person's age on their card."
+          checked={settings.showAge}
+          onChange={(checked) => update({ showAge: checked })}
         />
         <SettingToggle
           icon={<Layers className="h-4 w-4" />}

@@ -99,7 +99,7 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
   if (deceased && person.dod) {
     lifeline = `${person.dob ? yearOf(person.dob) : "?"} – ${yearOf(person.dod)} †`
   } else if (person.dob) {
-    lifeline = `${yearOf(person.dob)}${age !== null ? ` · ${age} yrs` : ""}`
+    lifeline = `${yearOf(person.dob)}${settings.showAge && age !== null ? ` · ${age} yrs` : ""}`
   }
 
   return (

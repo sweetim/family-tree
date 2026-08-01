@@ -13,6 +13,8 @@ export type ViewSettings = {
    * always-on year label.
    */
   marriageYears: boolean
+  /** Show a living person's age beside their birth year on their card. */
+  showAge: boolean
   /**
    * Render this family and every related family's members and relationships
    * on one canvas. A family is related when it shares at least one member
@@ -36,6 +38,7 @@ const STORAGE_KEY = "family-tree:view-settings"
 const DEFAULTS: ViewSettings = {
   minimap: false,
   marriageYears: true,
+  showAge: true,
   showAllFamilies: false,
   highlightBloodline: false,
   showOtherTrees: false,
