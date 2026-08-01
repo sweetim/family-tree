@@ -25,7 +25,8 @@ trees, link the same person across them, and share each tree with others.
   Invited before they sign up? They get access on first sign-in. Visitors who
   reach a share URL without an invite can **request access** with a short note,
   and the owner approves or declines from the Share dialog.
-- **Export & import** — back up or transfer a tree as a single JSON file.
+- **Export & import** — back up or transfer a tree as a single JSON file, or
+  print the whole tree to a PDF.
 - **Sign in with Google** — your trees are private to your account.
 - **Try it instantly** — create a sample tree with one click.
 

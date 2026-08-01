@@ -988,7 +988,7 @@ export function buildPushWires(
         dod: person.dod,
         gender: person.gender,
         birthplace: person.birthplace,
-        revision: person.revision,
+        revision: dirty.persons.get(id)?.baseRevision ?? person.revision,
         ...(isStoredPhotoMarker(person.photo)
           ? {}
           : { photo: person.photo ?? null }),
@@ -1012,7 +1012,7 @@ export function buildPushWires(
         id,
         name: tree.name,
         createdAt: tree.createdAt,
-        revision: tree.revision,
+        revision: dirty.trees.get(id)?.baseRevision ?? tree.revision,
         updatedAt: tree.updatedAt ?? now,
       })
     }
@@ -1030,7 +1030,12 @@ export function buildPushWires(
         updatedAt: now,
         deletedAt: now,
       })
-    } else treeMembers.push(record)
+    } else {
+      treeMembers.push({
+        ...record,
+        revision: dirty.treeMembers.get(id)?.baseRevision ?? record.revision,
+      })
+    }
   }
 
   const unions: UnionWire[] = []
@@ -1044,7 +1049,10 @@ export function buildPushWires(
             updatedAt: now,
             deletedAt: now,
           }
-        : record,
+        : {
+            ...record,
+            revision: dirty.unions.get(id)?.baseRevision ?? record.revision,
+          },
     )
   }
 
@@ -1059,7 +1067,11 @@ export function buildPushWires(
             updatedAt: now,
             deletedAt: now,
           }
-        : record,
+        : {
+            ...record,
+            revision:
+              dirty.unionEvents.get(id)?.baseRevision ?? record.revision,
+          },
     )
   }
 
@@ -1075,7 +1087,12 @@ export function buildPushWires(
         updatedAt: now,
         deletedAt: now,
       })
-    } else treeUnions.push(record)
+    } else {
+      treeUnions.push({
+        ...record,
+        revision: dirty.treeUnions.get(id)?.baseRevision ?? record.revision,
+      })
+    }
   }
 
   const parentChildRelationships: ParentChildRelationshipWire[] = []
@@ -1089,7 +1106,12 @@ export function buildPushWires(
             updatedAt: now,
             deletedAt: now,
           }
-        : record,
+        : {
+            ...record,
+            revision:
+              dirty.parentChildRelationships.get(id)?.baseRevision
+              ?? record.revision,
+          },
     )
   }
 
@@ -1108,7 +1130,14 @@ export function buildPushWires(
         updatedAt: now,
         deletedAt: now,
       })
-    } else treeParentChildRelationships.push(record)
+    } else {
+      treeParentChildRelationships.push({
+        ...record,
+        revision:
+          dirty.treeParentChildRelationships.get(id)?.baseRevision
+          ?? record.revision,
+      })
+    }
   }
 
   return {

@@ -1581,6 +1581,36 @@ describe("dirty tracking and push wires", () => {
     ).toHaveProperty("photo", null)
   })
 
+  test("update push sends the corrected dirty base revision, not the stale record revision", async () => {
+    const store = await freshStore()
+    store.applyFullPull(
+      fullPull({
+        persons: [
+          {
+            id: "person",
+            name: "Person",
+            revision: 1,
+            updatedAt: timestamp,
+          },
+        ],
+      }),
+    )
+    const snapshot = store.getSnapshot()
+    expect(snapshot.persons.person?.revision).toBe(1)
+    const dirty = store.snapshotDirty()
+    // Conflict-resolution retry: the live record stays at the stale revision
+    // 1, but the dirty base is corrected to the server's current revision 2.
+    dirty.persons.set("person", {
+      action: "upsert",
+      revision: 1,
+      baseRevision: 2,
+    })
+
+    expect(
+      store.buildPushWires(snapshot, dirty, timestamp).persons[0],
+    ).toMatchObject({ id: "person", revision: 2 })
+  })
+
   test("keeps a tree visible until server deletion succeeds", async () => {
     const store = await freshStore()
     store.applyFullPull(

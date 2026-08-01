@@ -1,9 +1,11 @@
+import { useReactFlow } from "@xyflow/react"
 import {
   Download,
   GitBranch,
   Heart,
   Layers,
   Map as MapIcon,
+  Printer,
   Trees,
   Upload,
 } from "lucide-react"
@@ -68,6 +70,23 @@ export function SettingsPanel({
   const importRef = useRef<HTMLInputElement>(null)
   const toast = useToast()
   const { getEditingSession } = useTreeEditMode()
+  const { fitView } = useReactFlow()
+
+  function exportPdf() {
+    const cleanup = () => {
+      document.body.classList.remove("exporting-pdf")
+      window.removeEventListener("afterprint", cleanup)
+    }
+    window.addEventListener("afterprint", cleanup)
+    // Frame the entire tree so every node renders before the browser snapshots.
+    fitView({ padding: 0.15, duration: 0 })
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        document.body.classList.add("exporting-pdf")
+        window.print()
+      }),
+    )
+  }
 
   function exportJson() {
     const people = Object.fromEntries(
@@ -179,6 +198,16 @@ export function SettingsPanel({
         <p className="text-xs leading-relaxed text-slate-500">
           Export an offline copy as JSON, or import a previously exported tree.
           {!editable && " Import is only available while editing."}
+        </p>
+        <button
+          type="button"
+          onClick={exportPdf}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
+        >
+          <Printer className="h-4 w-4" /> Export to PDF
+        </button>
+        <p className="text-xs leading-relaxed text-slate-500">
+          Print the whole tree as a PDF — choose “Save as PDF” in the dialog.
         </p>
         <input
           ref={importRef}

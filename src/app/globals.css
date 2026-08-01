@@ -381,3 +381,38 @@
   border-radius: 0.75rem;
   box-shadow: var(--shadow-soft);
 }
+
+/* Print-to-PDF export of the tree (triggered from Settings → Export to PDF).
+   Scoped to body.exporting-pdf so these rules never affect the screen. */
+@media print {
+  @page {
+    margin: 10mm;
+  }
+
+  body.exporting-pdf {
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide every non-canvas element: sidebar, controls, minimap, attribution,
+     the click-to-connect banner, and the dotted canvas background. */
+  body.exporting-pdf aside,
+  body.exporting-pdf .react-flow__controls,
+  body.exporting-pdf .react-flow__minimap,
+  body.exporting-pdf .react-flow__attribution,
+  body.exporting-pdf .react-flow__panel,
+  body.exporting-pdf .react-flow__background {
+    display: none !important;
+  }
+
+  body.exporting-pdf .app-bg {
+    background: #ffffff !important;
+  }
+
+  /* Keep the canvas at its on-screen size so the fitView transform that framed
+     the whole tree stays valid; the browser paginates larger trees. */
+  body.exporting-pdf .react-flow {
+    height: 100dvh;
+  }
+}

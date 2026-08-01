@@ -11,7 +11,7 @@ An interactive, collaborative family-tree builder. Users register family members
 genealogy chart. A single person can belong to multiple trees, so linking
 families across trees is a first-class concept. Trees can be shared with other
 users as **viewer** or **editor**, and every tree can be exported/imported as
-JSON.
+JSON or printed to a PDF.
 
 ## Tech stack
 

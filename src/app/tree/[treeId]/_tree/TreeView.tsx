@@ -4,10 +4,13 @@ import {
   Controls,
   type Edge,
   type EdgeMouseHandler,
+  getNodesBounds,
   MiniMap,
   type NodeMouseHandler,
   Panel,
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
 } from "@xyflow/react"
 import { Link2, Menu, PanelLeftOpen, X } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -52,6 +55,27 @@ export function TreeView({
   /** Person to open on arrival, from a #/tree/{id}/p/{personId} link. */
   openPersonId?: string
 }) {
+  return (
+    <ReactFlowProvider>
+      <TreeCanvas
+        tree={tree}
+        allTrees={allTrees}
+        openPersonId={openPersonId}
+      />
+    </ReactFlowProvider>
+  )
+}
+
+function TreeCanvas({
+  tree,
+  allTrees,
+  openPersonId,
+}: {
+  tree: TreeMeta
+  allTrees: TreeMeta[]
+  /** Person to open on arrival, from a #/tree/{id}/p/{personId} link. */
+  openPersonId?: string
+}) {
   const family = useFamily(tree.id)
   const loadedMemberCount = Object.keys(family.people).length
   const sidebarLoading =
@@ -76,6 +100,8 @@ export function TreeView({
   const editModeRequest = useRef(0)
   const editModeAbort = useRef<AbortController | null>(null)
   const editMode = editingTreeId === tree.id
+  const { getNodes, getViewport, setViewport } = useReactFlow()
+  const [printing, setPrinting] = useState(false)
 
   // Follow cross-tree jumps that land on this already-mounted tree.
   useEffect(() => {
@@ -238,6 +264,44 @@ export function TreeView({
     return buildFlow(renderPeople, layout, selectedId, linking)
   }, [renderPeople, layout, selectedId, targetSourceId, linkEligible])
 
+  // Print the whole tree to a PDF. Fits every node into a fixed page-sized box
+  // (independent of the on-screen canvas, so nothing gets clipped by a narrower
+  // print page), disables culling so off-screen nodes render, then hands off to
+  // the browser's print dialog ("Save as PDF"). The viewport is restored after.
+  function exportPdf() {
+    const nodes = getNodes()
+    if (nodes.length === 0) return
+    const bounds = getNodesBounds(nodes)
+    const previous = getViewport()
+    // A4/Letter landscape printable area (10mm margin) in CSS px — fits both.
+    const targetWidth = 960
+    const targetHeight = 700
+    const padding = 24
+    const zoom = Math.min(
+      (targetWidth - padding * 2) / bounds.width,
+      (targetHeight - padding * 2) / bounds.height,
+    )
+    setPrinting(true)
+    setViewport({
+      x: (targetWidth - bounds.width * zoom) / 2 - bounds.x * zoom,
+      y: (targetHeight - bounds.height * zoom) / 2 - bounds.y * zoom,
+      zoom,
+    })
+    const done = () => {
+      document.body.classList.remove("exporting-pdf")
+      setPrinting(false)
+      setViewport(previous)
+      window.removeEventListener("afterprint", done)
+    }
+    window.addEventListener("afterprint", done)
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        document.body.classList.add("exporting-pdf")
+        window.print()
+      }),
+    )
+  }
+
   const actions = useMemo<TreeActions>(
     () => ({
       openAdd: (rel) => {
@@ -299,8 +363,9 @@ export function TreeView({
         setSidebarHidden(false)
       },
       readOnly: !canEdit,
+      exportPdf,
     }),
-    [canEdit, link],
+    [canEdit, link, exportPdf],
   )
 
   // Linking a married person as a parent brings their spouse into the other
@@ -421,157 +486,159 @@ export function TreeView({
 
   return (
     <TreeActionsContext.Provider value={actions}>
-      <div className="flex h-dvh w-full app-bg">
-        <Sidebar
-          family={family}
-          treeId={tree.id}
-          treeName={tree.name}
-          allTrees={allTrees}
-          state={sidebar}
-          open={drawerOpen}
-          editable={canEdit}
-          startingEditMode={startingEditMode}
-          loading={sidebarLoading}
-          collapsed={sidebarHidden}
-          onToggleEditMode={() => void toggleEditMode()}
-          onCollapse={() => setSidebarHidden(true)}
-          onSelect={(id) => {
-            setSidebar({ mode: "edit", personId: id })
-            setDrawerOpen(true)
-            setSidebarHidden(false)
-          }}
-          onAddRoot={() => {
-            setSidebar({ mode: "add", rel: { kind: "root" } })
-            setDrawerOpen(true)
-            setSidebarHidden(false)
-          }}
-          onOpenSettings={() => {
-            setSidebar({ mode: "settings" })
-            setDrawerOpen(true)
-            setSidebarHidden(false)
-          }}
-          onOpenReviewChanges={() => {
-            setSidebar({ mode: "reviewChanges" })
-            setDrawerOpen(true)
-            setSidebarHidden(false)
-          }}
-          onOpenShare={() => {
-            setSidebar({ mode: "share" })
-            setDrawerOpen(true)
-            setSidebarHidden(false)
-          }}
-          canShare={tree.role === "owner"}
-          onClose={() => {
-            setSidebar({ mode: "idle" })
-            setDrawerOpen(false)
-          }}
-        />
-
-        {drawerOpen && (
-          <div
-            aria-hidden
-            className="fixed inset-0 z-30 bg-slate-900/30 backdrop-blur-sm md:hidden"
-            onClick={() => setDrawerOpen(false)}
-          />
-        )}
-
-        <div className="relative min-w-0 flex-1">
-          {sidebarHidden && (
-            <button
-              type="button"
-              aria-label="Show panel"
-              title="Show panel"
-              onClick={() => setSidebarHidden(false)}
-              className="absolute left-3 top-3 z-20 hidden h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95 md:inline-flex"
-            >
-              <PanelLeftOpen className="h-5 w-5" />
-            </button>
-          )}
-          <div className="absolute left-3 top-3 z-20 md:hidden">
-            <button
-              aria-label="Open panel"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95"
-              type="button"
-              onClick={() => setDrawerOpen(true)}
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-          </div>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodeClick={onNodeClick}
-            onEdgeClick={onEdgeClick}
-            onPaneClick={() => {
-              if (sidebar.mode === "settings") return
-              setLink(undefined)
+      <ReactFlowProvider>
+        <div className="flex h-dvh w-full app-bg">
+          <Sidebar
+            family={family}
+            treeId={tree.id}
+            treeName={tree.name}
+            allTrees={allTrees}
+            state={sidebar}
+            open={drawerOpen}
+            editable={canEdit}
+            startingEditMode={startingEditMode}
+            loading={sidebarLoading}
+            collapsed={sidebarHidden}
+            onToggleEditMode={() => void toggleEditMode()}
+            onCollapse={() => setSidebarHidden(true)}
+            onSelect={(id) => {
+              setSidebar({ mode: "edit", personId: id })
+              setDrawerOpen(true)
+              setSidebarHidden(false)
+            }}
+            onAddRoot={() => {
+              setSidebar({ mode: "add", rel: { kind: "root" } })
+              setDrawerOpen(true)
+              setSidebarHidden(false)
+            }}
+            onOpenSettings={() => {
+              setSidebar({ mode: "settings" })
+              setDrawerOpen(true)
+              setSidebarHidden(false)
+            }}
+            onOpenReviewChanges={() => {
+              setSidebar({ mode: "reviewChanges" })
+              setDrawerOpen(true)
+              setSidebarHidden(false)
+            }}
+            onOpenShare={() => {
+              setSidebar({ mode: "share" })
+              setDrawerOpen(true)
+              setSidebarHidden(false)
+            }}
+            canShare={tree.role === "owner"}
+            onClose={() => {
               setSidebar({ mode: "idle" })
               setDrawerOpen(false)
             }}
-            deleteKeyCode={canEdit ? ["Delete", "Backspace"] : []}
-            onBeforeDelete={onBeforeDelete}
-            onNodesDelete={onNodesDelete}
-            fitView
-            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
-            minZoom={0.1}
-            onlyRenderVisibleElements
-            nodesConnectable={false}
-            nodesDraggable={false}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={20}
-              color="#cbd5e1"
-            />
-            <Controls showInteractive={false} />
-            {settings.minimap && (
-              <MiniMap
-                pannable
-                zoomable
-                className="!bg-slate-100 hidden md:block"
-              />
-            )}
+          />
 
-            {targetKind && targetSource && (
-              <Panel position="top-center">
-                <div className="flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-2xl bg-emerald-600/85 py-1.5 pl-4 pr-1.5 text-xs text-white shadow-glass ring-1 ring-white/25 backdrop-blur-md sm:flex-nowrap sm:rounded-full sm:text-sm">
-                  <Link2 className="h-4 w-4 shrink-0" />
-                  <span>
-                    {linkEligible && linkEligible.size === 0 ? (
-                      <>
-                        No one can be connected as <b>{targetSource.name}</b>
-                        &rsquo;s {targetKind}
-                      </>
-                    ) : (
-                      <>
-                        Click a highlighted card to connect as{" "}
-                        <b>{targetSource.name}</b>&rsquo;s {targetKind}
-                        {targetKind !== "spouse"
-                          && " · married couples connect together"}
-                      </>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (link) setLink(undefined)
-                      else {
-                        setSidebar({ mode: "idle" })
-                        setDrawerOpen(false)
-                      }
-                    }}
-                    className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
-                  >
-                    <X className="h-3.5 w-3.5" /> Cancel (Esc)
-                  </button>
-                </div>
-              </Panel>
+          {drawerOpen && (
+            <div
+              aria-hidden
+              className="fixed inset-0 z-30 bg-slate-900/30 backdrop-blur-sm print:hidden md:hidden"
+              onClick={() => setDrawerOpen(false)}
+            />
+          )}
+
+          <div className="relative min-w-0 flex-1">
+            {sidebarHidden && (
+              <button
+                type="button"
+                aria-label="Show panel"
+                title="Show panel"
+                onClick={() => setSidebarHidden(false)}
+                className="absolute left-3 top-3 z-20 hidden h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95 print:hidden md:inline-flex"
+              >
+                <PanelLeftOpen className="h-5 w-5" />
+              </button>
             )}
-          </ReactFlow>
+            <div className="absolute left-3 top-3 z-20 print:hidden md:hidden">
+              <button
+                aria-label="Open panel"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95"
+                type="button"
+                onClick={() => setDrawerOpen(true)}
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+            </div>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              onNodeClick={onNodeClick}
+              onEdgeClick={onEdgeClick}
+              onPaneClick={() => {
+                if (sidebar.mode === "settings") return
+                setLink(undefined)
+                setSidebar({ mode: "idle" })
+                setDrawerOpen(false)
+              }}
+              deleteKeyCode={canEdit ? ["Delete", "Backspace"] : []}
+              onBeforeDelete={onBeforeDelete}
+              onNodesDelete={onNodesDelete}
+              fitView
+              fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+              minZoom={0.1}
+              onlyRenderVisibleElements
+              nodesConnectable={false}
+              nodesDraggable={false}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                color="#cbd5e1"
+              />
+              <Controls showInteractive={false} />
+              {settings.minimap && (
+                <MiniMap
+                  pannable
+                  zoomable
+                  className="!bg-slate-100 hidden md:block"
+                />
+              )}
+
+              {targetKind && targetSource && (
+                <Panel position="top-center">
+                  <div className="flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-2xl bg-emerald-600/85 py-1.5 pl-4 pr-1.5 text-xs text-white shadow-glass ring-1 ring-white/25 backdrop-blur-md sm:flex-nowrap sm:rounded-full sm:text-sm">
+                    <Link2 className="h-4 w-4 shrink-0" />
+                    <span>
+                      {linkEligible && linkEligible.size === 0 ? (
+                        <>
+                          No one can be connected as <b>{targetSource.name}</b>
+                          &rsquo;s {targetKind}
+                        </>
+                      ) : (
+                        <>
+                          Click a highlighted card to connect as{" "}
+                          <b>{targetSource.name}</b>&rsquo;s {targetKind}
+                          {targetKind !== "spouse"
+                            && " · married couples connect together"}
+                        </>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (link) setLink(undefined)
+                        else {
+                          setSidebar({ mode: "idle" })
+                          setDrawerOpen(false)
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
+                    >
+                      <X className="h-3.5 w-3.5" /> Cancel (Esc)
+                    </button>
+                  </div>
+                </Panel>
+              )}
+            </ReactFlow>
+          </div>
         </div>
-      </div>
+      </ReactFlowProvider>
     </TreeActionsContext.Provider>
   )
 }

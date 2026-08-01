@@ -163,7 +163,6 @@ export function Sidebar({
           <ReviewChangesPanel
             changes={blockedChanges}
             treeId={treeId}
-            onClose={onClose}
           />
         ) : state.mode === "settings" ? (
           <SettingsPanel
@@ -303,7 +302,7 @@ export function Sidebar({
             </span>
           </button>
         )}
-        {state.mode === "settings" && (
+        {(state.mode === "settings" || state.mode === "reviewChanges") && (
           <button
             type="button"
             onClick={onClose}

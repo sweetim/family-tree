@@ -40,7 +40,7 @@ Private folders are prefixed `_` so Next.js excludes them from routing.
 | `PersonFields` | `_sidebar/PersonFields.tsx:28` | Reusable fields: name/gender/dates/birthplace/photo, with clipboard-paste crop. |
 | `ReadonlyDetails` | `_sidebar/ReadonlyDetails.tsx:12` | Read-only person view (viewers / not editable). When the person has no parents in the current tree but does in their ancestor family (another tree), the Parents section shows those cross-tree parents (`useAncestorParents`, loaded on demand) as read-only chips — clicking one opens it in the ancestor tree. |
 | `RelationList` | `_sidebar/RelationList.tsx:3` | Renders a relationship list section. |
-| `SettingsPanel` | `_sidebar/SettingsPanel.tsx:7` | Tree/view settings (e.g. minimap toggle via `useViewSettings`). |
+| `SettingsPanel` | `_sidebar/SettingsPanel.tsx:7` | Tree/view settings (e.g. minimap toggle via `useViewSettings`). Also hosts the Data section: Export/Import JSON, and Export to PDF (frames the whole tree with `fitView`, then `window.print()`; print-only CSS in `globals.css` strips the chrome). |
 | `SharePanel` | `_sidebar/SharePanel.tsx:14` | Sidebar panel for owner tree sharing — invite by email + role (viewer/editor), revoke. Same functionality as `ShareDialog`, styled as a sidebar panel; uses the shared `useShares` hook. |
 | `shared` | `_sidebar/shared.ts` | Shared form field types and helpers: `Fields`, `SidebarState`, `fieldsFrom` (`:27`), `toInput` (`:38`), plus shared class strings (`inputCls`, `labelCls`, `primaryBtn`, `ghostBtn`). |
 

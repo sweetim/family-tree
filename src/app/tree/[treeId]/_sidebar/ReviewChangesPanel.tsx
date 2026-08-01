@@ -5,11 +5,9 @@ import { type BlockedChange, resolveBlockedOperation } from "@/store"
 export function ReviewChangesPanel({
   changes,
   treeId,
-  onClose,
 }: {
   changes: BlockedChange[]
   treeId: string
-  onClose: () => void
 }) {
   const [expandedId, setExpandedId] = useState<string>()
   const [resolving, setResolving] = useState<BlockedChange>()
@@ -50,20 +48,9 @@ export function ReviewChangesPanel({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <TriangleAlert className="h-4 w-4 text-amber-600" />
-          <h2 className="text-sm font-semibold text-slate-800">
-            Review changes
-          </h2>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-sm font-medium text-cobalt-600 transition-colors hover:text-cobalt-700"
-        >
-          Done
-        </button>
+      <div className="flex items-center gap-2">
+        <TriangleAlert className="h-4 w-4 text-amber-600" />
+        <h2 className="text-sm font-semibold text-slate-800">Review changes</h2>
       </div>
 
       {list.length === 0 ? (
