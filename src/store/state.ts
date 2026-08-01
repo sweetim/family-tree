@@ -2690,15 +2690,31 @@ export async function resolveBlockedOperation(
       )
       .map(([id, dirty]) => ({ collection, id, dirty })),
   )
-  const currentRecords = conflict
+  const capturedRecords = conflict
     ? conflict.records.flatMap((record) => {
         const current = dirtyState[record.collection].get(record.id)
         return isCurrentConflictRecord(current, record)
           ? [{ collection: record.collection, id: record.id, dirty: current }]
           : []
       })
-    : legacyRecords
-  if (currentRecords.length === 0) return "stale"
+    : []
+  // A persisted conflict snapshot can drift out of sync with the live outbox
+  // (cross-version persistence, a dependency-id rewrite, etc.). Always fall
+  // back to the live blocked records for this operation so the user's choice
+  // is acted on instead of silently no-op'ing as "stale".
+  const currentRecords =
+    capturedRecords.length > 0 ? capturedRecords : legacyRecords
+  if (currentRecords.length === 0) {
+    if (conflict) {
+      operationConflicts = operationConflicts.filter(
+        (candidate) => candidate.operationId !== operationId,
+      )
+      clearedOperationConflictIds.add(operationId)
+      schedulePersistence()
+      notifyListeners()
+    }
+    return "stale"
+  }
   const matchesCapturedIntent = (
     current: DirtyRecord | undefined,
     captured: DirtyRecord,

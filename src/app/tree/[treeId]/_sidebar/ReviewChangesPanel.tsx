@@ -18,30 +18,41 @@ export function ReviewChangesPanel({
     setResolving(change)
     setError(undefined)
     setBanner(undefined)
-    const result = await resolveBlockedOperation(change.id, side, treeId)
-    setResolving(undefined)
-    if (result === "resolved") {
-      setExpandedId(undefined)
-    } else if (result === "conflict") {
-      setError({
-        id: change.id,
-        message: "The server changed again. Review the refreshed versions.",
-      })
-    } else if (result === "unresolvable") {
+    try {
+      const result = await resolveBlockedOperation(change.id, side, treeId)
+      if (result === "resolved") {
+        setExpandedId(undefined)
+      } else if (result === "conflict") {
+        setError({
+          id: change.id,
+          message: "The server changed again. Review the refreshed versions.",
+        })
+      } else if (result === "unresolvable") {
+        setError({
+          id: change.id,
+          message:
+            "The server refused this change, and retrying cannot fix it. Use the server version.",
+        })
+      } else if (result === "stale") {
+        setBanner(
+          "This saved conflict is outdated. Close and reopen this tree to refresh it.",
+        )
+      } else {
+        setError({
+          id: change.id,
+          message: "You are offline. Reconnect and try again.",
+        })
+      }
+    } catch (error) {
       setError({
         id: change.id,
         message:
-          "The server refused this change, and retrying cannot fix it. Use the server version.",
+          error instanceof Error
+            ? error.message
+            : "Something went wrong. Please try again.",
       })
-    } else if (result === "stale") {
-      setBanner(
-        "This saved conflict is outdated. Close and reopen this tree to refresh it.",
-      )
-    } else {
-      setError({
-        id: change.id,
-        message: "You are offline. Reconnect and try again.",
-      })
+    } finally {
+      setResolving(undefined)
     }
   }
 

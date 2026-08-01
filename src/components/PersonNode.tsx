@@ -212,7 +212,7 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
           <button
             type="button"
             title={`Ancestor family: ${ancestorTree.name}`}
-            className="nodrag nopan z-10 inline-flex max-w-[170px] cursor-pointer items-center gap-1 rounded-full bg-cobalt-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-soft transition-colors hover:bg-cobalt-700"
+            className="nodrag nopan relative z-10 inline-flex max-w-[170px] cursor-pointer items-center gap-1 rounded-full bg-cobalt-600 px-2.5 py-1 text-[10px] font-semibold text-white shadow-soft transition-colors hover:bg-cobalt-700 before:absolute before:inset-x-[-10px] before:inset-y-[-11px] before:content-['']"
             onClick={(e) => {
               e.stopPropagation()
               navigate(`/tree/${ancestorTree.id}/p/${person.id}`)

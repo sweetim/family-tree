@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { AvatarCropper } from "@/components/AvatarCropper"
 import { fileToImageSrc } from "@/lib/image"
 import type { Gender } from "@/types"
+import { DateField } from "./DateField"
 import { type Fields, inputCls, labelCls } from "./shared"
 
 const GENDER_OPTIONS: {
@@ -176,12 +177,10 @@ export function PersonFields({
           >
             Born
           </label>
-          <input
+          <DateField
             id="field-dob"
-            type="date"
             value={fields.dob}
-            onChange={(e) => onChange({ ...fields, dob: e.target.value })}
-            className={inputCls}
+            onChange={(dob) => onChange({ ...fields, dob })}
           />
         </div>
         <div>
@@ -191,12 +190,10 @@ export function PersonFields({
           >
             Died
           </label>
-          <input
+          <DateField
             id="field-dod"
-            type="date"
             value={fields.dod}
-            onChange={(e) => onChange({ ...fields, dod: e.target.value })}
-            className={inputCls}
+            onChange={(dod) => onChange({ ...fields, dod })}
           />
         </div>
       </div>

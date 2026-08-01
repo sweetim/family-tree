@@ -6,6 +6,7 @@ import {
   isCanonicalUnion,
   isReasonableClientTimestamp,
   isValidIsoDate,
+  isValidPartialDate,
   isValidSyncId,
   isValidSyncPushRequest,
   isValidTimestamp,
@@ -78,6 +79,18 @@ describe("sync validation", () => {
     expect(isValidIsoDate("2023-02-29")).toBe(false)
     expect(isValidIsoDate("0001-01-01")).toBe(true)
     expect(isValidIsoDate("2024-2-9")).toBe(false)
+  })
+
+  test("accepts partial (year / year-month) person dates", () => {
+    expect(isValidPartialDate("1950")).toBe(true)
+    expect(isValidPartialDate("1950-05")).toBe(true)
+    expect(isValidPartialDate("1950-05-01")).toBe(true)
+    expect(isValidPartialDate("1950-13")).toBe(false)
+    expect(isValidPartialDate("1950-00")).toBe(false)
+    expect(isValidPartialDate("1950-5")).toBe(false)
+    expect(isValidPartialDate("")).toBe(false)
+    expect(isValidPartialDate("19-05")).toBe(false)
+    expect(isValidPartialDate("not-a-date")).toBe(false)
   })
 
   test("accepts valid client metadata timestamps without using clock ordering", () => {
@@ -476,6 +489,34 @@ describe("sync validation", () => {
           parentPersonId: "parent-person",
           childPersonId: "child-person",
           type: "unknown",
+          createdAt: TIMESTAMP,
+          updatedAt: TIMESTAMP,
+        }),
+        NOW,
+      ),
+    ).toBe(false)
+  })
+
+  test("accepts partial person dates but keeps union events full-date only", () => {
+    expect(
+      isValidSyncPushRequest(
+        payloadWith("persons", {
+          id: "person",
+          name: "Person",
+          dob: "1950",
+          dod: "2019-05",
+          updatedAt: TIMESTAMP,
+        }),
+        NOW,
+      ),
+    ).toBe(true)
+    expect(
+      isValidSyncPushRequest(
+        payloadWith("unionEvents", {
+          id: "event",
+          unionId: "union",
+          type: "married",
+          eventDate: "1950-05",
           createdAt: TIMESTAMP,
           updatedAt: TIMESTAMP,
         }),

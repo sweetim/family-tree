@@ -9,9 +9,9 @@ export type ParentLink = {
 export type PersonIdentity = {
   id: string
   name: string
-  /** ISO date string, e.g. "1985-04-12" */
+  /** ISO date string, e.g. "1985-04-12". May be partial ("1985" or "1985-04") when the exact day/month is unknown. */
   dob?: string
-  /** Date of death - set when the person is deceased. */
+  /** Date of death - set when the person is deceased. May be partial ("1985" or "1985-04"). */
   dod?: string
   gender?: Gender
   birthplace?: string

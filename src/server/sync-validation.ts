@@ -160,8 +160,8 @@ function isValidPersonWire(value: unknown, now: Date): boolean {
     )
     && isValidSyncId(value.id)
     && isValidText(value.name)
-    && (value.dob === undefined || isValidIsoDate(value.dob))
-    && (value.dod === undefined || isValidIsoDate(value.dod))
+    && (value.dob === undefined || isValidPartialDate(value.dob))
+    && (value.dod === undefined || isValidPartialDate(value.dod))
     && (value.gender === undefined || GENDERS.has(value.gender as string))
     && isOptionalString(value.birthplace)
     && isOptionalPhoto(value.photo)
@@ -457,4 +457,19 @@ export function isValidIsoDate(value: unknown): value is string {
     && parsed.getUTCMonth() + 1 === month
     && parsed.getUTCDate() === day
   )
+}
+
+/**
+ * Person birth/death dates may be partial when only a year (or year + month) is
+ * known for older records. Accepts "yyyy", "yyyy-mm", or a full ISO date.
+ */
+export function isValidPartialDate(value: unknown): value is string {
+  if (typeof value !== "string" || value === "") return false
+  if (/^\d{4}$/.test(value)) return Number(value) >= 1
+  const yearMonth = value.match(/^(\d{4})-(\d{2})$/)
+  if (yearMonth) {
+    const month = Number(yearMonth[2])
+    return Number(yearMonth[1]) >= 1 && month >= 1 && month <= 12
+  }
+  return isValidIsoDate(value)
 }
