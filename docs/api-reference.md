@@ -70,8 +70,11 @@ and applies the complete logical mutation in one interactive PostgreSQL
 transaction. If any record conflicts, the transaction rolls back and returns
 `409` with `status: "conflict"`; no prefix is committed. Conflict responses also
 include `conflict: { retryable, reason, records }`, where `records` contains the
-authoritative server versions needed for comparison and rebasing. A retry of a committed
-mutation returns its stored result with `status: "alreadyApplied"`.
+authoritative server versions needed for comparison and rebasing. A missing
+parent fact returns `reason: "missing-parent-relationship"` plus the exact IDs
+in `missingDependencies.parentChildRelationships`, allowing the client to
+recreate only those dependencies. A retry of a committed mutation returns its
+stored result with `status: "alreadyApplied"`.
 
 ```ts
 {

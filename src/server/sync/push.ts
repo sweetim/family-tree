@@ -1009,6 +1009,9 @@ export async function postSync(request: Request): Promise<Response> {
         skipped: SyncAppliedIds
         retryable: boolean
         reason: NonNullable<SyncMutationResponse["conflict"]>["reason"]
+        missingDependencies?: NonNullable<
+          SyncMutationResponse["conflict"]
+        >["missingDependencies"]
         limit?: NonNullable<SyncMutationResponse["conflict"]>["limit"]
       }
     | undefined
@@ -1169,6 +1172,7 @@ export async function postSync(request: Request): Promise<Response> {
       }
       const applied = emptyAppliedIds()
       const skipped = emptyAppliedIds()
+      const missingParentRelationshipIds = new Set<string>()
       const orphanCandidateRelationshipIds = new Set<string>()
       const cascadedReferences = emptyCascadedTreeReferences()
 
@@ -2103,9 +2107,13 @@ export async function postSync(request: Request): Promise<Response> {
             isNull(parentChildRelationships.deletedAt),
           ),
         })
+        if (!relationship) {
+          missingParentRelationshipIds.add(relationshipId)
+          classify(applied, skipped, "treeParentChildRelationships", key, false)
+          continue
+        }
         if (
-          !relationship
-          || !(await activeTreeHasMembers(
+          !(await activeTreeHasMembers(
             db,
             wire.treeId,
             [relationship.parentPersonId, relationship.childPersonId],
@@ -2347,7 +2355,17 @@ export async function postSync(request: Request): Promise<Response> {
           serverTime: response.serverTime,
           skipped: requestIds(body),
           retryable: true,
-          reason: "revision-mismatch",
+          reason:
+            missingParentRelationshipIds.size > 0
+              ? "missing-parent-relationship"
+              : "revision-mismatch",
+          ...(missingParentRelationshipIds.size > 0
+            ? {
+                missingDependencies: {
+                  parentChildRelationships: [...missingParentRelationshipIds],
+                },
+              }
+            : {}),
         }
         db.rollback()
       }
@@ -2388,6 +2406,9 @@ export async function postSync(request: Request): Promise<Response> {
           retryable: conflict.retryable,
           reason: conflict.reason,
           records: authoritativeRecords,
+          ...(conflict.missingDependencies
+            ? { missingDependencies: conflict.missingDependencies }
+            : {}),
           ...(conflict.limit ? { limit: conflict.limit } : {}),
         },
       }

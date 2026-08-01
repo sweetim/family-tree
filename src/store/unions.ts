@@ -5,14 +5,8 @@ import {
   type UnionEvent,
   unionIsCurrent,
 } from "../types"
-import {
-  type GlobalState,
-  makeDraft,
-  newId,
-  now,
-  treeUnionKey,
-} from "./state"
 import { associateUnion, hasMember, treeIsWritable } from "./membership"
+import { type GlobalState, makeDraft, newId, now, treeUnionKey } from "./state"
 
 function unionEventsFor(graph: GlobalState, unionId: string): UnionEvent[] {
   return Object.values(graph.unionEvents).filter(

@@ -27,6 +27,12 @@ export function ReviewChangesPanel({
         id: change.id,
         message: "The server changed again. Review the refreshed versions.",
       })
+    } else if (result === "unresolvable") {
+      setError({
+        id: change.id,
+        message:
+          "The server refused this change, and retrying cannot fix it. Use the server version.",
+      })
     } else if (result === "stale") {
       setBanner(
         "This saved conflict is outdated. Close and reopen this tree to refresh it.",

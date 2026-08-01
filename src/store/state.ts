@@ -730,6 +730,32 @@ function recordSetValue(
   )
 }
 
+/** Flatten a pull into one record set so authoritative revisions can be looked
+ *  up for any accessible record, including ones outside a single tree. */
+function pullRecordSet(pull: SyncPullResponse): SyncRecordSet {
+  const result: SyncRecordSet = {
+    persons: [],
+    trees: [],
+    treeMembers: [],
+    unions: [],
+    unionEvents: [],
+    treeUnions: [],
+    parentChildRelationships: [],
+    treeParentChildRelationships: [],
+  }
+  const append = (records: Partial<SyncRecordSet>) => {
+    for (const collection of RECORD_COLLECTIONS) {
+      const wires = records[collection]
+      if (wires) result[collection].push(...(wires as never[]))
+    }
+  }
+  append(pull.own)
+  for (const shared of pull.shared) {
+    append({ ...shared, trees: [shared.tree] })
+  }
+  return result
+}
+
 function snapshotOperationConflict(
   source: DirtyState,
   operationId: string | undefined,
@@ -766,6 +792,146 @@ function snapshotOperationConflict(
       if (current?.revision === sent.revision) {
         dirtyState[collection].set(recordId, { ...current, conflictId: id })
       }
+    }
+  }
+}
+
+function recreateMissingParentDependencies(
+  source: DirtyState,
+  operationId: string | undefined,
+  result: SyncMutationResponse,
+): void {
+  if (
+    !operationId
+    || result.status !== "conflict"
+    || result.conflict?.reason !== "missing-parent-relationship"
+  ) {
+    return
+  }
+  const skippedAssociations = new Set(
+    result.skipped.treeParentChildRelationships,
+  )
+  const missingRelationshipIds = new Set(
+    result.conflict.missingDependencies?.parentChildRelationships ?? [],
+  )
+  const replacements = new Map<string, string>()
+  for (const [id, associationDirty] of source.treeParentChildRelationships) {
+    if (associationDirty.action !== "upsert" || !skippedAssociations.has(id)) {
+      continue
+    }
+    const association = state.treeParentChildRelationships[id]
+    const currentAssociationDirty =
+      dirtyState.treeParentChildRelationships.get(id)
+    if (!association) continue
+    const relationshipId = association.parentChildRelationshipId
+    if (!missingRelationshipIds.has(relationshipId)) continue
+    const relationship = state.parentChildRelationships[relationshipId]
+    const sourceRelationshipDirty =
+      source.parentChildRelationships.get(relationshipId)
+    const currentRelationshipDirty =
+      dirtyState.parentChildRelationships.get(relationshipId)
+    if (
+      !relationship
+      || currentAssociationDirty?.revision !== associationDirty.revision
+      || (currentRelationshipDirty
+        && (currentRelationshipDirty.operationId !== operationId
+          || currentRelationshipDirty.revision
+            !== sourceRelationshipDirty?.revision))
+    ) {
+      continue
+    }
+    const existingReplacementId = replacements.get(relationshipId)
+    const replacementRelationshipId = existingReplacementId ?? newId()
+    replacements.set(relationshipId, replacementRelationshipId)
+    const replacementAssociationId = treeParentChildRelationshipKey(
+      association.treeId,
+      replacementRelationshipId,
+    )
+    const timestamp = now()
+    const hasOtherAssociation = Object.entries(
+      state.treeParentChildRelationships,
+    ).some(
+      ([key, candidate]) =>
+        key !== id && candidate.parentChildRelationshipId === relationshipId,
+    )
+    update(
+      (previous) => {
+        const next = makeDraft(previous)
+        delete next.treeParentChildRelationships[id]
+        next.treeParentChildRelationships[replacementAssociationId] = {
+          ...association,
+          parentChildRelationshipId: replacementRelationshipId,
+          revision: undefined,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        }
+        if (!hasOtherAssociation) {
+          delete next.parentChildRelationships[relationshipId]
+        }
+        if (!existingReplacementId) {
+          next.parentChildRelationships[replacementRelationshipId] = {
+            ...relationship,
+            id: replacementRelationshipId,
+            revision: undefined,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          }
+        }
+        return next
+      },
+      { remote: true },
+    )
+    const token = dirtyToken(
+      "treeParentChildRelationships",
+      id,
+      currentAssociationDirty,
+    )
+    if (token) clearedDirtyTokens.add(token)
+    const replacementAssociationDirty: DirtyRecord = {
+      ...associationDirty,
+      revision: nextRevision++,
+      baseRevision: undefined,
+      blocked: true,
+      operationId,
+      conflictId: undefined,
+    }
+    source.treeParentChildRelationships.delete(id)
+    source.treeParentChildRelationships.set(
+      replacementAssociationId,
+      replacementAssociationDirty,
+    )
+    dirtyState.treeParentChildRelationships.delete(id)
+    dirtyState.treeParentChildRelationships.set(
+      replacementAssociationId,
+      replacementAssociationDirty,
+    )
+    if (!existingReplacementId) {
+      if (currentRelationshipDirty) {
+        const relationshipToken = dirtyToken(
+          "parentChildRelationships",
+          relationshipId,
+          currentRelationshipDirty,
+        )
+        if (relationshipToken) clearedDirtyTokens.add(relationshipToken)
+        source.parentChildRelationships.delete(relationshipId)
+        dirtyState.parentChildRelationships.delete(relationshipId)
+      }
+      const dependencyDirty: DirtyRecord = {
+        action: "upsert",
+        revision: nextRevision++,
+        blocked: true,
+        operationId,
+        sourceId: associationDirty.sourceId ?? storeInstanceId,
+        changedAt: associationDirty.changedAt ?? Date.now(),
+      }
+      source.parentChildRelationships.set(
+        replacementRelationshipId,
+        dependencyDirty,
+      )
+      dirtyState.parentChildRelationships.set(
+        replacementRelationshipId,
+        dependencyDirty,
+      )
     }
   }
 }
@@ -1664,6 +1830,19 @@ async function runPushLoop(generation: number): Promise<void> {
       clearDirty(result.applied, dirty)
       applyAliases(result)
       if (result.status === "conflict") {
+        console.warn("sync mutation rejected", {
+          mutationId,
+          reason: result.conflict?.reason,
+          retryable: result.conflict?.retryable,
+          skipped: Object.fromEntries(
+            RECORD_COLLECTIONS.map((collection) => [
+              collection,
+              result.skipped[collection],
+            ]).filter(([, ids]) => (ids as string[]).length > 0),
+          ),
+          sent: request,
+        })
+        recreateMissingParentDependencies(dirty, operationId, result)
         snapshotOperationConflict(dirty, operationId, result)
       }
       for (const collection of RECORD_COLLECTIONS) {
@@ -2369,6 +2548,20 @@ export function useSyncConflictCount(): number {
   )
 }
 
+/** Server conflict reasons are protocol values; the panel shows people text. */
+function conflictReasonText(reason: string, retryable: boolean): string {
+  if (!retryable) {
+    return reason === "tree-member-limit"
+      ? "This tree has reached its limit on members."
+      : reason === "tree-related-record-limit"
+        ? "This tree has reached its limit on records."
+        : "The server would not accept this change. Use the server version."
+  }
+  return reason === "missing-parent-relationship"
+    ? "A record this change depends on is missing on the server."
+    : "This change conflicts with a newer server version."
+}
+
 function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
   const cached = blockedChangesCache.get(treeId)
   if (cached?.version === blockedChangesVersion) return cached.changes
@@ -2454,7 +2647,7 @@ function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
     }
     return {
       ...change,
-      reason: conflict.reason,
+      reason: conflictReasonText(conflict.reason, conflict.retryable),
       retryable: conflict.retryable,
       device: semanticFields("device"),
       server: semanticFields("server"),
@@ -2468,7 +2661,7 @@ export async function resolveBlockedOperation(
   operationId: string,
   resolution: "device" | "server",
   treeId: string,
-): Promise<"resolved" | "stale" | "conflict" | "offline"> {
+): Promise<"resolved" | "stale" | "conflict" | "offline" | "unresolvable"> {
   const conflict = operationConflicts.find(
     (candidate) => candidate.operationId === operationId,
   )
@@ -2584,6 +2777,57 @@ export async function resolveBlockedOperation(
     } catch {
       freshRecords = undefined
     }
+    type ConflictRecordRef = { collection: DirtyCollection; id: string }
+    const revisionIn = (
+      records: SyncRecordSet | undefined,
+      record: ConflictRecordRef,
+    ): number | undefined =>
+      records
+        ? (
+            recordSetValue(records, record.collection, record.id) as
+              | { revision?: number }
+              | undefined
+          )?.revision
+        : undefined
+    const snapshotRevisionFor = (
+      record: ConflictRecordRef,
+    ): number | undefined =>
+      record.collection === "trees" && record.id === treeId
+        ? freshTreeRevision
+        : revisionIn(freshRecords, record)
+    const capturedRevisionFor = (
+      record: ConflictRecordRef,
+    ): number | undefined =>
+      (
+        conflict?.records.find(
+          (candidate) =>
+            candidate.collection === record.collection
+            && candidate.id === record.id,
+        )?.serverValue as { revision?: number } | undefined
+      )?.revision
+    // A tree snapshot only covers records still attached to that tree, and the
+    // captured conflict only covers what the server chose to return. When
+    // neither knows the authoritative revision of a record that does exist on
+    // the server, the retry would resend the rejected base verbatim and be
+    // refused again, so fall back to a pull, which spans every accessible
+    // record.
+    let pulledRecords: SyncRecordSet | undefined
+    const missingAuthoritativeRevision = currentRecords.some((record) => {
+      const current = dirtyState[record.collection].get(record.id)
+      return (
+        current?.baseRevision !== undefined
+        && snapshotRevisionFor(record) === undefined
+        && capturedRevisionFor(record) === undefined
+      )
+    })
+    if (missingAuthoritativeRevision) {
+      try {
+        pulledRecords = pullRecordSet(await fetchFullPull())
+      } catch {
+        pulledRecords = undefined
+      }
+    }
+    const attemptedBases = new Map<string, number | undefined>()
     let requeued = 0
     for (const record of currentRecords) {
       const current = dirtyState[record.collection].get(record.id)
@@ -2593,18 +2837,9 @@ export async function resolveBlockedOperation(
           candidate.collection === record.collection
           && candidate.id === record.id,
       )
-      const capturedRevision = (
-        conflictRecord?.serverValue as { revision?: number } | undefined
-      )?.revision
-      const freshRevision = freshRecords
-        ? record.collection === "trees" && record.id === treeId
-          ? freshTreeRevision
-          : (
-              recordSetValue(freshRecords, record.collection, record.id) as
-                | { revision?: number }
-                | undefined
-            )?.revision
-        : undefined
+      const capturedRevision = capturedRevisionFor(record)
+      const freshRevision =
+        snapshotRevisionFor(record) ?? revisionIn(pulledRecords, record)
       if (
         conflictRecord
         && current.action === "delete"
@@ -2615,10 +2850,13 @@ export async function resolveBlockedOperation(
         dirtyState[record.collection].delete(record.id)
         continue
       }
+      const baseRevision =
+        freshRevision ?? capturedRevision ?? current.baseRevision
+      attemptedBases.set(`${record.collection}:${record.id}`, baseRevision)
       dirtyState[record.collection].set(record.id, {
         ...current,
         blocked: false,
-        baseRevision: freshRevision ?? capturedRevision ?? current.baseRevision,
+        baseRevision,
         revision: nextRevision++,
         operationId,
         conflictId: undefined,
@@ -2661,6 +2899,42 @@ export async function resolveBlockedOperation(
       (candidate) => candidate.operationId === operationId,
     )
     if (retriedConflict) {
+      const recreatedMissingDependency =
+        retriedConflict.reason === "missing-parent-relationship"
+        && retriedConflict.records.some(
+          (record) => !attemptedBases.has(`${record.collection}:${record.id}`),
+        )
+      if (recreatedMissingDependency) {
+        return resolveBlockedOperation(operationId, "device", treeId)
+      }
+      // The rebased mutation was refused too. If the server reports the same
+      // revisions this attempt already sent — or reports none at all — nothing
+      // a further retry could send would differ, so the record was refused for
+      // a reason optimistic concurrency cannot fix (a removed or unreachable
+      // record, or a dependency the server does not have). Stop offering the
+      // retry instead of looping the identical mutation.
+      const madeProgress = retriedConflict.records.some((record) => {
+        const key = `${record.collection}:${record.id}`
+        if (!attemptedBases.has(key)) return false
+        const serverRevision = (
+          record.serverValue as { revision?: number } | undefined
+        )?.revision
+        return (
+          serverRevision !== undefined
+          && serverRevision !== attemptedBases.get(key)
+        )
+      })
+      if (!madeProgress) {
+        operationConflicts = operationConflicts.map((candidate) =>
+          candidate.operationId === operationId
+            ? { ...candidate, retryable: false }
+            : candidate,
+        )
+        schedulePersistence()
+        notifyListeners()
+        await persistCurrentStore()
+        return "unresolvable"
+      }
       return "conflict"
     }
   }

@@ -1894,6 +1894,252 @@ describe("dirty tracking and push wires", () => {
     }
   })
 
+  test("device resolution restores a missing parent dependency", async () => {
+    const store = await freshStore()
+    const serverPull = fullPull({
+      persons: [
+        { id: "parent", name: "Parent", revision: 1, updatedAt: timestamp },
+        { id: "child", name: "Child", revision: 1, updatedAt: timestamp },
+      ],
+      trees: [
+        {
+          id: "tree",
+          name: "Tree",
+          createdAt: timestamp,
+          revision: 1,
+          updatedAt: timestamp,
+          ownerId: "owner",
+        },
+        {
+          id: "other-tree",
+          name: "Other tree",
+          createdAt: timestamp,
+          revision: 1,
+          updatedAt: timestamp,
+          ownerId: "owner",
+        },
+      ],
+      treeMembers: [
+        {
+          treeId: "tree",
+          personId: "parent",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        {
+          treeId: "tree",
+          personId: "child",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        {
+          treeId: "other-tree",
+          personId: "parent",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        {
+          treeId: "other-tree",
+          personId: "child",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      ],
+    })
+    store.applyFullPull(serverPull)
+    const associationKey = store.treeParentChildRelationshipKey(
+      "tree",
+      "relationship",
+    )
+    const otherAssociationKey = store.treeParentChildRelationshipKey(
+      "other-tree",
+      "relationship",
+    )
+    const noIds = {
+      persons: [],
+      trees: [],
+      treeMembers: [],
+      unions: [],
+      unionEvents: [],
+      treeUnions: [],
+      parentChildRelationships: [],
+      treeParentChildRelationships: [],
+    }
+    let mutations = 0
+    let retryRecords:
+      | {
+          parentChildRelationships: Array<{ id: string }>
+          treeParentChildRelationships: Array<{
+            parentChildRelationshipId: string
+            treeId: string
+          }>
+        }
+      | undefined
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (url === "/api/mutations") {
+        mutations++
+        if (mutations === 1) {
+          return new Response(
+            JSON.stringify({
+              applied: noIds,
+              skipped: {
+                ...noIds,
+                treeParentChildRelationships: [
+                  associationKey,
+                  otherAssociationKey,
+                ],
+              },
+              serverTime: timestamp,
+              mutationId: "association-conflict",
+              status: "conflict",
+              conflict: {
+                retryable: true,
+                reason: "missing-parent-relationship",
+                records: { ...noIds },
+                missingDependencies: {
+                  parentChildRelationships: ["relationship"],
+                },
+              },
+            }),
+            { status: 409 },
+          )
+        }
+        retryRecords = JSON.parse(String(init?.body)).records
+        const retryRelationshipId =
+          retryRecords?.parentChildRelationships[0]?.id
+        const retryAssociations = retryRecords?.treeParentChildRelationships
+        if (!retryRelationshipId || retryAssociations?.length !== 2) {
+          throw new Error("missing dependency retry records")
+        }
+        return new Response(
+          JSON.stringify({
+            applied: {
+              ...noIds,
+              parentChildRelationships: [retryRelationshipId],
+              treeParentChildRelationships: retryAssociations.map(
+                (association) =>
+                  store.treeParentChildRelationshipKey(
+                    association.treeId,
+                    association.parentChildRelationshipId,
+                  ),
+              ),
+            },
+            skipped: noIds,
+            serverTime: timestamp,
+            mutationId: "dependency-retry",
+            status: "applied",
+          }),
+        )
+      }
+      if (url.startsWith("/api/sync")) {
+        return new Response(JSON.stringify(serverPull))
+      }
+      if (url.startsWith("/api/trees/tree/snapshot")) {
+        return new Response(
+          JSON.stringify({
+            tree: serverPull.own.trees[0],
+            records: {
+              persons: serverPull.own.persons,
+              treeMembers: serverPull.own.treeMembers,
+              unions: [],
+              unionEvents: [],
+              treeUnions: [],
+              parentChildRelationships: [],
+              treeParentChildRelationships: [],
+            },
+            syncVersion: 1,
+            cursor: "snapshot-cursor",
+          }),
+        )
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    try {
+      update(
+        (previous) => ({
+          ...previous,
+          parentChildRelationships: {
+            relationship: {
+              id: "relationship",
+              parentPersonId: "parent",
+              childPersonId: "child",
+              type: "biological",
+              revision: 1,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          },
+        }),
+        { remote: true },
+      )
+      update((previous) => ({
+        ...previous,
+        treeParentChildRelationships: {
+          [associationKey]: {
+            treeId: "tree",
+            parentChildRelationshipId: "relationship",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+          [otherAssociationKey]: {
+            treeId: "other-tree",
+            parentChildRelationshipId: "relationship",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        },
+      }))
+      const operationId = store
+        .snapshotDirty()
+        .treeParentChildRelationships.get(associationKey)?.operationId
+      if (!operationId) throw new Error("expected dirty operation id")
+
+      await store.synchronizePending()
+      const [replacementRelationshipId, replacementRelationshipDirty] = [
+        ...store.snapshotDirty().parentChildRelationships,
+      ][0] ?? [undefined, undefined]
+      expect(replacementRelationshipId).not.toBe("relationship")
+      expect(replacementRelationshipDirty).toMatchObject({
+        blocked: true,
+        operationId,
+      })
+
+      const result = await store.resolveBlockedOperation(
+        operationId,
+        "device",
+        "tree",
+      )
+
+      expect(result).toBe("resolved")
+      expect(retryRecords?.parentChildRelationships).toEqual([
+        expect.objectContaining({
+          id: replacementRelationshipId,
+          parentPersonId: "parent",
+          childPersonId: "child",
+        }),
+      ])
+      expect(retryRecords?.treeParentChildRelationships).toHaveLength(2)
+      expect(
+        retryRecords?.treeParentChildRelationships.every(
+          (association) =>
+            association.parentChildRelationshipId === replacementRelationshipId,
+        ),
+      ).toBe(true)
+      expect(
+        replacementRelationshipId
+          ? store.getSnapshot().parentChildRelationships[
+              replacementRelationshipId
+            ]?.revision
+          : undefined,
+      ).toBe(1)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test("server resolution removes optimistic records absent from the server", async () => {
     const store = await freshStore()
     store.applyFullPull(

@@ -227,9 +227,13 @@ export type SyncMutationResponse = SyncPushResponse & {
     retryable: boolean
     reason:
       | "revision-mismatch"
+      | "missing-parent-relationship"
       | "tree-member-limit"
       | "tree-related-record-limit"
     records: SyncRecordSet
+    missingDependencies?: {
+      parentChildRelationships: string[]
+    }
     limit?: {
       treeId: string
       maximum: number
