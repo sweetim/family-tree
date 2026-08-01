@@ -2476,7 +2476,16 @@ export async function resolveBlockedOperation(
     await persistCurrentStore()
     return "resolved"
   } else {
-    const retryOperationId = newId()
+    // Drop the captured conflict up front so a re-conflict can snapshot a
+    // refreshed version under the same operation id. Reusing the id keeps the
+    // review item stable instead of surfacing a duplicate under a new id. The
+    // captured conflict is restored on the offline path so its comparison stays
+    // available, and the id is only marked cleared once the push truly succeeds.
+    if (conflict) {
+      operationConflicts = operationConflicts.filter(
+        (candidate) => candidate.operationId !== operationId,
+      )
+    }
     let requeued = 0
     for (const record of currentRecords) {
       const current = dirtyState[record.collection].get(record.id)
@@ -2504,18 +2513,13 @@ export async function resolveBlockedOperation(
         blocked: false,
         baseRevision: conflictRecord ? serverRevision : current.baseRevision,
         revision: nextRevision++,
-        operationId: retryOperationId,
+        operationId,
         conflictId: undefined,
       })
       requeued++
     }
     if (requeued === 0) {
-      if (conflict) {
-        operationConflicts = operationConflicts.filter(
-          (candidate) => candidate.operationId !== operationId,
-        )
-        clearedOperationConflictIds.add(operationId)
-      }
+      if (conflict) clearedOperationConflictIds.add(operationId)
       schedulePersistence()
       setSyncStatus(statusFromDirtyState())
       notifyListeners()
@@ -2532,13 +2536,14 @@ export async function resolveBlockedOperation(
     if (syncStatus === "offline") {
       for (const record of currentRecords) {
         const current = dirtyState[record.collection].get(record.id)
-        if (current?.operationId !== retryOperationId) continue
+        if (current?.operationId !== operationId) continue
         dirtyState[record.collection].set(record.id, {
           ...record.dirty,
           blocked: true,
           revision: nextRevision++,
         })
       }
+      if (conflict) operationConflicts = [...operationConflicts, conflict]
       setSyncStatus(statusFromDirtyState())
       schedulePersistence()
       notifyListeners()
@@ -2546,27 +2551,13 @@ export async function resolveBlockedOperation(
       return "offline"
     }
     const retriedConflict = operationConflicts.find(
-      (candidate) => candidate.operationId === retryOperationId,
+      (candidate) => candidate.operationId === operationId,
     )
     if (retriedConflict) {
-      if (conflict) {
-        operationConflicts = operationConflicts.filter(
-          (candidate) => candidate.operationId !== operationId,
-        )
-        clearedOperationConflictIds.add(operationId)
-        schedulePersistence()
-        notifyListeners()
-        await persistCurrentStore()
-      }
       return "conflict"
     }
   }
-  if (conflict) {
-    operationConflicts = operationConflicts.filter(
-      (candidate) => candidate.operationId !== operationId,
-    )
-    clearedOperationConflictIds.add(operationId)
-  }
+  if (conflict) clearedOperationConflictIds.add(operationId)
   schedulePersistence()
   notifyListeners()
   await persistCurrentStore()

@@ -335,7 +335,7 @@ export function EditForm({
             {children.map((c) => (
               <span
                 key={c.id}
-                className={chip}
+                className={`${chip} pr-3!`}
               >
                 <GenderIcon gender={c.gender} />
                 <button

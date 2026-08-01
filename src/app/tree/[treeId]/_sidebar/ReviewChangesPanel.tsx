@@ -25,9 +25,10 @@ export function ReviewChangesPanel({
     if (result === "resolved") {
       setExpandedId(undefined)
     } else if (result === "conflict") {
-      setBanner(
-        "The server changed again — review the refreshed version below.",
-      )
+      setError({
+        id: change.id,
+        message: "The server changed again. Review the refreshed versions.",
+      })
     } else if (result === "stale") {
       setBanner(
         "This saved conflict is outdated. Close and reopen this tree to refresh it.",
