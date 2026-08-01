@@ -1,9 +1,57 @@
-import { Download, Upload } from "lucide-react"
-import { useRef } from "react"
+import {
+  Download,
+  GitBranch,
+  Heart,
+  Layers,
+  Map as MapIcon,
+  Trees,
+  Upload,
+} from "lucide-react"
+import { type ReactNode, useRef } from "react"
 import { useToast } from "@/components/Toast"
 import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import { useViewSettings } from "@/lib/view-settings"
 import { type FamilyStore, isStoredPhotoMarker, normalizeImport } from "@/store"
+
+function SettingToggle({
+  icon,
+  title,
+  description,
+  checked,
+  onChange,
+}: {
+  icon: ReactNode
+  title: string
+  description: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="group flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-colors group-hover:bg-slate-200">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-slate-700">
+          {title}
+        </span>
+        <span className="block text-xs leading-relaxed text-slate-500">
+          {description}
+        </span>
+      </span>
+      <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+        <input
+          type="checkbox"
+          className="peer sr-only"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span className="absolute inset-0 rounded-full bg-slate-300 transition-colors peer-checked:bg-cobalt-600 peer-focus-visible:ring-2 peer-focus-visible:ring-cobalt-300" />
+        <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
+      </span>
+    </label>
+  )
+}
 
 export function SettingsPanel({
   family,
@@ -79,94 +127,43 @@ export function SettingsPanel({
         </button>
       </div>
 
-      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-        <span>
-          <span className="block text-sm font-medium text-slate-700">
-            Minimap
-          </span>
-          <span className="block text-xs text-slate-500">
-            Show the canvas overview (desktop only)
-          </span>
-        </span>
-        <input
-          type="checkbox"
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+        <SettingToggle
+          icon={<MapIcon className="h-4 w-4" />}
+          title="Minimap"
+          description="Show the canvas overview (desktop only)"
           checked={settings.minimap}
-          onChange={(e) => update({ minimap: e.target.checked })}
-          className="h-4 w-4 rounded border-slate-300 text-cobalt-600 focus:ring-cobalt-500"
+          onChange={(checked) => update({ minimap: checked })}
         />
-      </label>
-
-      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-        <span>
-          <span className="block text-sm font-medium text-slate-700">
-            Marriage years
-          </span>
-          <span className="block text-xs text-slate-500">
-            Show each marriage's year on the canvas. Hover a union dot for the
-            full date.
-          </span>
-        </span>
-        <input
-          type="checkbox"
+        <SettingToggle
+          icon={<Heart className="h-4 w-4" />}
+          title="Marriage years"
+          description="Show each marriage's year on the canvas. Hover a union dot for the full date."
           checked={settings.marriageYears}
-          onChange={(e) => update({ marriageYears: e.target.checked })}
-          className="h-4 w-4 rounded border-slate-300 text-cobalt-600 focus:ring-cobalt-500"
+          onChange={(checked) => update({ marriageYears: checked })}
         />
-      </label>
-
-      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-        <span>
-          <span className="block text-sm font-medium text-slate-700">
-            Show all families
-          </span>
-          <span className="block text-xs text-slate-500">
-            Render this family and all related families on this canvas. Off:
-            show only this family.
-          </span>
-        </span>
-        <input
-          type="checkbox"
+        <SettingToggle
+          icon={<Layers className="h-4 w-4" />}
+          title="Show all families"
+          description="Render this family and all related families on this canvas. Off: show only this family."
           checked={settings.showAllFamilies}
-          onChange={(e) => update({ showAllFamilies: e.target.checked })}
-          className="h-4 w-4 rounded border-slate-300 text-cobalt-600 focus:ring-cobalt-500"
+          onChange={(checked) => update({ showAllFamilies: checked })}
         />
-      </label>
-
-      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-        <span>
-          <span className="block text-sm font-medium text-slate-700">
-            Highlight bloodline
-          </span>
-          <span className="block text-xs text-slate-500">
-            Outline the founding roots and their descendants, and dim married-in
-            spouses so the bloodline stands out.
-          </span>
-        </span>
-        <input
-          type="checkbox"
+        <SettingToggle
+          icon={<GitBranch className="h-4 w-4" />}
+          title="Highlight bloodline"
+          description="Outline the founding roots and their descendants, and dim married-in spouses so the bloodline stands out."
           checked={settings.highlightBloodline}
-          onChange={(e) => update({ highlightBloodline: e.target.checked })}
-          className="h-4 w-4 rounded border-slate-300 text-cobalt-600 focus:ring-cobalt-500"
+          onChange={(checked) => update({ highlightBloodline: checked })}
         />
-      </label>
-
-      <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-        <span>
-          <span className="block text-sm font-medium text-slate-700">
-            Other family trees
-          </span>
-          <span className="block text-xs text-slate-500">
-            Show a badge on each person card for every other tree they belong
-            to.
-          </span>
-        </span>
-        <input
-          type="checkbox"
+        <SettingToggle
+          icon={<Trees className="h-4 w-4" />}
+          title="Other family trees"
+          description="Show a badge on each person card for every other tree they belong to."
           checked={settings.showOtherTrees}
-          onChange={(e) => update({ showOtherTrees: e.target.checked })}
-          className="h-4 w-4 rounded border-slate-300 text-cobalt-600 focus:ring-cobalt-500"
+          onChange={(checked) => update({ showOtherTrees: checked })}
         />
-      </label>
+      </div>
 
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-slate-800">Data</h2>
@@ -182,11 +179,16 @@ export function SettingsPanel({
             type="button"
             onClick={() => importRef.current?.click()}
             disabled={!editable}
+            title={editable ? undefined : "Switch to Edit mode to import"}
             className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
           >
             <Upload className="h-4 w-4" /> Import
           </button>
         </div>
+        <p className="text-xs leading-relaxed text-slate-500">
+          Export an offline copy as JSON, or import a previously exported tree.
+          {!editable && " Import is only available while editing."}
+        </p>
         <input
           ref={importRef}
           type="file"

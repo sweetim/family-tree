@@ -184,7 +184,7 @@ export function EditForm({
           <h2 className="text-base font-semibold tracking-tight text-slate-800">
             Edit member
           </h2>
-          <p className="text-xs text-slate-400">{person.name}</p>
+          <p className="text-xs text-slate-400">{person.id}</p>
         </div>
 
         <PersonFields
