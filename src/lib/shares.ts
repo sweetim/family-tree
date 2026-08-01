@@ -6,6 +6,40 @@ export type Share = {
   role: "viewer" | "editor"
 }
 
+export type OwnerShareEntry = {
+  email: string
+  name: string | null
+  pending: boolean
+  trees: { treeId: string; treeName: string; role: "viewer" | "editor" }[]
+}
+
+/**
+ * Adds a single email to one tree. Never throws — returns the outcome so a
+ * batch caller can report per-tree failures. Used by the multi-tree invite UI.
+ */
+export async function addShareToTree(
+  treeId: string,
+  email: string,
+  role: "viewer" | "editor",
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`/api/trees/${encodeURIComponent(treeId)}/shares`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, role }),
+    })
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string }
+      return { ok: false, error: err.error ?? `add failed: ${res.status}` }
+    }
+    return { ok: true }
+  } catch (error) {
+    console.error(error)
+    return { ok: false, error: "Couldn't add share." }
+  }
+}
+
 /**
  * Loads and manages a tree's share list for its owner. Shared by the HomePage
  * ShareDialog modal and the sidebar SharePanel so the API logic lives once.
@@ -104,4 +138,66 @@ export function useShares(treeId: string) {
   }
 
   return { shares, loading, submitting, add, remove }
+}
+
+/**
+ * Loads an owner's sharing overview (every share across their trees, grouped
+ * by email) for the HomePage "Sharing" matrix. `setRole` grants or updates a
+ * role on one tree (passing `null` revokes it) and refreshes.
+ */
+export function useOwnerShares() {
+  const toast = useToast()
+  const [entries, setEntries] = useState<OwnerShareEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+
+  async function refresh() {
+    setLoading(true)
+    try {
+      const res = await fetch("/api/shares", { credentials: "include" })
+      if (!res.ok) throw new Error(`load failed: ${res.status}`)
+      const data = (await res.json()) as { entries: OwnerShareEntry[] }
+      setEntries(data.entries)
+    } catch (err) {
+      console.error(err)
+      toast("Couldn't load sharing overview.", "error")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
+
+  async function setRole(
+    email: string,
+    treeId: string,
+    role: "viewer" | "editor" | null,
+  ) {
+    setSubmitting(true)
+    try {
+      if (role === null) {
+        const res = await fetch(
+          `/api/trees/${encodeURIComponent(treeId)}/shares?email=${encodeURIComponent(email)}`,
+          { method: "DELETE", credentials: "include" },
+        )
+        if (!res.ok) throw new Error(`remove failed: ${res.status}`)
+      } else {
+        const result = await addShareToTree(treeId, email, role)
+        if (!result.ok) {
+          toast(result.error, "error")
+          return
+        }
+      }
+      await refresh()
+    } catch (err) {
+      console.error(err)
+      toast("Couldn't update access.", "error")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return { entries, loading, submitting, refresh, setRole }
 }

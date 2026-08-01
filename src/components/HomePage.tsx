@@ -33,6 +33,7 @@ import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
 import { LandingPage } from "./LandingPage"
 import { ShareDialog } from "./ShareDialog"
+import { SharingDialog } from "./SharingDialog"
 import { useToast } from "./Toast"
 
 const inputCls =
@@ -426,6 +427,7 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
   const { trees, createTree, renameTree, deleteTree } = index
   const [newTreeOpen, setNewTreeOpen] = useState(false)
   const [shareTarget, setShareTarget] = useState<TreeMeta | null>(null)
+  const [sharingOpen, setSharingOpen] = useState(false)
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
 
@@ -477,13 +479,24 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
               {totalPeople} {totalPeople === 1 ? "person" : "people"}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setNewTreeOpen(true)}
-            className={`${primaryBtn} shrink-0`}
-          >
-            <Plus className="h-4 w-4" /> New tree
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {own.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setSharingOpen(true)}
+                className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-cobalt-700 ring-1 ring-cobalt-200 transition-all hover:bg-cobalt-50 active:scale-95"
+              >
+                <Users className="h-4 w-4" /> Sharing
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setNewTreeOpen(true)}
+              className={`${primaryBtn} shrink-0`}
+            >
+              <Plus className="h-4 w-4" /> New tree
+            </button>
+          </div>
         </div>
 
         <div className="mt-8">
@@ -553,6 +566,13 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
             treeId={shareTarget.id}
             treeName={shareTarget.name}
             onClose={() => setShareTarget(null)}
+          />
+        )}
+
+        {sharingOpen && (
+          <SharingDialog
+            ownTrees={own.map((tree) => ({ id: tree.id, name: tree.name }))}
+            onClose={() => setSharingOpen(false)}
           />
         )}
 

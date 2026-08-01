@@ -65,8 +65,10 @@ Existing updates and tombstones must send the revision last observed from the
 server. New records omit it. Client timestamps are metadata only and never
 decide write ordering. A person record may carry `force: true` when the user
 explicitly resolves a conflict toward their local version; the server then
-ignores the revision precondition for that row while still enforcing ACL and the
-no-resurrect (deleted-row) guard.
+ignores the revision precondition for that row. Forced person upserts are still
+ACL-gated, and may resurrect a tombstoned row the requesting user owns (clearing
+its `deletedAt`) so a "keep my change" can restore an endpoint a link still
+references.
 
 The server serializes duplicate mutation IDs, checks ACL and graph invariants,
 and applies the complete logical mutation in one interactive PostgreSQL
@@ -116,6 +118,12 @@ responses use `cursor` and `limit` keyset pagination. Requests use bounded JSON
 parsing, normalized email addresses, deterministic ordering, and strict roles.
 Responses do not expose internal user IDs or whether an invited email already
 has an account. Pending shares are reconciled during manifest loading.
+
+`GET /api/shares` (owner-only, unpaginated) returns an overview of every share
+across the caller's (non-deleted) trees, grouped by email as `{ email, name,
+pending, trees: [{ treeId, treeName, role }] }`. Unlike the per-tree list it
+joins `user` to surface the name and a `pending` flag (`userId` still null —
+invitee hasn't signed in). Powers the HomePage "Sharing" dialog overview.
 
 ## Access requests
 

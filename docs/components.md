@@ -12,6 +12,7 @@ touching the UI.
 | `UnionNode` | `src/components/UnionNode.tsx:17` | The junction dot where a couple's line meets their children. Invisible handles `l/r/b`. 12px dot; hovering it shows the full marriage date, and when the "Marriage years" view setting is on the marriage year is shown inside the dot (a larger circle badge overlays it). Clicking the dot opens the sidebar editor for the couple's marriage date (`useViewSettings`, `useTreeActions`). |
 | `HomePage` | `src/components/HomePage.tsx:178` | Landing/dashboard. Person search box (`usePersonSearch`) filtering every person in the store by name; clicking a result opens that person's earliest tree at `/tree/:treeId/p/:personId`. Create-tree form, "Create sample tree" (uses `seedData()`), grid of own `TreeCard`s (open/rename/share/delete with confirm) and `SharedTreeCard`s (read-only/editor badge + owner email). Loading/sign-in/empty states. |
 | `ShareDialog` | `src/components/ShareDialog.tsx:11` | Owner modal for tree sharing (used by HomePage). Loads `/api/trees/:id/shares`, add email+role (viewer/editor), revoke; shows a "pending sign-in" badge when `userId === null`. Also lists pending `access-requests` (name/email + the requester's "who are you" note) with Approve (grants viewer) / Decline buttons. Esc/backdrop close. Backed by the shared `useShares` and `useOwnerAccessRequests` hooks. |
+| `SharingDialog` | `src/components/SharingDialog.tsx:36` | Owner modal (opened from the HomePage "Sharing" button, shown when you own ≥1 tree) rendered as a **people × trees access matrix**. Each cell is a 3-state role control (— / Viewer / Editor) that grants, updates, or revokes that person's access to that tree immediately via `useOwnerShares.setRole`; the first column (person + Active/Pending badge) is sticky. An "Add person by email" row at the bottom creates a draft row you configure by setting cells — this is how one person is shared to multiple trees. Esc/backdrop close. Loads `/api/shares`. |
 | `AccountMenu` | `src/components/AccountMenu.tsx:9` | Sign-in-with-Google button when signed out; avatar dropdown (name/email, sign-out) when in. Outside-click dismiss. |
 | `AvatarCropper` | `src/components/AvatarCropper.tsx:24` | Portal-rendered photo cropper. Drag-to-pan + wheel/slider zoom, circular overlay, Esc to cancel; on confirm calls `cropToAvatar` (`src/lib/image.ts:23`). Rendered via `createPortal(document.body)` to escape nested forms and transformed parents. |
 | `Toast` | `src/components/Toast.tsx` | Context-based toasts. `useToast()` (`:16`) returns a function `(message, tone?)`; tones are info/success/error; auto-dismiss ~4.5s. Provided by `ToastProvider` (`:35`). |
@@ -57,6 +58,12 @@ Private folders are prefixed `_` so Next.js excludes them from routing.
   share list for its owner (load/add/remove against
   `/api/trees/:id/shares`); shared by `ShareDialog` (HomePage modal) and the
   sidebar `SharePanel`.
+- `useOwnerShares()` / `addShareToTree(treeId, email, role)` —
+  `src/lib/shares.ts`. The hook loads an owner's cross-tree sharing overview
+  from `/api/shares` (people grouped by email, each with their trees + role),
+  and exposes `setRole(email, treeId, role | null)` (grant/update, or revoke
+  when `null`) used by the `SharingDialog` matrix. `addShareToTree` is the
+  single-tree add the hook calls under the hood.
 - `useAccessRequest(treeId)` / `useOwnerAccessRequests(treeId)` —
   `src/lib/access-requests.ts`. The requester side reads/creates their own
   access request against `/api/trees/:id/access-request`; the owner side lists

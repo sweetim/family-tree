@@ -2200,6 +2200,7 @@ describe("dirty tracking and push wires", () => {
             parentChildRelationshipId: string
             treeId: string
           }>
+          persons: Array<{ id: string; force?: boolean }>
         }
       | undefined
     const originalFetch = globalThis.fetch
@@ -2355,6 +2356,10 @@ describe("dirty tracking and push wires", () => {
             association.parentChildRelationshipId === replacementRelationshipId,
         ),
       ).toBe(true)
+      expect(retryRecords?.persons).toEqual([
+        expect.objectContaining({ id: "parent", force: true }),
+        expect.objectContaining({ id: "child", force: true }),
+      ])
       expect(
         replacementRelationshipId
           ? store.getSnapshot().parentChildRelationships[

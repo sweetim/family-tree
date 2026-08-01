@@ -2883,6 +2883,34 @@ export async function resolveBlockedOperation(
       })
       requeued++
     }
+    // A missing-parent-relationship conflict means a person the link references
+    // is absent server-side (the link never committed). Force-include those
+    // people in this retry so the relationship has endpoints to attach to.
+    if (conflict?.reason === "missing-parent-relationship") {
+      const linkedPersonIds = new Set<string>()
+      for (const record of currentRecords) {
+        if (record.collection !== "parentChildRelationships") continue
+        const relationship = state.parentChildRelationships[record.id]
+        if (!relationship) continue
+        linkedPersonIds.add(relationship.parentPersonId)
+        linkedPersonIds.add(relationship.childPersonId)
+      }
+      for (const personId of linkedPersonIds) {
+        const person = state.persons[personId]
+        if (!person) continue
+        const existing = dirtyState.persons.get(personId)
+        dirtyState.persons.set(personId, {
+          action: "upsert",
+          revision: nextRevision++,
+          baseRevision: existing?.baseRevision ?? person.revision,
+          operationId,
+          sourceId: existing?.sourceId ?? storeInstanceId,
+          changedAt: Date.now(),
+          force: true,
+        })
+        requeued++
+      }
+    }
     if (requeued === 0) {
       if (conflict) clearedOperationConflictIds.add(operationId)
       schedulePersistence()

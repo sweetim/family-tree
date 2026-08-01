@@ -1,4 +1,4 @@
-import { and, asc, eq, gt } from "drizzle-orm"
+import { and, asc, eq, gt, sql } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { treeShares, user } from "../../db/schema"
 import { treeRole } from "../acl"
@@ -192,6 +192,75 @@ export async function removeShare(
 
   return Response.json(
     { ok: true },
+    { headers: { "cache-control": "private, no-store" } },
+  )
+}
+
+type RawOwnerShareRow = {
+  email: string
+  userId: string | null
+  role: string
+  treeId: string
+  treeName: string
+  userName: string | null
+}
+
+type OwnerShareTree = {
+  treeId: string
+  treeName: string
+  role: "viewer" | "editor"
+}
+
+type OwnerShareEntry = {
+  email: string
+  name: string | null
+  pending: boolean
+  trees: OwnerShareTree[]
+}
+
+/** GET /api/shares — every share across trees owned by the caller, grouped by email. */
+export async function listOwnerShares(request: Request): Promise<Response> {
+  const me = await requireSession(request)
+  if (!me) return Response.json({ error: "unauthorized" }, { status: 401 })
+
+  const db = getDB()
+  const result = await db.execute(sql<RawOwnerShareRow>`
+    SELECT
+      share.email       AS email,
+      share.user_id     AS "userId",
+      share.role        AS role,
+      share.tree_id     AS "treeId",
+      t.name            AS "treeName",
+      u.name            AS "userName"
+    FROM tree_shares share
+    INNER JOIN trees t ON t.id = share.tree_id
+    LEFT JOIN "user" u ON u.id = share.user_id
+    WHERE t.owner_id = ${me.id}
+      AND t.deleted_at IS NULL
+    ORDER BY share.email, t.name
+  `)
+
+  const byEmail = new Map<string, OwnerShareEntry>()
+  for (const row of result.rows as RawOwnerShareRow[]) {
+    let entry = byEmail.get(row.email)
+    if (!entry) {
+      entry = {
+        email: row.email,
+        name: row.userName ?? null,
+        pending: row.userId == null,
+        trees: [],
+      }
+      byEmail.set(row.email, entry)
+    }
+    entry.trees.push({
+      treeId: row.treeId,
+      treeName: row.treeName,
+      role: row.role as "viewer" | "editor",
+    })
+  }
+
+  return Response.json(
+    { entries: [...byEmail.values()] },
     { headers: { "cache-control": "private, no-store" } },
   )
 }
