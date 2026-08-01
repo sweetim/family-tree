@@ -74,6 +74,7 @@ export {
   useHydrated,
   useSyncConflictCount,
   useSyncStatus,
+  useTreeFreshlyLoaded,
 } from "./state"
 export {
   linkSpouseRecords,

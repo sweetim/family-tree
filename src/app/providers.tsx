@@ -48,17 +48,11 @@ function ServerDataBootstrap() {
 
     let cancelled = false
     const treeMatch = pathname.match(/^\/tree\/([^/]+)/)
-    const personMatch = pathname.match(/^\/tree\/[^/]+\/p\/([^/]+)/)
     let treeId: string | undefined
-    let personId: string | undefined
     try {
       treeId = treeMatch?.[1] ? decodeURIComponent(treeMatch[1]) : undefined
-      personId = personMatch?.[1]
-        ? decodeURIComponent(personMatch[1])
-        : undefined
     } catch {
       treeId = undefined
-      personId = undefined
     }
     void (async () => {
       let retryDelay = 500
@@ -69,7 +63,10 @@ function ServerDataBootstrap() {
           if (cancelled) return
           applyTreeManifest(manifest)
           if (treeId) {
-            const snapshot = await fetchTreeSnapshot(treeId, personId)
+            // Always fetch the full snapshot: the tree view waits for this
+            // before painting, so the first frame is the authoritative state
+            // rather than a radius-3 partial that later expands.
+            const snapshot = await fetchTreeSnapshot(treeId)
             if (cancelled) return
             applyTreeSnapshot(snapshot)
           }
@@ -82,14 +79,6 @@ function ServerDataBootstrap() {
               ? error.status
               : undefined
           if (status === 404) {
-            if (treeId && personId) {
-              try {
-                const snapshot = await fetchTreeSnapshot(treeId)
-                if (!cancelled) applyTreeSnapshot(snapshot)
-              } catch {
-                // The manifest already determines whether the tree is visible.
-              }
-            }
             if (!cancelled) setHydrated(true)
             return
           }

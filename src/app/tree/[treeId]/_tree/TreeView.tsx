@@ -43,6 +43,7 @@ import {
   type TreeMeta,
   useFamily,
   useFamilyAll,
+  useTreeFreshlyLoaded,
 } from "@/store"
 import { ancestorsOf, descendantsOf } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
@@ -85,6 +86,13 @@ export function TreeView({
   /** Person to open on arrival, from a #/tree/{id}/p/{personId} link. */
   openPersonId?: string
 }) {
+  // Hold a loading state until the tree's authoritative server snapshot has
+  // been applied this session. Without this, the canvas first paints from
+  // stale persisted data (and, for deep links, a bounded radius-3 partial
+  // graph) and then visibly settles — cards reshape and the ancestor-family
+  // badge relabels — once the fresh data lands.
+  const ready = useTreeFreshlyLoaded(tree.id)
+  if (!ready) return <TreeLoading />
   return (
     <ReactFlowProvider>
       <TreeCanvas
@@ -93,6 +101,14 @@ export function TreeView({
         openPersonId={openPersonId}
       />
     </ReactFlowProvider>
+  )
+}
+
+function TreeLoading() {
+  return (
+    <div className="app-bg flex h-dvh w-full items-center justify-center">
+      <p className="text-sm text-slate-500">Loading…</p>
+    </div>
   )
 }
 

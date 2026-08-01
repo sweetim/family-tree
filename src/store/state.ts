@@ -227,6 +227,15 @@ let persistenceRestoreToken = 0
  */
 let ancestorTreeLinks = new Map<string, string>()
 
+/**
+ * Tree ids that have received a fresh server snapshot during the current store
+ * generation. Unlike `TreeMeta.loaded` (which is persisted and so can already
+ * be true on reload), this set only fills as `applyTreeSnapshot` runs this
+ * session, so the tree view can hold its loading state until the first frame
+ * reflects the authoritative server data instead of stale persisted state.
+ */
+let freshlyLoadedTrees = new Set<string>()
+
 function persistedSnapshot(): PersistedStore {
   return {
     state,
@@ -1613,6 +1622,7 @@ export async function deleteTreeOnServer(treeId: string): Promise<void> {
 }
 
 export function applyTreeSnapshot(snapshot: TreeSnapshotResponse): void {
+  freshlyLoadedTrees.add(snapshot.tree.id)
   if (!snapshot.partial) {
     update(
       (previous) => ({
@@ -2442,6 +2452,7 @@ export function resetStore(): void {
   dirtyState = emptyDirtyState()
   remoteTombstoneClocks = emptyTombstoneClocks()
   ancestorTreeLinks = new Map()
+  freshlyLoadedTrees = new Set()
   nextRevision = 1
   deviceId = newId()
   mutationIdsByBatch.clear()
@@ -2528,6 +2539,20 @@ export async function restorePersistentStore(userId: string): Promise<void> {
 
 export function useHydrated(): boolean {
   return useSyncExternalStore(subscribe, getHydrated, getHydrated)
+}
+
+/**
+ * True once the tree has received a fresh server snapshot during the current
+ * store generation (i.e. `applyTreeSnapshot` has run for it this session).
+ * Used to hold the tree view on its loading state until the first visible
+ * frame is the authoritative server state, not stale persisted data.
+ */
+export function useTreeFreshlyLoaded(treeId: string): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => freshlyLoadedTrees.has(treeId),
+    () => freshlyLoadedTrees.has(treeId),
+  )
 }
 
 export function useSyncStatus(): SyncStatus {
