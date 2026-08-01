@@ -111,7 +111,7 @@ export function ReadonlyDetails({
             onSelect={(id) => navigate(`/tree/${ancestorTree.id}/p/${id}`)}
           />
         ) : (
-          <p className="text-xs text-slate-400">None</p>
+          <p className="text-xs text-slate-400">Unknown</p>
         )}
       </Section>
       <Section
