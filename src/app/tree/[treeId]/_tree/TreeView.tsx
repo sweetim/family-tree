@@ -13,7 +13,7 @@ import {
   ReactFlowProvider,
   useReactFlow,
 } from "@xyflow/react"
-import { Link2, Menu, PanelLeftOpen, X } from "lucide-react"
+import { ChevronRight, Link2, Menu, X } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
 import { PersonNode } from "@/components/PersonNode"
@@ -604,9 +604,9 @@ function TreeCanvas({
               aria-label="Show panel"
               title="Show panel"
               onClick={() => setSidebarHidden(false)}
-              className="absolute left-3 top-3 z-20 hidden h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-600 shadow-soft ring-1 ring-slate-200 transition-colors hover:bg-slate-50 active:scale-95 print:hidden md:inline-flex"
+              className="absolute top-1/2 left-0 z-20 hidden h-14 w-6 -translate-y-1/2 items-center justify-center rounded-r-lg border-y border-r border-slate-200 bg-white/95 text-slate-400 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-600 print:hidden md:inline-flex"
             >
-              <PanelLeftOpen className="h-5 w-5" />
+              <ChevronRight className="h-4 w-4" />
             </button>
           )}
           <div className="absolute left-3 top-3 z-20 print:hidden md:hidden">

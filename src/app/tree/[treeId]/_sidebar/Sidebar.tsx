@@ -115,7 +115,7 @@ export function Sidebar({
         aria-label="Collapse panel"
         title="Collapse panel"
         onClick={onCollapse}
-        className="absolute top-4 right-0 z-50 hidden h-9 w-9 translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-soft transition-colors hover:bg-slate-50 hover:text-slate-700 md:inline-flex"
+        className="absolute top-1/2 right-0 z-50 hidden h-14 w-6 -translate-y-1/2 translate-x-full items-center justify-center rounded-r-lg border-y border-r border-slate-200 bg-white/95 text-slate-400 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt-600 md:inline-flex"
       >
         <ChevronLeft className="h-4 w-4" />
       </button>
@@ -129,7 +129,7 @@ export function Sidebar({
             <ArrowLeft className="h-6 w-6" />
           </Link>
           <span className="text-sm font-medium text-slate-400">Home</span>
-          <div className="ml-auto mr-3">
+          <div className="ml-auto">
             <AccountMenu />
           </div>
         </div>
