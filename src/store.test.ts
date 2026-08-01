@@ -1894,6 +1894,233 @@ describe("dirty tracking and push wires", () => {
     }
   })
 
+  test("device resolution force-overrides the server version", async () => {
+    const store = await freshStore()
+    store.applyFullPull(
+      fullPull({
+        persons: [
+          {
+            id: "yuet-lan",
+            name: "Yuet Lan",
+            revision: 1,
+            updatedAt: timestamp,
+          },
+          {
+            id: "hee-keong",
+            name: "Hee Keong",
+            revision: 1,
+            updatedAt: timestamp,
+          },
+        ],
+        trees: [
+          {
+            id: "tree",
+            name: "Tree",
+            createdAt: timestamp,
+            revision: 1,
+            updatedAt: timestamp,
+            ownerId: "owner",
+          },
+        ],
+        treeMembers: [
+          {
+            treeId: "tree",
+            personId: "yuet-lan",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+          {
+            treeId: "tree",
+            personId: "hee-keong",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      }),
+    )
+    const noIds = {
+      persons: [],
+      trees: [],
+      treeMembers: [],
+      unions: [],
+      unionEvents: [],
+      treeUnions: [],
+      parentChildRelationships: [],
+      treeParentChildRelationships: [],
+    }
+    let mutations = 0
+    let retryBody:
+      | {
+          records: {
+            persons: Array<{ id: string; revision?: number; force?: boolean }>
+          }
+        }
+      | undefined
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input)
+      if (url === "/api/mutations") {
+        mutations++
+        if (mutations === 1) {
+          return new Response(
+            JSON.stringify({
+              applied: noIds,
+              skipped: {
+                ...noIds,
+                persons: ["yuet-lan", "hee-keong"],
+              },
+              serverTime: timestamp,
+              mutationId: "conflict-mutation",
+              status: "conflict",
+              conflict: {
+                retryable: true,
+                reason: "revision-mismatch",
+                records: {
+                  ...noIds,
+                  persons: [
+                    {
+                      id: "yuet-lan",
+                      name: "Server",
+                      revision: 2,
+                      updatedAt: timestamp,
+                    },
+                    {
+                      id: "hee-keong",
+                      name: "Server",
+                      revision: 2,
+                      updatedAt: timestamp,
+                    },
+                  ],
+                },
+              },
+            }),
+            { status: 409 },
+          )
+        }
+        retryBody = JSON.parse(String(init?.body))
+        return new Response(
+          JSON.stringify({
+            applied: { ...noIds, persons: ["yuet-lan", "hee-keong"] },
+            skipped: noIds,
+            serverTime: timestamp,
+            mutationId: "retry-mutation",
+            status: "applied",
+          }),
+        )
+      }
+      if (url.startsWith("/api/trees/tree/snapshot")) {
+        return new Response(
+          JSON.stringify({
+            tree: {
+              id: "tree",
+              name: "Tree",
+              ownerId: "owner",
+              createdAt: timestamp,
+              updatedAt: timestamp,
+              revision: 1,
+            },
+            records: {
+              ...noIds,
+              persons: [
+                {
+                  id: "yuet-lan",
+                  name: "Server",
+                  revision: 2,
+                  updatedAt: timestamp,
+                },
+                {
+                  id: "hee-keong",
+                  name: "Server",
+                  revision: 2,
+                  updatedAt: timestamp,
+                },
+              ],
+              treeMembers: [
+                {
+                  treeId: "tree",
+                  personId: "yuet-lan",
+                  createdAt: timestamp,
+                  updatedAt: timestamp,
+                },
+                {
+                  treeId: "tree",
+                  personId: "hee-keong",
+                  createdAt: timestamp,
+                  updatedAt: timestamp,
+                },
+              ],
+            },
+            syncVersion: 1,
+            cursor: "snapshot-cursor",
+          }),
+        )
+      }
+      if (url.startsWith("/api/sync")) {
+        return new Response(
+          JSON.stringify(
+            fullPull({
+              persons: [
+                {
+                  id: "yuet-lan",
+                  name: "Server",
+                  revision: 2,
+                  updatedAt: timestamp,
+                },
+                {
+                  id: "hee-keong",
+                  name: "Server",
+                  revision: 2,
+                  updatedAt: timestamp,
+                },
+              ],
+            }),
+          ),
+        )
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    try {
+      update((previous) => {
+        const yuetLan = previous.persons["yuet-lan"]
+        const heeKeong = previous.persons["hee-keong"]
+        if (!yuetLan || !heeKeong) return previous
+        return {
+          ...previous,
+          persons: {
+            ...previous.persons,
+            "yuet-lan": { ...yuetLan, name: "Local Yuet Lan" },
+            "hee-keong": { ...heeKeong, name: "Local Hee Keong" },
+          },
+        }
+      })
+      const operationId = store
+        .snapshotDirty()
+        .persons.get("yuet-lan")?.operationId
+      if (!operationId) throw new Error("expected dirty operation id")
+
+      await store.synchronizePending()
+      expect(store.snapshotDirty().persons.get("yuet-lan")?.blocked).toBe(true)
+      expect(store.snapshotDirty().persons.get("hee-keong")?.blocked).toBe(true)
+
+      const result = await store.resolveBlockedOperation(
+        operationId,
+        "device",
+        "tree",
+      )
+      expect(result).toBe("resolved")
+      expect(mutations).toBe(2)
+      const retryPersons = retryBody?.records.persons ?? []
+      expect(retryPersons).toHaveLength(2)
+      for (const person of retryPersons) {
+        expect(person.force).toBe(true)
+      }
+      expect(store.snapshotDirty().persons.size).toBe(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test("device resolution restores a missing parent dependency", async () => {
     const store = await freshStore()
     const serverPull = fullPull({

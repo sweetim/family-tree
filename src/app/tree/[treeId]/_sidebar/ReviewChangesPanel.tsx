@@ -140,10 +140,7 @@ export function ReviewChangesPanel({
                               <button
                                 type="button"
                                 key={side}
-                                disabled={
-                                  isResolving
-                                  || (side === "device" && !change.retryable)
-                                }
+                                disabled={isResolving}
                                 onClick={() => void resolve(change, side)}
                                 className="rounded-xl bg-white p-3 text-left ring-1 ring-slate-200 transition-colors hover:bg-cobalt-50 hover:ring-cobalt-400 disabled:cursor-wait disabled:opacity-50"
                               >

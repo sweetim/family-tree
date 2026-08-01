@@ -63,7 +63,10 @@ refresh.
 Every synchronized row carries a server-owned positive integer `revision`.
 Existing updates and tombstones must send the revision last observed from the
 server. New records omit it. Client timestamps are metadata only and never
-decide write ordering.
+decide write ordering. A person record may carry `force: true` when the user
+explicitly resolves a conflict toward their local version; the server then
+ignores the revision precondition for that row while still enforcing ACL and the
+no-resurrect (deleted-row) guard.
 
 The server serializes duplicate mutation IDs, checks ACL and graph invariants,
 and applies the complete logical mutation in one interactive PostgreSQL

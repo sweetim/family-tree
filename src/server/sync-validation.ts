@@ -147,7 +147,16 @@ function isValidPersonWire(value: unknown, now: Date): boolean {
     hasExactKeys(
       value,
       ["id", "name", "updatedAt"],
-      ["dob", "dod", "gender", "birthplace", "photo", "ownerId", "revision"],
+      [
+        "dob",
+        "dod",
+        "gender",
+        "birthplace",
+        "photo",
+        "ownerId",
+        "revision",
+        "force",
+      ],
     )
     && isValidSyncId(value.id)
     && isValidText(value.name)
@@ -159,6 +168,7 @@ function isValidPersonWire(value: unknown, now: Date): boolean {
     && (value.ownerId === undefined || isValidSyncId(value.ownerId))
     && isReasonableClientTimestamp(value.updatedAt, now)
     && isOptionalRevision(value.revision)
+    && (value.force === undefined || typeof value.force === "boolean")
   )
 }
 

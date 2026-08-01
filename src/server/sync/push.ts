@@ -1554,9 +1554,10 @@ export async function postSync(request: Request): Promise<Response> {
           classify(applied, skipped, "persons", wire.id, rows.length > 0)
           continue
         }
+        const forced = wire.force === true
         if (
           existing.deletedAt
-          || existing.revision !== wire.revision
+          || (!forced && existing.revision !== wire.revision)
           || !canWrite(await roleForPerson(wire.id))
           || (wire.photo !== undefined
             && wire.photo !== null
@@ -1584,7 +1585,7 @@ export async function postSync(request: Request): Promise<Response> {
           FROM ${persons}
           WHERE ${persons.id} = ${wire.id}
             AND ${persons.deletedAt} IS NULL
-            AND ${persons.revision} = ${wire.revision ?? 0}
+            AND ${forced ? sql`TRUE` : sql`${persons.revision} = ${wire.revision ?? 0}`}
           FOR UPDATE
         ),
         updated_person AS (

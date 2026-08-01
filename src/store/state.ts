@@ -88,6 +88,7 @@ export type DirtyRecord = {
   sourceId?: string
   changedAt?: number
   conflictId?: string
+  force?: boolean
 }
 export type DirtyMap = Map<string, DirtyRecord>
 export type DirtyState = Record<DirtyCollection, DirtyMap>
@@ -1149,6 +1150,7 @@ export function buildPushWires(
         deletedAt: now,
       })
     } else {
+      const dirtyPerson = dirty.persons.get(id)
       persons.push({
         id,
         name: person.name,
@@ -1156,11 +1158,12 @@ export function buildPushWires(
         dod: person.dod,
         gender: person.gender,
         birthplace: person.birthplace,
-        revision: dirty.persons.get(id)?.baseRevision ?? person.revision,
+        revision: dirtyPerson?.baseRevision ?? person.revision,
         ...(isStoredPhotoMarker(person.photo)
           ? {}
           : { photo: person.photo ?? null }),
         updatedAt: person.updatedAt ?? now,
+        ...(dirtyPerson?.force ? { force: true } : {}),
       })
     }
   }
@@ -2860,6 +2863,7 @@ export async function resolveBlockedOperation(
         revision: nextRevision++,
         operationId,
         conflictId: undefined,
+        force: true,
       })
       requeued++
     }

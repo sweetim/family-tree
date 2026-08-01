@@ -167,6 +167,12 @@ export type PersonPushRecordWire = Omit<
 > & {
   /** Omitted keeps the stored photo; null removes it; a data URL replaces it. */
   photo?: string | null
+  /**
+   * Set by an explicit "Your device" conflict resolution to make the local
+   * value win: the server bypasses the optimistic-concurrency revision
+   * precondition while still enforcing ACL and the no-resurrect guard.
+   */
+  force?: boolean
 }
 export type PersonPushWire = PersonPushRecordWire | TombstoneWire
 export type TreePushRecordWire = Omit<

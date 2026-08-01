@@ -64,8 +64,12 @@ The account menu displays `saved`, `saving`, `offline`, or `conflict` state.
 When blocked server mutations affect the open tree, its sidebar shows a
 **Review changes** panel grouped by logical user operation. Immutable device and
 server snapshots are persisted for comparison. **Keep my change** rebases the
-whole operation, while **Use server version** discards only unchanged records
-from that operation, preserving edits made after the conflict. Choosing the
+whole operation and force-applies person edits — bypassing the
+optimistic-concurrency revision check (ACL and the no-resurrect guard still
+apply) so the local value wins — while **Use server version** discards only
+unchanged records from that operation, preserving edits made after the conflict.
+The device option stays available even after a refusal, so a stuck conflict is
+never permanently locked onto the server version. Choosing the
 server also removes optimistic records that never committed, so rolled-back
 relationship facts cannot survive locally as dangling dependencies.
 
