@@ -2200,7 +2200,6 @@ describe("dirty tracking and push wires", () => {
             parentChildRelationshipId: string
             treeId: string
           }>
-          persons: Array<{ id: string; force?: boolean }>
         }
       | undefined
     const originalFetch = globalThis.fetch
@@ -2356,10 +2355,6 @@ describe("dirty tracking and push wires", () => {
             association.parentChildRelationshipId === replacementRelationshipId,
         ),
       ).toBe(true)
-      expect(retryRecords?.persons).toEqual([
-        expect.objectContaining({ id: "parent", force: true }),
-        expect.objectContaining({ id: "child", force: true }),
-      ])
       expect(
         replacementRelationshipId
           ? store.getSnapshot().parentChildRelationships[
@@ -2367,6 +2362,215 @@ describe("dirty tracking and push wires", () => {
             ]?.revision
           : undefined,
       ).toBe(1)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test("device resolution adopts an equivalent canonical parent relationship", async () => {
+    const store = await freshStore()
+    const baseRecords = {
+      persons: [
+        { id: "parent", name: "Parent", revision: 1, updatedAt: timestamp },
+        { id: "child", name: "Child", revision: 2, updatedAt: timestamp },
+      ],
+      trees: [
+        {
+          id: "tree",
+          name: "Tree",
+          createdAt: timestamp,
+          revision: 1,
+          updatedAt: timestamp,
+          ownerId: "owner",
+        },
+      ],
+      treeMembers: [
+        {
+          treeId: "tree",
+          personId: "parent",
+          revision: 1,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        {
+          treeId: "tree",
+          personId: "child",
+          revision: 1,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      ],
+    }
+    store.applyFullPull(fullPull(baseRecords))
+    const canonicalRelationship = {
+      id: "canonical-relationship",
+      parentPersonId: "parent",
+      childPersonId: "child",
+      type: "biological" as const,
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    const canonicalAssociation = {
+      treeId: "tree",
+      parentChildRelationshipId: canonicalRelationship.id,
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    const authoritativePull = fullPull({
+      ...baseRecords,
+      parentChildRelationships: [canonicalRelationship],
+      treeParentChildRelationships: [canonicalAssociation],
+    })
+    const noIds = {
+      persons: [],
+      trees: [],
+      treeMembers: [],
+      unions: [],
+      unionEvents: [],
+      treeUnions: [],
+      parentChildRelationships: [],
+      treeParentChildRelationships: [],
+    }
+    const localRelationshipId = "local-relationship"
+    const localAssociationKey = store.treeParentChildRelationshipKey(
+      "tree",
+      localRelationshipId,
+    )
+    let mutations = 0
+    let snapshots = 0
+    let pulls = 0
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input) => {
+      const url = String(input)
+      if (url === "/api/mutations") {
+        mutations++
+        if (mutations > 1) {
+          throw new Error("canonical adoption must not retry the mutation")
+        }
+        return new Response(
+          JSON.stringify({
+            applied: noIds,
+            skipped: {
+              ...noIds,
+              persons: ["parent", "child"],
+              parentChildRelationships: [localRelationshipId],
+              treeParentChildRelationships: [localAssociationKey],
+            },
+            serverTime: timestamp,
+            mutationId: "canonical-conflict",
+            status: "conflict",
+            conflict: {
+              retryable: true,
+              reason: "missing-parent-relationship",
+              records: {
+                ...noIds,
+                persons: authoritativePull.own.persons,
+              },
+              missingDependencies: {
+                parentChildRelationships: [localRelationshipId],
+              },
+            },
+          }),
+          { status: 409 },
+        )
+      }
+      if (url.startsWith("/api/sync")) {
+        pulls++
+        return new Response(JSON.stringify(authoritativePull))
+      }
+      if (url.startsWith("/api/trees/tree/snapshot")) {
+        snapshots++
+        return new Response(
+          JSON.stringify({
+            tree: authoritativePull.own.trees[0],
+            records: {
+              persons: authoritativePull.own.persons,
+              treeMembers: authoritativePull.own.treeMembers,
+              unions: [],
+              unionEvents: [],
+              treeUnions: [],
+              parentChildRelationships: [canonicalRelationship],
+              treeParentChildRelationships: [canonicalAssociation],
+            },
+            syncVersion: 1,
+            cursor: "snapshot-cursor",
+          }),
+        )
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    }) as typeof fetch
+
+    try {
+      update((previous) => {
+        const parent = previous.persons.parent
+        const child = previous.persons.child
+        if (!parent || !child) return previous
+        return {
+          ...previous,
+          persons: {
+            ...previous.persons,
+            parent: { ...parent },
+            child: { ...child },
+          },
+          parentChildRelationships: {
+            [localRelationshipId]: {
+              id: localRelationshipId,
+              parentPersonId: "parent",
+              childPersonId: "child",
+              type: "biological",
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          },
+          treeParentChildRelationships: {
+            [localAssociationKey]: {
+              treeId: "tree",
+              parentChildRelationshipId: localRelationshipId,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          },
+        }
+      })
+      const operationId = store
+        .snapshotDirty()
+        .parentChildRelationships.get(localRelationshipId)?.operationId
+      if (!operationId) throw new Error("expected dirty operation id")
+
+      await store.synchronizePending()
+      const replacementRelationshipId = [
+        ...store.snapshotDirty().parentChildRelationships.keys(),
+      ][0]
+      if (!replacementRelationshipId) {
+        throw new Error("expected recreated relationship")
+      }
+
+      const result = await store.resolveBlockedOperation(
+        operationId,
+        "device",
+        "tree",
+      )
+
+      expect(result).toBe("resolved")
+      expect(mutations).toBe(1)
+      expect(pulls).toBe(1)
+      expect(snapshots).toBe(1)
+      expect(
+        store.getSnapshot().parentChildRelationships[canonicalRelationship.id],
+      ).toEqual(canonicalRelationship)
+      expect(
+        store.getSnapshot().parentChildRelationships[replacementRelationshipId],
+      ).toBeUndefined()
+      expect(
+        store.getSnapshot().treeParentChildRelationships[
+          store.treeParentChildRelationshipKey("tree", canonicalRelationship.id)
+        ],
+      ).toEqual(canonicalAssociation)
+      expect(store.snapshotDirty().parentChildRelationships.size).toBe(0)
+      expect(store.snapshotDirty().treeParentChildRelationships.size).toBe(0)
+      expect(store.snapshotDirty().persons.size).toBe(0)
     } finally {
       globalThis.fetch = originalFetch
     }

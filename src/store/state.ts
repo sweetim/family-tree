@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from "react"
 import type {
+  ParentChildRelationshipRecordWire,
   ParentChildRelationshipWire,
   PersonPushWire,
+  PersonRecordWire,
   PersonWire,
   SyncChangePage,
   LocalRole as SyncLocalRole,
@@ -14,6 +16,7 @@ import type {
   TreeManifestItem,
   TreeManifestResponse,
   TreeMemberWire,
+  TreeParentChildRelationshipRecordWire,
   TreeParentChildRelationshipWire,
   TreePushWire,
   TreeSnapshotResponse,
@@ -2797,6 +2800,207 @@ export async function resolveBlockedOperation(
     } catch {
       freshRecords = undefined
     }
+    if (conflict?.reason === "missing-parent-relationship" && freshRecords) {
+      type CanonicalAdoption = {
+        localRelationshipId: string
+        canonicalRelationship: ParentChildRelationshipRecordWire
+        associations: Array<{
+          localKey: string
+          canonicalKey: string
+          canonicalAssociation: TreeParentChildRelationshipRecordWire
+        }>
+      }
+      const serverRelationships = freshRecords.parentChildRelationships.filter(
+        (wire): wire is ParentChildRelationshipRecordWire =>
+          !("deletedAt" in wire),
+      )
+      const serverAssociations =
+        freshRecords.treeParentChildRelationships.filter(
+          (wire): wire is TreeParentChildRelationshipRecordWire =>
+            !("deletedAt" in wire),
+        )
+      const coveredRecords = new Set<string>()
+      const adoptions: CanonicalAdoption[] = []
+
+      for (const record of currentRecords) {
+        if (record.collection !== "parentChildRelationships") continue
+        const current = dirtyState.parentChildRelationships.get(record.id)
+        const localRelationship = state.parentChildRelationships[record.id]
+        if (
+          !matchesCapturedIntent(current, record.dirty)
+          || !localRelationship
+        ) {
+          continue
+        }
+        const canonicalRelationship = serverRelationships.find(
+          (candidate) =>
+            candidate.parentPersonId === localRelationship.parentPersonId
+            && candidate.childPersonId === localRelationship.childPersonId,
+        )
+        if (!canonicalRelationship) continue
+
+        const localAssociations = currentRecords.filter((candidate) => {
+          if (candidate.collection !== "treeParentChildRelationships") {
+            return false
+          }
+          return (
+            state.treeParentChildRelationships[candidate.id]
+              ?.parentChildRelationshipId === record.id
+          )
+        })
+        if (localAssociations.length === 0) continue
+
+        const associations: CanonicalAdoption["associations"] = []
+        let allAssociationsExist = true
+        for (const associationRecord of localAssociations) {
+          const localAssociation =
+            state.treeParentChildRelationships[associationRecord.id]
+          const canonicalAssociation = serverAssociations.find(
+            (candidate) =>
+              candidate.treeId === localAssociation?.treeId
+              && candidate.parentChildRelationshipId
+                === canonicalRelationship.id,
+          )
+          if (!localAssociation || !canonicalAssociation) {
+            allAssociationsExist = false
+            break
+          }
+          associations.push({
+            localKey: associationRecord.id,
+            canonicalKey: treeParentChildRelationshipKey(
+              canonicalAssociation.treeId,
+              canonicalRelationship.id,
+            ),
+            canonicalAssociation,
+          })
+        }
+        if (!allAssociationsExist) continue
+
+        coveredRecords.add(`parentChildRelationships:${record.id}`)
+        for (const association of associations) {
+          coveredRecords.add(
+            `treeParentChildRelationships:${association.localKey}`,
+          )
+        }
+        adoptions.push({
+          localRelationshipId: record.id,
+          canonicalRelationship,
+          associations,
+        })
+      }
+
+      const linkedPersonIds = new Set(
+        adoptions.flatMap((adoption) => [
+          adoption.canonicalRelationship.parentPersonId,
+          adoption.canonicalRelationship.childPersonId,
+        ]),
+      )
+      const serverPeople = freshRecords.persons.filter(
+        (wire): wire is PersonRecordWire => !("deletedAt" in wire),
+      )
+      const authoritativePeople = new Map<string, PersonRecordWire>()
+      for (const record of currentRecords) {
+        if (
+          record.collection !== "persons"
+          || !linkedPersonIds.has(record.id)
+        ) {
+          continue
+        }
+        const current = dirtyState.persons.get(record.id)
+        const localPerson = state.persons[record.id]
+        const serverPerson = serverPeople.find(
+          (candidate) => candidate.id === record.id,
+        )
+        if (
+          !matchesCapturedIntent(current, record.dirty)
+          || !localPerson
+          || !serverPerson
+        ) {
+          continue
+        }
+        const photoMatches = serverPerson.hasPhoto
+          ? isStoredPhotoMarker(localPerson.photo)
+          : localPerson.photo === serverPerson.photo
+        if (
+          localPerson.name === serverPerson.name
+          && localPerson.dob === serverPerson.dob
+          && localPerson.dod === serverPerson.dod
+          && localPerson.gender === serverPerson.gender
+          && localPerson.birthplace === serverPerson.birthplace
+          && photoMatches
+        ) {
+          coveredRecords.add(`persons:${record.id}`)
+          authoritativePeople.set(record.id, serverPerson)
+        }
+      }
+
+      const operationAlreadyExistsOnServer =
+        adoptions.length > 0
+        && currentRecords.every((record) =>
+          coveredRecords.has(`${record.collection}:${record.id}`),
+        )
+      if (operationAlreadyExistsOnServer) {
+        for (const record of currentRecords) {
+          const current = dirtyState[record.collection].get(record.id)
+          if (!matchesCapturedIntent(current, record.dirty)) continue
+          const token = dirtyToken(record.collection, record.id, current)
+          if (token) clearedDirtyTokens.add(token)
+          dirtyState[record.collection].delete(record.id)
+        }
+        update(
+          (previous) => {
+            const parentChildRelationships = {
+              ...previous.parentChildRelationships,
+            }
+            const treeParentChildRelationships = {
+              ...previous.treeParentChildRelationships,
+            }
+            const persons = { ...previous.persons }
+            for (const serverPerson of authoritativePeople.values()) {
+              persons[serverPerson.id] = {
+                id: serverPerson.id,
+                name: serverPerson.name,
+                dob: serverPerson.dob,
+                dod: serverPerson.dod,
+                gender: serverPerson.gender,
+                birthplace: serverPerson.birthplace,
+                photo: serverPerson.hasPhoto
+                  ? STORED_PHOTO_MARKER
+                  : serverPerson.photo,
+                revision: serverPerson.revision,
+                updatedAt: serverPerson.updatedAt,
+                ownerId: serverPerson.ownerId,
+              }
+            }
+            for (const adoption of adoptions) {
+              delete parentChildRelationships[adoption.localRelationshipId]
+              parentChildRelationships[adoption.canonicalRelationship.id] = {
+                ...adoption.canonicalRelationship,
+              }
+              for (const association of adoption.associations) {
+                delete treeParentChildRelationships[association.localKey]
+                treeParentChildRelationships[association.canonicalKey] = {
+                  ...association.canonicalAssociation,
+                }
+              }
+            }
+            return {
+              ...previous,
+              persons,
+              parentChildRelationships,
+              treeParentChildRelationships,
+            }
+          },
+          { remote: true },
+        )
+        clearedOperationConflictIds.add(operationId)
+        schedulePersistence()
+        setSyncStatus(statusFromDirtyState())
+        notifyListeners()
+        await persistCurrentStore()
+        return "resolved"
+      }
+    }
     type ConflictRecordRef = { collection: DirtyCollection; id: string }
     const revisionIn = (
       records: SyncRecordSet | undefined,
@@ -2883,34 +3087,6 @@ export async function resolveBlockedOperation(
         force: true,
       })
       requeued++
-    }
-    // A missing-parent-relationship conflict means a person the link references
-    // is absent server-side (the link never committed). Force-include those
-    // people in this retry so the relationship has endpoints to attach to.
-    if (conflict?.reason === "missing-parent-relationship") {
-      const linkedPersonIds = new Set<string>()
-      for (const record of currentRecords) {
-        if (record.collection !== "parentChildRelationships") continue
-        const relationship = state.parentChildRelationships[record.id]
-        if (!relationship) continue
-        linkedPersonIds.add(relationship.parentPersonId)
-        linkedPersonIds.add(relationship.childPersonId)
-      }
-      for (const personId of linkedPersonIds) {
-        const person = state.persons[personId]
-        if (!person) continue
-        const existing = dirtyState.persons.get(personId)
-        dirtyState.persons.set(personId, {
-          action: "upsert",
-          revision: nextRevision++,
-          baseRevision: existing?.baseRevision ?? person.revision,
-          operationId,
-          sourceId: existing?.sourceId ?? storeInstanceId,
-          changedAt: Date.now(),
-          force: true,
-        })
-        requeued++
-      }
     }
     if (requeued === 0) {
       if (conflict) clearedOperationConflictIds.add(operationId)

@@ -65,10 +65,8 @@ Existing updates and tombstones must send the revision last observed from the
 server. New records omit it. Client timestamps are metadata only and never
 decide write ordering. A person record may carry `force: true` when the user
 explicitly resolves a conflict toward their local version; the server then
-ignores the revision precondition for that row. Forced person upserts are still
-ACL-gated, and may resurrect a tombstoned row the requesting user owns (clearing
-its `deletedAt`) so a "keep my change" can restore an endpoint a link still
-references.
+ignores the revision precondition for that row. Forced person upserts remain
+ACL-gated and cannot resurrect a tombstoned row.
 
 The server serializes duplicate mutation IDs, checks ACL and graph invariants,
 and applies the complete logical mutation in one interactive PostgreSQL

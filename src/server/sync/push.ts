@@ -1555,13 +1555,10 @@ export async function postSync(request: Request): Promise<Response> {
           continue
         }
         const forced = wire.force === true
-        const resurrecting = forced && existing.deletedAt !== null
         if (
-          (!resurrecting && existing.deletedAt)
+          existing.deletedAt
           || (!forced && existing.revision !== wire.revision)
-          || (resurrecting
-            ? existing.ownerId !== me.id
-            : !canWrite(await roleForPerson(wire.id)))
+          || !canWrite(await roleForPerson(wire.id))
           || (wire.photo !== undefined
             && wire.photo !== null
             && !isPhotoDataUrl(wire.photo)
@@ -1579,40 +1576,6 @@ export async function postSync(request: Request): Promise<Response> {
           )
         } catch {
           classify(applied, skipped, "persons", wire.id, false)
-          continue
-        }
-        if (resurrecting) {
-          const result = await db
-            .update(persons)
-            .set({
-              name: wire.name,
-              dob: wire.dob ?? null,
-              dod: wire.dod ?? null,
-              gender: wire.gender ?? null,
-              birthplace: wire.birthplace ?? null,
-              photo,
-              deletedAt: null,
-              updatedAt: serverTime,
-              revision: sql`${persons.revision} + 1`,
-            })
-            .where(eq(persons.id, wire.id))
-            .returning({ id: persons.id })
-          const resurrected = result.length > 0
-          if (!resurrected && photo && isPhotoDataUrl(wire.photo)) {
-            await deletePhoto(photo)
-          }
-          if (
-            resurrected
-            && existing.photo
-            && photo !== existing.photo
-            && !isPhotoDataUrl(existing.photo)
-          ) {
-            photosToDeleteAfterCommit.add(existing.photo)
-          }
-          if (resurrected && photo && !isPhotoDataUrl(photo)) {
-            uploadedPhotos.add(photo)
-          }
-          classify(applied, skipped, "persons", wire.id, resurrected)
           continue
         }
         const result = await db.execute(

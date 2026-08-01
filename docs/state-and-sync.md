@@ -65,15 +65,16 @@ When blocked server mutations affect the open tree, its sidebar shows a
 **Review changes** panel grouped by logical user operation. Immutable device and
 server snapshots are persisted for comparison. **Keep my change** rebases the
 whole operation and force-applies person edits — bypassing the
-optimistic-concurrency revision check (ACL still applies, and a forced upsert
-may resurrect a tombstoned person the user owns) so the local value wins. For a
-`missing-parent-relationship` conflict it also force-includes the people the
-link references, so an uncommitted parent link can finally attach. **Use server
-version** discards only unchanged records from that operation, preserving edits
-made after the conflict. The device option stays available even after a refusal,
-so a stuck conflict is never permanently locked onto the server version. Choosing
-the server also removes optimistic records that never committed, so rolled-back
-relationship facts cannot survive locally as dangling dependencies.
+optimistic-concurrency revision check while retaining ACL and tombstone guards.
+For a `missing-parent-relationship` conflict, the fresh snapshot is checked for
+the same parent/child pair first. If that relationship and its tree association
+already exist, the client adopts their canonical server IDs and clears the local
+duplicate without another mutation. **Use server version** discards only
+unchanged records from that operation, preserving edits made after the conflict.
+The device option stays available even after a refusal, so a stuck conflict is
+never permanently locked onto the server version. Choosing the server also
+removes optimistic records that never committed, so rolled-back relationship
+facts cannot survive locally as dangling dependencies.
 
 ## Incremental synchronization
 
