@@ -121,6 +121,8 @@ const DATA_ISSUE_ACTIONS: Record<string, string> = {
     "Restore the parent fact or tombstone the active tree-parent association.",
   active_tree_parent_nonmember_endpoint:
     "Restore the endpoint's active tree membership or tombstone the tree-parent association.",
+  active_orphan_parent_relationship:
+    "Tombstone the unassociated parent relationship in a reviewed repair migration.",
   active_union_event_invalid_union:
     "Restore the union or tombstone the active union event.",
   self_union:
@@ -391,6 +393,25 @@ async function validateNormalizedDatabase() {
         AND membership.deleted_at IS NULL
       WHERE association.deleted_at IS NULL
         AND membership.person_id IS NULL
+
+      UNION ALL
+
+      SELECT
+        'active_orphan_parent_relationship',
+        format(
+          'relationship=%s parent=%s child=%s',
+          relationship.id,
+          relationship.parent_person_id,
+          relationship.child_person_id
+        )
+      FROM parent_child_relationships AS relationship
+      WHERE relationship.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM tree_parent_child_relationships AS association
+          WHERE association.parent_child_relationship_id = relationship.id
+            AND association.deleted_at IS NULL
+        )
 
       UNION ALL
 
