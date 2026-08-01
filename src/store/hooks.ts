@@ -3,7 +3,10 @@ import {
   descendantsOf,
   type FamilyData,
   type ParentChildRelationship,
+  type ParentChildRelationshipType,
+  type ParentLink,
   type Person,
+  type PersonIdentity,
   type PersonInput,
   projectTree,
   projectTrees,
@@ -26,6 +29,7 @@ import {
   ensureParentChildRelationship,
   removeParentRecords,
   setParentAdoptedRecords,
+  setParentTypeRecords,
 } from "./parent-child"
 import { mergePersonRecords, reconcileTreeData } from "./reconcile"
 import type { TreeSeed } from "./seed"
@@ -178,19 +182,24 @@ export function useAncestorTree(
   }, [graph, links, personId, currentTreeId])
 }
 
-const NO_PARENTS: Person[] = []
+const NO_PARENT_LINKS: { link: ParentLink; person: Person }[] = []
 
 /**
  * A person's parents that live in their "ancestor family" — another tree that
- * contains both them and at least one parent — so the read-only sidebar can
- * surface those parents even when the current tree has none. The ancestor tree
- * is loaded on demand (mirroring {@link useMembersOf}); until it resolves,
- * `parents` is empty. Returns `ancestorTree` so callers can link into it.
+ * contains both them and at least one parent — so they can be shown (and, in
+ * edit mode, edited) even when the current tree has none. Each entry pairs the
+ * parent-child link (carrying the relationship type, e.g. adoptive) with the
+ * resolved parent. The ancestor tree is loaded on demand (mirroring
+ * {@link useMembersOf}); until it resolves, `parents` is empty. Returns
+ * `ancestorTree` so callers can link into it.
  */
 export function useAncestorParents(
   personId: string,
   currentTreeId: string,
-): { ancestorTree: TreeMeta | undefined; parents: Person[] } {
+): {
+  ancestorTree: TreeMeta | undefined
+  parents: { link: ParentLink; person: Person }[]
+} {
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
   const ancestorTree = useAncestorTree(personId, currentTreeId)
   const ancestorTreeId = ancestorTree?.id
@@ -216,15 +225,27 @@ export function useAncestorParents(
     [graph, ancestorTreeId],
   )
   const parents = useMemo(() => {
-    if (!ancestorTreeId) return NO_PARENTS
+    if (!ancestorTreeId) return NO_PARENT_LINKS
     const projected = people[personId]
-    if (!projected) return NO_PARENTS
+    if (!projected) return NO_PARENT_LINKS
     return projected.parents
-      .map((link) => people[link.id])
-      .filter((person): person is Person => !!person)
+      .map((link) => {
+        const parent = people[link.id]
+        return parent ? { link, person: parent } : undefined
+      })
+      .filter((entry): entry is { link: ParentLink; person: Person } => !!entry)
   }, [people, personId, ancestorTreeId])
 
   return { ancestorTree, parents }
+}
+
+/** A person's global identity, even when they aren't a member of any tree you
+ *  are viewing (e.g. an ancestor parent shown from another tree). */
+export function usePersonIdentity(
+  personId: string | undefined,
+): PersonIdentity | undefined {
+  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  return personId ? graph.persons[personId] : undefined
 }
 
 export function useMembersOf(
@@ -600,6 +621,31 @@ export function useFamily(treeId: string) {
     [treeId],
   )
 
+  /**
+   * Set a parent-child relationship's type as a global fact, locating the
+   * relationship by the parent/child pair alone (not scoped to this tree). Lets
+   * a parent that is only visible here via their ancestor family be edited
+   * (e.g. toggling adopted) without joining this tree.
+   */
+  const setParentType = useCallback(
+    (
+      childPersonId: string,
+      parentPersonId: string,
+      type: ParentChildRelationshipType,
+    ) => {
+      update((previous) =>
+        setParentTypeRecords(
+          previous,
+          treeId,
+          childPersonId,
+          parentPersonId,
+          type,
+        ),
+      )
+    },
+    [treeId],
+  )
+
   const linkAcrossTrees = useCallback(
     (personId: string, otherTreeId: string, otherPersonId: string) => {
       if (otherTreeId === treeId) return
@@ -827,6 +873,7 @@ export function useFamily(treeId: string) {
     addParent,
     removeParent,
     setParentAdopted,
+    setParentType,
     linkAcrossTrees,
     linkParentAcrossTrees,
     linkChildAcrossTrees,

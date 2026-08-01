@@ -13,6 +13,7 @@ export {
   useFamilyAll,
   useMembersOf,
   useMemberTrees,
+  usePersonIdentity,
   usePersonSearch,
   useTreeIndex,
   useTreePeople,

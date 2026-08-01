@@ -32,9 +32,10 @@ Private folders are prefixed `_` so Next.js excludes them from routing.
 
 | Component | Location | Responsibility |
 |---|---|---|
-| `Sidebar` | `_sidebar/Sidebar.tsx:30` | Switches between `AddForm`/`EditForm`/`MarriagePanel`/`ReadonlyDetails`/`SharePanel`/idle/viewer-readonly states; wires Export/Import JSON. Footer's Share button is owner-only (`canShare`). |
+| `Sidebar` | `_sidebar/Sidebar.tsx:30` | Switches between `AddForm`/`EditForm`/`EditPersonDetails`/`MarriagePanel`/`ReadonlyDetails`/`SharePanel`/idle/viewer-readonly states; wires Export/Import JSON. Footer's Share button is owner-only (`canShare`). |
 | `AddForm` | `_sidebar/AddForm.tsx:15` | Form for adding a member given a `Relationship`. |
-| `EditForm` | `_sidebar/EditForm.tsx:37` | Edit a person: spouses/parents/children, marriage date per spouse, cross-tree marriage, same-person merge. |
+| `EditForm` | `_sidebar/EditForm.tsx:37` | Edit a person: spouses/parents/children, marriage date per spouse, cross-tree marriage, same-person merge. In the Parents section, when this tree has none of the person's parents, their ancestor-family parents (`useAncestorParents`) render as editable rows: details (via `EditPersonDetails`) and adopted status are edited as global facts without joining this tree. |
+| `EditPersonDetails` | `_sidebar/EditPersonDetails.tsx:18` | Details-only editor for a person who isn't a member of this tree (e.g. an ancestor parent reached from another tree). Edits the shared global identity via `updatePerson`, so changes apply everywhere the person appears; relationship sections don't apply. |
 | `MarriagePanel` | `_sidebar/MarriagePanel.tsx:11` | Focused editor for one couple's marriage date, opened by clicking a union dot (`TreeActions.editMarriage`). Date field only. |
 | `PersonFields` | `_sidebar/PersonFields.tsx:28` | Reusable fields: name/gender/dates/birthplace/photo, with clipboard-paste crop. |
 | `ReadonlyDetails` | `_sidebar/ReadonlyDetails.tsx:12` | Read-only person view (viewers / not editable). When the person has no parents in the current tree but does in their ancestor family (another tree), the Parents section shows those cross-tree parents (`useAncestorParents`, loaded on demand) as read-only chips — clicking one opens it in the ancestor tree. |

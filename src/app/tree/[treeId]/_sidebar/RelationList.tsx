@@ -21,7 +21,7 @@ export function RelationList({
             key={p.id}
             type="button"
             onClick={() => onSelect(p.id)}
-            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-cobalt-50 hover:text-cobalt-700"
+            className="inline-flex min-h-[40px] items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700 transition-colors hover:bg-cobalt-50 hover:text-cobalt-700"
           >
             <GenderIcon gender={p.gender} />
             {p.name}

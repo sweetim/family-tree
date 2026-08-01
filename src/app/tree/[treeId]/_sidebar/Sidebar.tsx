@@ -11,11 +11,17 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { AccountMenu } from "@/components/AccountMenu"
-import { type FamilyStore, type TreeMeta, useBlockedChanges } from "@/store"
+import {
+  type FamilyStore,
+  type TreeMeta,
+  useBlockedChanges,
+  usePersonIdentity,
+} from "@/store"
 import { AddForm } from "./AddForm"
 import { ChoosePanel } from "./ChoosePanel"
 import { CreateFamilyPanel } from "./CreateFamilyPanel"
 import { EditForm } from "./EditForm"
+import { EditPersonDetails } from "./EditPersonDetails"
 import { LinkChildPanel } from "./LinkChildPanel"
 import { LinkParentPanel } from "./LinkParentPanel"
 import { LinkSpousePanel } from "./LinkSpousePanel"
@@ -76,6 +82,12 @@ export function Sidebar({
   const blockedChanges = useBlockedChanges(treeId)
   const editingPerson =
     state.mode === "edit" ? family.people[state.personId] : undefined
+  // A person selected for editing who isn't a member of this tree (e.g. an
+  // ancestor parent shown from another tree). Only their global details are
+  // editable here.
+  const editingIdentity = usePersonIdentity(
+    state.mode === "edit" && !editingPerson ? state.personId : undefined,
+  )
   const linkParentPerson =
     state.mode === "linkParent" ? family.people[state.personId] : undefined
   const linkSpousePerson =
@@ -225,6 +237,12 @@ export function Sidebar({
             allTrees={allTrees}
             person={editingPerson}
             onSelect={onSelect}
+            onClose={onClose}
+          />
+        ) : editingIdentity && editable ? (
+          <EditPersonDetails
+            family={family}
+            person={editingIdentity}
             onClose={onClose}
           />
         ) : editingPerson ? (

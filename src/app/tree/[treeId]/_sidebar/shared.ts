@@ -1,18 +1,18 @@
 import type { LinkKind } from "@/lib/tree-actions"
-import type { Gender, Person, PersonInput, Relationship } from "@/types"
+import type { Gender, PersonIdentity, PersonInput, Relationship } from "@/types"
 
 export const inputCls =
-  "w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm text-slate-800 transition-colors placeholder:text-slate-400 focus:border-cobalt-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cobalt-200"
+  "min-h-[40px] w-full rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2 text-sm text-slate-800 transition-colors placeholder:text-slate-400 focus:border-cobalt-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-cobalt-200"
 export const labelCls =
   "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
 export const primaryBtn =
-  "inline-flex items-center justify-center gap-1.5 rounded-xl bg-cobalt-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+  "inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl bg-cobalt-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
 export const ghostBtn =
-  "rounded-xl px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
+  "inline-flex min-h-[40px] items-center justify-center rounded-xl px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
 export const chip =
-  "inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 py-1 pl-3 pr-1 text-xs text-slate-700"
+  "inline-flex min-h-[40px] items-center gap-1 rounded-full border border-slate-200 bg-slate-50 py-1 pl-3 pr-1 text-xs text-slate-700"
 export const chipX =
-  "flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-red-100 hover:text-red-600"
+  "flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-red-100 hover:text-red-600"
 export const selectCls = `${inputCls} pr-9 select-chevron`
 
 export type SidebarState =
@@ -50,7 +50,7 @@ export type Fields = {
   photo?: string
 }
 
-export function fieldsFrom(p?: Person): Fields {
+export function fieldsFrom(p?: PersonIdentity): Fields {
   return {
     name: p?.name ?? "",
     gender: p?.gender ?? "",

@@ -116,9 +116,10 @@ export function AddForm({
                 ))}
             </select>
           </div>
-          <label className="flex items-center gap-2 text-sm text-slate-600">
+          <label className="flex min-h-[40px] items-center gap-2 px-1 text-sm text-slate-600">
             <input
               type="checkbox"
+              className="h-4 w-4"
               checked={adopted}
               onChange={(e) => setAdopted(e.target.checked)}
             />
@@ -128,9 +129,10 @@ export function AddForm({
       )}
 
       {rel.kind === "parent" && existingParent && (
-        <label className="flex items-center gap-2 text-sm text-slate-600">
+        <label className="flex min-h-[40px] items-center gap-2 px-1 text-sm text-slate-600">
           <input
             type="checkbox"
+            className="h-4 w-4"
             checked={marryExisting}
             onChange={(e) => setMarryExisting(e.target.checked)}
           />

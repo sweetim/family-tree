@@ -1,7 +1,8 @@
-import {
-  type ParentChildRelationship,
-  type ParentChildRelationshipType,
+import type {
+  ParentChildRelationship,
+  ParentChildRelationshipType,
 } from "../types"
+import { associateParentChildRelationship, treeIsWritable } from "./membership"
 import {
   type GlobalState,
   makeDraft,
@@ -9,7 +10,6 @@ import {
   now,
   treeParentChildRelationshipKey,
 } from "./state"
-import { associateParentChildRelationship, treeIsWritable } from "./membership"
 
 function parentRelationshipForPair(
   graph: GlobalState,
@@ -138,7 +138,9 @@ export function removeParentRecords(
   delete draft.treeParentChildRelationships[
     treeParentChildRelationshipKey(treeId, relationship.id)
   ]
-  const stillAssociated = Object.values(draft.treeParentChildRelationships).some(
+  const stillAssociated = Object.values(
+    draft.treeParentChildRelationships,
+  ).some(
     (association) => association.parentChildRelationshipId === relationship.id,
   )
   if (!stillAssociated) {
@@ -170,6 +172,36 @@ export function setParentAdoptedRecords(
         ...relationship,
         type: adopted ? "adoptive" : "biological",
       },
+    },
+  }
+}
+
+/**
+ * Set a parent-child relationship's type (e.g. biological/adoptive) as a
+ * global fact, locating the relationship by the parent/child pair alone — not
+ * scoped to any tree. Used to edit a parent that is visible here (via their
+ * ancestor family) but isn't a member of this tree. Still gated on the current
+ * tree being writable, since the edit originates from it.
+ */
+export function setParentTypeRecords(
+  previous: GlobalState,
+  treeId: string,
+  childPersonId: string,
+  parentPersonId: string,
+  type: ParentChildRelationshipType,
+): GlobalState {
+  if (!treeIsWritable(previous, treeId)) return previous
+  const relationship = parentRelationshipForPair(
+    previous,
+    parentPersonId,
+    childPersonId,
+  )
+  if (!relationship) return previous
+  return {
+    ...previous,
+    parentChildRelationships: {
+      ...previous.parentChildRelationships,
+      [relationship.id]: { ...relationship, type },
     },
   }
 }

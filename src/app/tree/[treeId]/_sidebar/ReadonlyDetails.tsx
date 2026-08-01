@@ -107,7 +107,7 @@ export function ReadonlyDetails({
           />
         ) : ancestorParents.length > 0 && ancestorTree ? (
           <RelationList
-            people={ancestorParents}
+            people={ancestorParents.map((entry) => entry.person)}
             onSelect={(id) => navigate(`/tree/${ancestorTree.id}/p/${id}`)}
           />
         ) : (

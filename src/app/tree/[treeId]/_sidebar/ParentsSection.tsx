@@ -1,7 +1,12 @@
 import { Users, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { Section } from "@/components/Section"
-import { type FamilyStore, type TreeMeta, useTreePeople } from "@/store"
+import {
+  type FamilyStore,
+  type TreeMeta,
+  useAncestorParents,
+  useTreePeople,
+} from "@/store"
 import { descendantsOf, type Person } from "@/types"
 import { GenderIcon } from "./GenderIcon"
 import { chipX, selectCls } from "./shared"
@@ -20,6 +25,13 @@ export function ParentsSection({
   onSelect: (id: string) => void
 }) {
   const { people } = family
+  // When this tree has none of the person's parents, surface the parents that
+  // live in their ancestor family (another tree) as editable rows. They're
+  // edited as global facts (details + adopted) without joining this tree.
+  const { ancestorTree, parents: ancestorParents } = useAncestorParents(
+    person.id,
+    treeId,
+  )
 
   const parents = person.parents
     .map((link) => ({ link, person: people[link.id] }))
@@ -82,27 +94,30 @@ export function ParentsSection({
     <Section
       title="Parents"
       icon={Users}
-      count={parents.length}
+      count={parents.length || ancestorParents.length}
     >
-      {parents.length === 0 && <p className="text-xs text-slate-400">None</p>}
+      {parents.length === 0 && ancestorParents.length === 0 && (
+        <p className="text-xs text-slate-400">None</p>
+      )}
       <div className="space-y-1.5">
         {parents.map(({ link, person: par }) => (
           <div
             key={par.id}
-            className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1.5"
+            className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1"
           >
             <button
               type="button"
-              className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
+              className="inline-flex min-h-[40px] items-center gap-1 text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
               onClick={() => onSelect(par.id)}
             >
               <GenderIcon gender={par.gender} />
               {par.name}
             </button>
             <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1 text-[11px] text-slate-500">
+              <label className="flex min-h-[40px] items-center gap-1.5 px-1 text-[11px] text-slate-500">
                 <input
                   type="checkbox"
+                  className="h-4 w-4"
                   checked={!!link.adopted}
                   onChange={(e) =>
                     family.setParentAdopted(person.id, par.id, e.target.checked)
@@ -116,12 +131,48 @@ export function ParentsSection({
                 className={chipX}
                 onClick={() => family.removeParent(person.id, par.id)}
               >
-                <X className="h-3 w-3" />
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>
         ))}
+        {parents.length === 0
+          && ancestorParents.map(({ link, person: par }) => (
+            <div
+              key={par.id}
+              className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-1"
+            >
+              <button
+                type="button"
+                className="inline-flex min-h-[40px] items-center gap-1 text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
+                onClick={() => onSelect(par.id)}
+              >
+                <GenderIcon gender={par.gender} />
+                {par.name}
+              </button>
+              <label className="flex min-h-[40px] items-center gap-1.5 px-1 text-[11px] text-slate-500">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={link.type === "adoptive"}
+                  onChange={(e) =>
+                    family.setParentType(
+                      person.id,
+                      par.id,
+                      e.target.checked ? "adoptive" : "biological",
+                    )
+                  }
+                />
+                adopted
+              </label>
+            </div>
+          ))}
       </div>
+      {parents.length === 0 && ancestorParents.length > 0 && ancestorTree && (
+        <p className="text-xs text-slate-400">
+          From {ancestorTree.name}. Edit details or adopted status here.
+        </p>
+      )}
       {person.parents.length < 2 && parentCandidates.length > 0 && (
         <select
           value=""

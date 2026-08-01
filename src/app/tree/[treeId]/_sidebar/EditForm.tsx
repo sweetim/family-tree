@@ -1,4 +1,13 @@
-import { Baby, GitMerge, Heart, Network, Plus, Trash2, X } from "lucide-react"
+import {
+  Baby,
+  Calendar,
+  GitMerge,
+  Heart,
+  Network,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react"
 import { useRouter } from "next/navigation"
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
@@ -66,6 +75,7 @@ export function EditForm({
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState("")
   const nameInputRef = useRef<HTMLInputElement>(null)
+  const [editingDateFor, setEditingDateFor] = useState<Set<string>>(new Set())
   useEffect(() => {
     if (creating) nameInputRef.current?.select()
   }, [creating])
@@ -214,38 +224,75 @@ export function EditForm({
             {spouses.length === 0 && (
               <p className="text-xs text-slate-400">None</p>
             )}
-            {spouses.map((s) => (
-              <div
-                key={s.id}
-                className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-1.5"
-              >
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
-                  onClick={() => onSelect(s.id)}
+            {spouses.map((s) => {
+              const marriageDate = person.marriageDates[s.id] ?? ""
+              const dateOpen = !!marriageDate || editingDateFor.has(s.id)
+              return (
+                <div
+                  key={s.id}
+                  className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-1"
                 >
-                  <GenderIcon gender={s.gender} />
-                  {s.name}
-                </button>
-                <input
-                  type="date"
-                  aria-label={`Marriage date with ${s.name}`}
-                  value={person.marriageDates[s.id] ?? ""}
-                  onChange={(e) =>
-                    family.updateSpouseDate(person.id, s.id, e.target.value)
-                  }
-                  className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-slate-600 focus:border-cobalt-500 focus:outline-none focus:ring-1 focus:ring-cobalt-200"
-                />
-                <button
-                  type="button"
-                  title="Remove marriage"
-                  className={chipX}
-                  onClick={() => family.unlinkSpouse(person.id, s.id)}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
+                  <button
+                    type="button"
+                    className="inline-flex min-h-[40px] min-w-0 flex-1 items-center gap-1 text-xs font-medium text-slate-700 hover:text-cobalt-700 hover:underline"
+                    onClick={() => onSelect(s.id)}
+                  >
+                    <GenderIcon gender={s.gender} />
+                    <span className="min-w-0 truncate">{s.name}</span>
+                  </button>
+                  <div className="flex flex-none items-center gap-1.5">
+                    {dateOpen ? (
+                      <input
+                        type="date"
+                        aria-label={`Marriage date with ${s.name}`}
+                        value={marriageDate}
+                        onChange={(e) =>
+                          family.updateSpouseDate(
+                            person.id,
+                            s.id,
+                            e.target.value,
+                          )
+                        }
+                        className="min-h-[40px] rounded-md border border-slate-200 bg-white px-1.5 py-1.5 text-xs text-slate-600 focus:border-cobalt-500 focus:outline-none focus:ring-1 focus:ring-cobalt-200"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        className="inline-flex min-h-[40px] items-center gap-1 px-1 text-xs text-slate-400 transition-colors hover:text-cobalt-600"
+                        onClick={() =>
+                          setEditingDateFor((prev) => {
+                            const next = new Set(prev)
+                            next.add(s.id)
+                            return next
+                          })
+                        }
+                      >
+                        <Calendar className="h-3 w-3" /> Add date
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      title="Remove marriage"
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-red-100 hover:text-red-600"
+                      onClick={async () => {
+                        const editingSession = getEditingSession(treeId)
+                        if (editingSession === null) return
+                        const ok = await confirm({
+                          title: "Remove marriage",
+                          message: `Unlink ${person.name} and ${s.name}? They'll no longer be shown as spouses.`,
+                          confirmText: "Remove",
+                          tone: "danger",
+                        })
+                        if (ok && getEditingSession(treeId) === editingSession)
+                          family.unlinkSpouse(person.id, s.id)
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
           {linkable.length > 0 && (
             <select
@@ -293,7 +340,7 @@ export function EditForm({
                 <GenderIcon gender={c.gender} />
                 <button
                   type="button"
-                  className="font-medium hover:text-cobalt-700 hover:underline"
+                  className="inline-flex items-center self-stretch font-medium hover:text-cobalt-700 hover:underline"
                   onClick={() => onSelect(c.id)}
                 >
                   {c.name}
@@ -340,7 +387,7 @@ export function EditForm({
                 <button
                   type="button"
                   title={`Open ${person.name} in ${t.name}`}
-                  className="font-medium hover:text-cobalt-700 hover:underline"
+                  className="inline-flex items-center self-stretch font-medium hover:text-cobalt-700 hover:underline"
                   onClick={() => navigate(`/tree/${t.id}/p/${person.id}`)}
                 >
                   {t.name}
@@ -351,7 +398,7 @@ export function EditForm({
                   className={chipX}
                   onClick={() => family.removeFromTree(person.id, t.id)}
                 >
-                  <X className="h-3 w-3" />
+                  <X className="h-4 w-4" />
                 </button>
               </span>
             ))}
