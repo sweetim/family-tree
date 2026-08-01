@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   Check,
   ChevronLeft,
   LoaderCircle,
@@ -123,7 +124,7 @@ export function Sidebar({
             title="Home"
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
           >
-            <ChevronLeft className="h-6 w-6" />
+            <ArrowLeft className="h-6 w-6" />
           </Link>
           <span className="text-sm font-medium text-slate-400">Home</span>
           <div className="ml-auto mr-3">

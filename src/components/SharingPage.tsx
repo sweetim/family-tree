@@ -24,6 +24,7 @@ import { authClient, useSession } from "../lib/auth-client"
 import { useOwnerShares } from "../lib/shares"
 import { type TreeIndexStore, useHydrated } from "../store"
 import { AccountMenu } from "./AccountMenu"
+import { useConfirm } from "./Confirm"
 import { LandingPage } from "./LandingPage"
 import { useToast } from "./Toast"
 
@@ -69,11 +70,13 @@ function chipCls(role: RoleValue) {
 function RoleSelect({
   value,
   disabled,
+  loading,
   label,
   onChange,
 }: {
   value: "viewer" | "editor" | undefined
   disabled: boolean
+  loading: boolean
   label: string
   onChange: (role: "viewer" | "editor" | null) => void
 }) {
@@ -138,7 +141,11 @@ function RoleSelect({
         onClick={() => setOpen((previous) => !previous)}
         className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors disabled:opacity-50 ${chipCls(current)}`}
       >
-        <Icon className="h-4 w-4" />
+        {loading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Icon className="h-4 w-4" />
+        )}
       </button>
       {open
         ? createPortal(
@@ -203,7 +210,8 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
   const { data: session, isPending } = useSession()
   const hydrated = useHydrated()
   const { trees } = index
-  const { entries, loading, submitting, setRole } = useOwnerShares()
+  const { entries, loading, setRole } = useOwnerShares()
+  const confirm = useConfirm()
   const toast = useToast()
   const [drafts, setDrafts] = useState<string[]>([])
   const [newEmail, setNewEmail] = useState("")
@@ -218,7 +226,7 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
 
   const rows = useMemo<Row[]>(() => {
     const known = new Set(entries.map((entry) => entry.email))
-    return [
+    const merged = [
       ...entries.map((entry) => ({
         email: entry.email,
         name: entry.name,
@@ -236,6 +244,20 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
           access: new Map<string, "viewer" | "editor">(),
         })),
     ]
+
+    return merged.sort((left, right) => {
+      const byName = (left.name ?? left.email).localeCompare(
+        right.name ?? right.email,
+        undefined,
+        { sensitivity: "base" },
+      )
+      return (
+        byName
+        || left.email.localeCompare(right.email, undefined, {
+          sensitivity: "base",
+        })
+      )
+    })
   }, [entries, drafts])
 
   const addPerson = useCallback(
@@ -253,17 +275,45 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
     [newEmail, rows, toast],
   )
 
-  const removePerson = useCallback(
-    async (row: Row) => {
-      for (const treeId of row.access.keys()) {
-        await setRole(row.email, treeId, null)
-      }
-      setDrafts((prev) => prev.filter((email) => email !== row.email))
+  const [op, setOp] = useState<string | null>(null)
+
+  const changeRole = useCallback(
+    (email: string, treeId: string, next: "viewer" | "editor" | null) => {
+      setOp(`role:${email}:${treeId}`)
+      void setRole(email, treeId, next).finally(() => setOp(null))
     },
     [setRole],
   )
 
-  const busy = submitting
+  const removePerson = useCallback(
+    async (row: Row) => {
+      const accessCount = row.access.size
+      const displayName = row.name ?? row.email
+      const confirmed = await confirm({
+        title: "Remove person",
+        message:
+          accessCount === 0
+            ? `Remove "${displayName}" from this list?`
+            : `Remove "${displayName}" and revoke access to ${accessCount} ${accessCount === 1 ? "tree" : "trees"}?`,
+        confirmText: "Remove",
+        tone: "danger",
+      })
+      if (!confirmed) return
+
+      setOp(`remove:${row.email}`)
+      try {
+        for (const treeId of row.access.keys()) {
+          await setRole(row.email, treeId, null)
+        }
+        setDrafts((prev) => prev.filter((email) => email !== row.email))
+      } finally {
+        setOp(null)
+      }
+    },
+    [confirm, setRole],
+  )
+
+  const busy = op !== null
   const peopleCount = entries.length
   const treeCount = ownTrees.length
 
@@ -293,7 +343,7 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
           href="/"
           className={`${primaryBtn} mt-4`}
         >
-          <ArrowLeft className="h-4 w-4" /> Back to trees
+          <ArrowLeft className="h-6 w-6" /> Home
         </Link>
       </div>
     )
@@ -316,6 +366,14 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
               </span>
             )
           })}
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            Active
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-amber-400" />
+            Pending sign-in
+          </span>
         </div>
 
         {/* Invite bar */}
@@ -383,7 +441,6 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
                         </div>
                       </th>
                     ))}
-                    <th className="w-10 border-b border-slate-200 bg-slate-50/80 backdrop-blur" />
                   </tr>
                 </thead>
                 <tbody>
@@ -392,12 +449,12 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
                       key={row.email}
                       className="group transition-colors hover:bg-slate-50/60"
                     >
-                      <td className="sticky left-0 z-10 border-b border-r border-slate-100 bg-white px-4 py-3 group-hover:bg-slate-50/60">
+                      <td className="sticky left-0 z-10 w-64 min-w-[16rem] border-b border-r border-slate-100 bg-white px-4 py-3 group-hover:bg-slate-50/60">
                         <div className="flex items-center gap-2.5">
                           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cobalt-50 text-xs font-semibold text-cobalt-700">
                             {initialFor(row.name || row.email)}
                           </span>
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-semibold text-slate-800">
                               {row.name || row.email}
                             </p>
@@ -421,6 +478,19 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
                               </span>
                             </div>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => void removePerson(row)}
+                            disabled={busy}
+                            title="Remove person"
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {op === `remove:${row.email}` ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </button>
                         </div>
                       </td>
                       {ownTrees.map((tree) => {
@@ -434,26 +504,16 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
                               <RoleSelect
                                 value={role}
                                 disabled={busy}
+                                loading={op === `role:${row.email}:${tree.id}`}
                                 label={`Access to ${tree.name}`}
                                 onChange={(next) =>
-                                  setRole(row.email, tree.id, next)
+                                  changeRole(row.email, tree.id, next)
                                 }
                               />
                             </div>
                           </td>
                         )
                       })}
-                      <td className="border-b border-slate-100 px-1 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => void removePerson(row)}
-                          disabled={busy}
-                          title="Remove person"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -468,7 +528,7 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
   return (
     <div className="min-h-dvh bg-slate-50">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-2.5 sm:px-6">
+        <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5 sm:px-6">
           <Link
             href="/"
             className="flex items-center gap-3"
@@ -490,12 +550,12 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10">
         <Link
           href="/"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-cobalt-700"
         >
-          <ArrowLeft className="h-4 w-4" /> Back to trees
+          <ArrowLeft className="h-6 w-6" /> Home
         </Link>
         <div className="mt-3 flex items-end justify-between gap-4">
           <div className="min-w-0">
