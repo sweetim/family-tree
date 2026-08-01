@@ -626,6 +626,7 @@ function TreeCanvas({
             onNodeClick={onNodeClick}
             onEdgeClick={onEdgeClick}
             onPaneClick={() => {
+              if (!canEdit) return
               if (sidebar.mode === "settings") return
               setLink(undefined)
               setSidebar({ mode: "idle" })
