@@ -65,7 +65,9 @@ When blocked server mutations affect the open tree, its sidebar shows a
 **Review changes** panel grouped by logical user operation. Immutable device and
 server snapshots are persisted for comparison. **Keep my change** rebases the
 whole operation, while **Use server version** discards only unchanged records
-from that operation, preserving edits made after the conflict.
+from that operation, preserving edits made after the conflict. Choosing the
+server also removes optimistic records that never committed, so rolled-back
+relationship facts cannot survive locally as dangling dependencies.
 
 ## Incremental synchronization
 
@@ -78,6 +80,11 @@ If history has expired, the server returns `410 resetRequired` and the client
 reloads only that tree. If access was revoked, it refreshes the manifest and
 removes the inaccessible tree. Shared-tree changes no longer force complete
 snapshots of every shared tree.
+
+Entering edit mode first flushes pending mutations, refuses to enable editing
+while a conflict remains, and loads a complete authoritative snapshot for the
+selected tree. Background polling continues to use cursor-based incremental
+changes.
 
 ## Deletion and aliases
 

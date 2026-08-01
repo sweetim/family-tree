@@ -37,6 +37,7 @@ import {
   applyTreeManifest,
   fetchTreeManifest,
   getSyncStatus,
+  hasBlockedChanges,
   synchronizePending,
   synchronizeTreeFresh,
   type TreeMeta,
@@ -169,10 +170,14 @@ function TreeCanvas({
     try {
       const stopForConflict = () => {
         if (getSyncStatus() !== "conflict") return false
-        setSidebar({ mode: "reviewChanges" })
-        setDrawerOpen(true)
-        setSidebarHidden(false)
-        toast("Review conflicting changes before editing.", "error")
+        if (hasBlockedChanges(tree.id)) {
+          setSidebar({ mode: "reviewChanges" })
+          setDrawerOpen(true)
+          setSidebarHidden(false)
+          toast("Review conflicting changes before editing.", "error")
+        } else {
+          toast("Resolve sync conflicts in the affected tree first.", "error")
+        }
         return true
       }
       await synchronizePending()

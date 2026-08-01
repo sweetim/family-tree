@@ -54,6 +54,7 @@ export {
   fetchTreeSnapshot,
   getSnapshot,
   getSyncStatus,
+  hasBlockedChanges,
   isStoredPhotoMarker,
   resetStore,
   resolveBlockedOperation,

@@ -1939,14 +1939,24 @@ describe("dirty tracking and push wires", () => {
       treeParentChildRelationships: [],
     }
     const originalFetch = globalThis.fetch
+    const childMutationStarted = deferred<void>()
+    const childMutationResponse = deferred<Response>()
+    let mutations = 0
+    let syncPulls = 0
     globalThis.fetch = (async (input) => {
       const url = String(input)
       if (url === "/api/mutations") {
+        mutations++
+        if (mutations > 1) {
+          childMutationStarted.resolve(undefined)
+          return childMutationResponse.promise
+        }
         return new Response(
           JSON.stringify({
             applied: noIds,
             skipped: {
               ...noIds,
+              persons: ["parent"],
               parentChildRelationships: ["relationship"],
               treeParentChildRelationships: [
                 store.treeParentChildRelationshipKey("tree", "relationship"),
@@ -1958,59 +1968,52 @@ describe("dirty tracking and push wires", () => {
             conflict: {
               retryable: true,
               reason: "revision-mismatch",
-              records: { ...noIds },
+              records: {
+                ...noIds,
+                persons: [
+                  {
+                    id: "parent",
+                    name: "Server",
+                    revision: 2,
+                    updatedAt: timestamp,
+                  },
+                ],
+              },
             },
           }),
           { status: 409 },
         )
       }
       if (url.startsWith("/api/sync")) {
+        syncPulls++
+        const childUpdated = syncPulls > 1
         return new Response(
           JSON.stringify(
             fullPull({
               persons: [
                 {
                   id: "parent",
-                  name: "Parent",
-                  revision: 1,
+                  name: "Server",
+                  revision: 2,
                   updatedAt: timestamp,
                 },
                 {
                   id: "child",
-                  name: "Child",
-                  revision: 1,
-                  updatedAt: timestamp,
+                  name: childUpdated ? "Updated" : "Child",
+                  revision: childUpdated ? 2 : 1,
+                  updatedAt: childUpdated
+                    ? "2024-01-02T00:00:00.000Z"
+                    : timestamp,
                 },
               ],
-            }),
-          ),
-        )
-      }
-      if (url.startsWith("/api/trees/tree/snapshot")) {
-        return new Response(
-          JSON.stringify({
-            tree: {
-              id: "tree",
-              name: "Tree",
-              ownerId: "owner",
-              createdAt: timestamp,
-              updatedAt: timestamp,
-              revision: 1,
-            },
-            records: {
-              ...noIds,
-              persons: [
+              trees: [
                 {
-                  id: "parent",
-                  name: "Parent",
-                  revision: 1,
+                  id: "tree",
+                  name: "Tree",
+                  ownerId: "owner",
+                  createdAt: timestamp,
                   updatedAt: timestamp,
-                },
-                {
-                  id: "child",
-                  name: "Child",
                   revision: 1,
-                  updatedAt: timestamp,
                 },
               ],
               treeMembers: [
@@ -2029,52 +2032,86 @@ describe("dirty tracking and push wires", () => {
                   updatedAt: timestamp,
                 },
               ],
-            },
-            syncVersion: 1,
-            cursor: "snapshot-cursor",
-          }),
+            }),
+          ),
         )
       }
       throw new Error(`unexpected fetch: ${url}`)
     }) as typeof fetch
 
     try {
-      update((previous) => ({
-        ...previous,
-        parentChildRelationships: {
-          ...previous.parentChildRelationships,
-          relationship: {
-            id: "relationship",
-            parentPersonId: "parent",
-            childPersonId: "child",
-            type: "biological",
-            createdAt: timestamp,
-            updatedAt: timestamp,
+      update((previous) => {
+        const parent = previous.persons.parent
+        if (!parent) return previous
+        return {
+          ...previous,
+          persons: {
+            ...previous.persons,
+            parent: { ...parent, name: "Local" },
           },
-        },
-        treeParentChildRelationships: {
-          ...previous.treeParentChildRelationships,
-          [store.treeParentChildRelationshipKey("tree", "relationship")]: {
-            treeId: "tree",
-            parentChildRelationshipId: "relationship",
-            createdAt: timestamp,
-            updatedAt: timestamp,
+          parentChildRelationships: {
+            ...previous.parentChildRelationships,
+            relationship: {
+              id: "relationship",
+              parentPersonId: "parent",
+              childPersonId: "child",
+              type: "biological",
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
           },
-        },
-      }))
+          treeParentChildRelationships: {
+            ...previous.treeParentChildRelationships,
+            [store.treeParentChildRelationshipKey("tree", "relationship")]: {
+              treeId: "tree",
+              parentChildRelationshipId: "relationship",
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          },
+        }
+      })
       const operationId = store
         .snapshotDirty()
         .parentChildRelationships.get("relationship")?.operationId
       if (!operationId) throw new Error("expected dirty operation id")
 
       await store.synchronizePending()
-      const result = await store.resolveBlockedOperation(
+      update((previous) => {
+        const child = previous.persons.child
+        if (!child) return previous
+        return {
+          ...previous,
+          persons: {
+            ...previous.persons,
+            child: { ...child, name: "Updated" },
+          },
+        }
+      })
+      await childMutationStarted.promise
+      const resolution = store.resolveBlockedOperation(
         operationId,
         "server",
         "tree",
       )
+      await Promise.resolve()
+      expect(syncPulls).toBe(1)
+      childMutationResponse.resolve(
+        new Response(
+          JSON.stringify({
+            applied: { ...noIds, persons: ["child"] },
+            skipped: noIds,
+            serverTime: "2024-01-02T00:00:00.000Z",
+            mutationId: "child-mutation",
+            status: "applied",
+          }),
+        ),
+      )
+      const result = await resolution
 
       expect(result).toBe("resolved")
+      expect(store.getSnapshot().persons.parent?.name).toBe("Server")
+      expect(store.getSnapshot().persons.child?.name).toBe("Updated")
       expect(
         store.getSnapshot().parentChildRelationships.relationship,
       ).toBeUndefined()
@@ -2122,8 +2159,10 @@ describe("dirty tracking and push wires", () => {
       cursor: "old-cursor",
     })
     const originalFetch = globalThis.fetch
+    let snapshotRequests = 0
     globalThis.fetch = (async (input) => {
       expect(String(input)).toStartWith("/api/trees/tree/snapshot")
+      snapshotRequests++
       return new Response(
         JSON.stringify({
           tree: {
@@ -2165,7 +2204,15 @@ describe("dirty tracking and push wires", () => {
     }) as typeof fetch
 
     try {
-      await store.synchronizeTreeFresh("tree")
+      const abortController = new AbortController()
+      const firstSynchronization = store.synchronizeTreeFresh(
+        "tree",
+        abortController.signal,
+      )
+      const secondSynchronization = store.synchronizeTreeFresh("tree")
+      abortController.abort()
+      await Promise.all([firstSynchronization, secondSynchronization])
+      expect(snapshotRequests).toBe(1)
       expect(store.getSnapshot().persons.person?.name).toBe("Fresh")
     } finally {
       globalThis.fetch = originalFetch
