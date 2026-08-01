@@ -5,12 +5,14 @@ import {
   LoaderCircle,
   Pencil,
   Plus,
+  Search,
   Settings,
   Share2,
   TriangleAlert,
   Users,
 } from "lucide-react"
 import Link from "next/link"
+import { useState } from "react"
 import { AccountMenu } from "@/components/AccountMenu"
 import {
   type FamilyStore,
@@ -31,7 +33,7 @@ import { ReadonlyDetails } from "./ReadonlyDetails"
 import { ReviewChangesPanel } from "./ReviewChangesPanel"
 import { SettingsPanel } from "./SettingsPanel"
 import { SharePanel } from "./SharePanel"
-import { primaryBtn, type SidebarState } from "./shared"
+import { inputCls, primaryBtn, type SidebarState } from "./shared"
 
 export type { SidebarState }
 
@@ -152,6 +154,14 @@ export function Sidebar({
       </div>
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
+        {!loading && !editable && (
+          <div className="mb-4">
+            <MemberSearch
+              family={family}
+              onSelect={onSelect}
+            />
+          </div>
+        )}
         {loading ? (
           <SidebarSkeleton />
         ) : state.mode === "share" ? (
@@ -373,6 +383,68 @@ export function Sidebar({
         </div>
       </div>
     </aside>
+  )
+}
+
+function MemberSearch({
+  family,
+  onSelect,
+}: {
+  family: FamilyStore
+  onSelect: (id: string) => void
+}) {
+  const [query, setQuery] = useState("")
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const matches = normalizedQuery
+    ? Object.values(family.people)
+        .filter((person) =>
+          person.name.toLocaleLowerCase().includes(normalizedQuery),
+        )
+        .sort((first, second) => first.name.localeCompare(second.name))
+    : []
+
+  return (
+    <div className="relative">
+      <label
+        htmlFor="tree-member-search"
+        className="sr-only"
+      >
+        Search tree members
+      </label>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          id="tree-member-search"
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search tree members"
+          className={`${inputCls} pl-9`}
+        />
+      </div>
+      {normalizedQuery && (
+        <ul className="absolute left-0 right-0 top-full z-10 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-soft">
+          {matches.length === 0 ? (
+            <li className="px-3 py-3 text-sm text-slate-500">No matches.</li>
+          ) : (
+            matches.map((person) => (
+              <li key={person.id}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery("")
+                    onSelect(person.id)
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-cobalt-50"
+                >
+                  {person.name}
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
   )
 }
 
