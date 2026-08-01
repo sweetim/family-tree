@@ -116,16 +116,7 @@ export function SettingsPanel({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-800">Display</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-sm font-medium text-cobalt-600 transition-colors hover:text-cobalt-700"
-        >
-          Done
-        </button>
-      </div>
+      <h2 className="text-sm font-semibold text-slate-800">Display</h2>
 
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
         <SettingToggle

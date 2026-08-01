@@ -303,6 +303,15 @@ export function Sidebar({
             </span>
           </button>
         )}
+        {state.mode === "settings" && (
+          <button
+            type="button"
+            onClick={onClose}
+            className={`${primaryBtn} w-full`}
+          >
+            Done
+          </button>
+        )}
         <div className="flex items-stretch">
           {!readOnly && (
             <>
