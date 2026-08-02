@@ -1,10 +1,11 @@
-import { and, asc, eq, gt, sql } from "drizzle-orm"
+import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { getDB } from "../../db/index"
-import { treeShares, user } from "../../db/schema"
+import { treeShares, trees, user } from "../../db/schema"
 import { requireOwner } from "../acl"
 import { DEFAULT_LIST_PAGE_SIZE, MAXIMUM_LIST_PAGE_SIZE } from "../limits"
 import { readJsonBody } from "../request"
 import { requireSession } from "../session"
+import { isValidSyncId } from "../sync-validation"
 
 type ShareRow = {
   email: string
@@ -205,13 +206,63 @@ type OwnerShareEntry = {
   trees: OwnerShareTree[]
 }
 
-/** GET /api/shares — every share across trees owned by the caller, grouped by email. */
+export function decodeOwnerShareCursor(
+  value: string | null,
+): string | null | undefined {
+  return decodeShareCursor(value)
+}
+
+type OwnerShareMutation = {
+  email: string
+  treeId: string
+  role: "viewer" | "editor" | null
+}
+
+type OwnerShareMutationResult = OwnerShareMutation & {
+  name: string | null
+  pending: boolean
+}
+
+function validShareEmail(value: unknown): value is string {
+  const email = typeof value === "string" ? value.trim() : ""
+  return (
+    email.length > 0
+    && email.length <= 320
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  )
+}
+
+/** GET /api/shares — paginated shares across trees owned by the caller, grouped by email. */
 export async function listOwnerShares(request: Request): Promise<Response> {
   const me = await requireSession(request)
   if (!me) return Response.json({ error: "unauthorized" }, { status: 401 })
 
   const db = getDB()
+  const url = new URL(request.url)
+  const requestedLimit = Number(
+    url.searchParams.get("limit") ?? DEFAULT_LIST_PAGE_SIZE,
+  )
+  const cursor = decodeOwnerShareCursor(url.searchParams.get("cursor"))
+  if (
+    !Number.isSafeInteger(requestedLimit)
+    || requestedLimit < 1
+    || cursor === undefined
+  ) {
+    return Response.json({ error: "invalid pagination" }, { status: 400 })
+  }
+  const limit = Math.min(requestedLimit, MAXIMUM_LIST_PAGE_SIZE)
   const result = await db.execute(sql<RawOwnerShareRow>`
+    WITH page_emails AS (
+      SELECT share.email
+      FROM tree_shares share
+      INNER JOIN trees t ON t.id = share.tree_id
+      WHERE t.owner_id = ${me.id}
+        AND t.deleted_at IS NULL
+        ${cursor ? sql`AND share.email > ${cursor}` : sql``}
+      GROUP BY share.email
+      ORDER BY share.email
+      LIMIT ${limit + 1}
+    )
     SELECT
       share.email       AS email,
       share.user_id     AS "userId",
@@ -222,13 +273,17 @@ export async function listOwnerShares(request: Request): Promise<Response> {
     FROM tree_shares share
     INNER JOIN trees t ON t.id = share.tree_id
     LEFT JOIN "user" u ON u.id = share.user_id
-    WHERE t.owner_id = ${me.id}
-      AND t.deleted_at IS NULL
+    WHERE share.email IN (SELECT email FROM page_emails)
     ORDER BY share.email, t.name
   `)
 
+  const emails = [
+    ...new Set((result.rows as RawOwnerShareRow[]).map((row) => row.email)),
+  ]
+  const pageEmails = new Set(emails.slice(0, limit))
   const byEmail = new Map<string, OwnerShareEntry>()
   for (const row of result.rows as RawOwnerShareRow[]) {
+    if (!pageEmails.has(row.email)) continue
     let entry = byEmail.get(row.email)
     if (!entry) {
       entry = {
@@ -247,7 +302,166 @@ export async function listOwnerShares(request: Request): Promise<Response> {
   }
 
   return Response.json(
-    { entries: [...byEmail.values()] },
+    {
+      entries: [...byEmail.values()],
+      ...(emails.length > limit && pageEmails.size > 0
+        ? {
+            nextCursor: Buffer.from([...pageEmails].at(-1) ?? "").toString(
+              "base64url",
+            ),
+          }
+        : {}),
+    },
+    { headers: { "cache-control": "private, no-store" } },
+  )
+}
+
+/** PATCH /api/shares — atomically apply owner-scoped share changes. */
+export async function mutateOwnerShares(request: Request): Promise<Response> {
+  const me = await requireSession(request)
+  if (!me) return Response.json({ error: "unauthorized" }, { status: 401 })
+
+  const parsed = await readJsonBody(request, 64 * 1024)
+  if (!parsed.ok) {
+    return Response.json(
+      {
+        error:
+          parsed.error === "too-large" ? "payload too large" : "invalid JSON",
+      },
+      { status: parsed.error === "too-large" ? 413 : 400 },
+    )
+  }
+  if (!parsed.value || typeof parsed.value !== "object") {
+    return Response.json({ error: "invalid share payload" }, { status: 400 })
+  }
+  const body = parsed.value as Record<string, unknown>
+  if (
+    Object.keys(body).some((key) => key !== "changes")
+    || !Array.isArray(body.changes)
+    || body.changes.length === 0
+    || body.changes.length > MAXIMUM_LIST_PAGE_SIZE
+  ) {
+    return Response.json({ error: "invalid share payload" }, { status: 400 })
+  }
+
+  const changes: OwnerShareMutation[] = []
+  const keys = new Set<string>()
+  for (const value of body.changes) {
+    if (!value || typeof value !== "object") {
+      return Response.json({ error: "invalid share payload" }, { status: 400 })
+    }
+    const change = value as Record<string, unknown>
+    if (
+      Object.keys(change).some(
+        (key) => key !== "email" && key !== "treeId" && key !== "role",
+      )
+      || !validShareEmail(change.email)
+      || typeof change.treeId !== "string"
+      || !isValidSyncId(change.treeId)
+      || (change.role !== "viewer"
+        && change.role !== "editor"
+        && change.role !== null)
+    ) {
+      return Response.json({ error: "invalid share payload" }, { status: 400 })
+    }
+    const email = change.email.trim().toLowerCase()
+    if (!email || email === me.email.toLowerCase()) {
+      return Response.json({ error: "invalid share payload" }, { status: 400 })
+    }
+    const key = `${change.treeId}:${email}`
+    if (keys.has(key)) {
+      return Response.json({ error: "duplicate share change" }, { status: 400 })
+    }
+    keys.add(key)
+    changes.push({ email, treeId: change.treeId, role: change.role })
+  }
+
+  const db = getDB()
+  const treeIds = [...new Set(changes.map((change) => change.treeId))]
+  const ownedTrees = await db
+    .select({ id: trees.id })
+    .from(trees)
+    .where(
+      and(
+        eq(trees.ownerId, me.id),
+        isNull(trees.deletedAt),
+        inArray(trees.id, treeIds),
+      ),
+    )
+  if (ownedTrees.length !== treeIds.length) {
+    return Response.json({ error: "tree not found" }, { status: 404 })
+  }
+
+  const upserts = changes.filter(
+    (change): change is OwnerShareMutation & { role: "viewer" | "editor" } =>
+      change.role !== null,
+  )
+  const results = await db.transaction(async (transaction) => {
+    const users = upserts.length
+      ? await transaction
+          .select({ id: user.id, email: user.email, name: user.name })
+          .from(user)
+          .where(
+            inArray(user.email, [
+              ...new Set(upserts.map((change) => change.email)),
+            ]),
+          )
+      : []
+    const userByEmail = new Map(
+      users.map((account) => [account.email, account]),
+    )
+
+    if (upserts.length > 0) {
+      await transaction
+        .insert(treeShares)
+        .values(
+          upserts.map((change) => ({
+            treeId: change.treeId,
+            email: change.email,
+            userId: userByEmail.get(change.email)?.id ?? null,
+            role: change.role,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [treeShares.treeId, treeShares.email],
+          set: {
+            role: sql`excluded.role`,
+            userId: sql`excluded.user_id`,
+          },
+        })
+    }
+
+    const removals = changes.filter(
+      (change): change is OwnerShareMutation & { role: null } =>
+        change.role === null,
+    )
+    if (removals.length > 0) {
+      await transaction
+        .delete(treeShares)
+        .where(
+          or(
+            ...removals.map((change) =>
+              and(
+                eq(treeShares.treeId, change.treeId),
+                eq(treeShares.email, change.email),
+              ),
+            ),
+          ),
+        )
+    }
+
+    return changes.map<OwnerShareMutationResult>((change) => {
+      const account = userByEmail.get(change.email)
+      return {
+        ...change,
+        name: account?.name ?? null,
+        pending: !account,
+      }
+    })
+  })
+
+  return Response.json(
+    { changes: results },
     { headers: { "cache-control": "private, no-store" } },
   )
 }

@@ -158,7 +158,8 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
   const { data: session, isPending } = useSession()
   const hydrated = useHydrated()
   const { trees } = index
-  const { entries, loading, setRole } = useOwnerShares()
+  const { entries, loading, setRole, removePerson: removeOwnerPerson } =
+    useOwnerShares()
   const {
     requests,
     pendingCount,
@@ -233,9 +234,13 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
   const [op, setOp] = useState<string | null>(null)
 
   const changeRole = useCallback(
-    (email: string, treeId: string, next: "viewer" | "editor" | null) => {
-      setOp(`role:${email}:${treeId}`)
-      void setRole(email, treeId, next).finally(() => setOp(null))
+    (
+      email: string,
+      tree: { id: string; name: string },
+      next: "viewer" | "editor" | null,
+    ) => {
+      setOp(`role:${email}:${tree.id}`)
+      void setRole(email, tree, next).finally(() => setOp(null))
     },
     [setRole],
   )
@@ -257,15 +262,15 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
 
       setOp(`remove:${row.email}`)
       try {
-        for (const treeId of row.access.keys()) {
-          await setRole(row.email, treeId, null)
+        const removed = await removeOwnerPerson(row.email, row.access.keys())
+        if (removed) {
+          setDrafts((prev) => prev.filter((email) => email !== row.email))
         }
-        setDrafts((prev) => prev.filter((email) => email !== row.email))
       } finally {
         setOp(null)
       }
     },
-    [confirm, setRole],
+    [confirm, removeOwnerPerson],
   )
 
   const busy = op !== null
@@ -534,7 +539,7 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
                                 loading={op === `role:${row.email}:${tree.id}`}
                                 label={`Access to ${tree.name}`}
                                 onChange={(next) =>
-                                  changeRole(row.email, tree.id, next)
+                                  changeRole(row.email, tree, next)
                                 }
                               />
                             </div>
