@@ -8,6 +8,7 @@ import {
   Printer,
   Trees,
   Upload,
+  User,
 } from "lucide-react"
 import { type ReactNode, useRef } from "react"
 import { useToast } from "@/components/Toast"
@@ -143,6 +144,13 @@ export function SettingsPanel({
           description="Show each living person's age on their card."
           checked={settings.showAge}
           onChange={(checked) => update({ showAge: checked })}
+        />
+        <SettingToggle
+          icon={<User className="h-4 w-4" />}
+          title="Family name"
+          description="Show each person's family name before their name on their card."
+          checked={settings.showFamilyName}
+          onChange={(checked) => update({ showFamilyName: checked })}
         />
         <SettingToggle
           icon={<Layers className="h-4 w-4" />}

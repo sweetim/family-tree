@@ -16,6 +16,12 @@ export type ViewSettings = {
   /** Show a living person's age beside their birth year on their card. */
   showAge: boolean
   /**
+   * Show each person's family name before their name on their card
+   * (e.g. "Tan Tim"). On (default): the family name is shown; off: only the
+   * name is shown.
+   */
+  showFamilyName: boolean
+  /**
    * Render this family and every related family's members and relationships
    * on one canvas. A family is related when it shares at least one member
    * with the current one. Off (default): only the current family's members
@@ -39,6 +45,7 @@ const DEFAULTS: ViewSettings = {
   minimap: false,
   marriageYears: true,
   showAge: true,
+  showFamilyName: true,
   showAllFamilies: false,
   highlightBloodline: false,
   showOtherTrees: false,

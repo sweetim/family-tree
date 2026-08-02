@@ -161,6 +161,14 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
           </div>
 
           <div className="w-full text-center">
+            {settings.showFamilyName && person.familyName && (
+              <p
+                className="truncate text-xs font-medium tracking-wide text-slate-400"
+                title={person.familyName}
+              >
+                {person.familyName}
+              </p>
+            )}
             <p
               className="truncate font-semibold tracking-tight text-slate-800"
               title={person.name}

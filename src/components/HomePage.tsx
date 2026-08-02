@@ -174,6 +174,24 @@ function TreeCard({
   )
 }
 
+function NewTreeCard({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex min-h-[140px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center transition-all hover:border-cobalt-400 hover:bg-cobalt-50/50 hover:shadow-soft active:scale-[0.99]"
+    >
+      <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600 transition-colors group-hover:bg-cobalt-100 group-hover:text-cobalt-700">
+        <Plus className="h-5 w-5" />
+      </span>
+      <div>
+        <p className="text-sm font-semibold text-slate-800">New tree</p>
+        <p className="mt-0.5 text-xs text-slate-500">Start a new family tree</p>
+      </div>
+    </button>
+  )
+}
+
 function SharedTreeCard({
   tree,
   navigate,
@@ -473,13 +491,6 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
                 <Users className="h-4 w-4" /> Sharing
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setNewTreeOpen(true)}
-              className={`${primaryBtn} shrink-0`}
-            >
-              <Plus className="h-4 w-4" /> New tree
-            </button>
           </div>
         </div>
 
@@ -512,6 +523,7 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
                   Your trees
                 </h2>
                 <div className="grid gap-4 sm:grid-cols-2">
+                  <NewTreeCard onClick={() => setNewTreeOpen(true)} />
                   {own.map((tree) => (
                     <TreeCard
                       key={tree.id}
