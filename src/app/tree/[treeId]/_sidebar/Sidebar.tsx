@@ -485,10 +485,10 @@ export function Sidebar({
             }
             className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-xl bg-cobalt-50 px-3 py-2 text-sm font-medium text-cobalt-700 ring-1 ring-cobalt-200 transition-colors hover:bg-cobalt-100 active:scale-95"
           >
-            <ChevronLeft className="h-4 w-4" /> Selection
+            <ChevronLeft className="h-4 w-4" /> Back
           </button>
         )}
-        {state.mode !== "idle" && (
+        {state.mode !== "idle" && !selectionAction && (
           <button
             type="button"
             onClick={onClose}
