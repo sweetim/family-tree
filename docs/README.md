@@ -57,5 +57,5 @@ src/
   server/         Server-only: auth, ACL, request handlers
   sync/           Wire types for the client<->server sync protocol
   types.ts        Core domain model (people, trees, relationships)
-  store.ts        Client-side external store (state, mutations, sync push/pull)
+  store/          Client-side external store (state, mutations, IndexedDB, sync)
 ```

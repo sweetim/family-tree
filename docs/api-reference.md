@@ -33,6 +33,11 @@ bounded query; the main tree canvas uses the selected-tree snapshot.
 searches accessible identities without loading their trees, and returns at most
 eight results.
 
+`GET /api/trees/[treeId]/invite` is the one unauthenticated tree endpoint. It
+returns just the tree's public name (`{ name }`) for share-link previews and
+invite landing pages, or `404` for a missing/deleted tree. The response is
+cacheable for 60 seconds; no membership or role is exposed.
+
 ## Changes
 
 `GET /api/changes?treeId=<id>&cursor=<opaque>&limit=<1-100>` returns ordered
@@ -123,6 +128,13 @@ pending, trees: [{ treeId, treeName, role }] }`. Unlike the per-tree list it
 joins `user` to surface the name and a `pending` flag (`userId` still null —
 invitee hasn't signed in). Powers the HomePage "Sharing" dialog overview.
 
+`PATCH /api/shares` (owner-only) batch-mutates shares across the caller's
+trees in one request. The body is `{ changes: [{ email, treeId, role }] }`,
+where `role` is `editor`, `viewer`, or `null` to revoke. Each entry must
+reference a tree the caller owns and an email other than their own; duplicates
+by `treeId` + `email` are rejected. Changes are bounded, validated up front,
+and applied within the per-tree share rules used by the single-share endpoints.
+
 ## Access requests
 
 `GET /api/trees/[treeId]/access-request` returns the requesting user's own
@@ -136,6 +148,12 @@ with the requester's name, email, comment, and timestamp using cursor pagination
 The request must exist and still be pending; missing requests return `404` and
 already-resolved requests return `409`. Approval preserves an existing editor
 role and marks the request `approved` in the same transaction.
+
+`GET /api/access-requests?cursor=<opaque>&limit=<1-100>` (owner-only) lists
+pending requests across **all** trees the caller owns, using stable keyset
+pagination. Each row carries `treeId`, `treeName`, `userId`, `email`, `name`,
+`comment`, and `createdAt`. The response also includes a `total` count so the
+account menu can render a notification badge without loading every page.
 
 ## Photos
 

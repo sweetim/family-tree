@@ -60,13 +60,20 @@ fetches a metadata-only tree manifest. Selected trees load on demand.
 |---|---|---|
 | `/api/auth/*` | GET, POST | Better Auth flows. |
 | `/api/trees` | GET | Paginated metadata/access manifest. |
+| `/api/trees/[treeId]` | DELETE | Owner-only tree deletion. |
 | `/api/trees/[treeId]/snapshot` | GET | One selected tree snapshot. |
 | `/api/trees/[treeId]/graph` | GET | Bounded graph around a person. |
+| `/api/trees/[treeId]/invite` | GET | Public tree name for invite links (no session). |
 | `/api/changes` | GET | Paginated tree-scoped deltas. |
+| `/api/sync` | GET | Bulk full pull across accessible trees. |
 | `/api/mutations` | POST | Atomic, idempotent mutations. |
 | `/api/people/search` | GET | Bounded accessible-person search. |
-| `/api/trees/[treeId]/shares` | GET, POST, DELETE | Owner-only share management. |
 | `/api/person-photo/[personId]` | GET | Authorized, version-cached image proxy (`?v={updatedAt}`). |
+| `/api/trees/[treeId]/shares` | GET, POST, DELETE | Owner-only per-tree share management. |
+| `/api/shares` | GET, PATCH | Owner-only aggregated shares; PATCH batch-mutates roles. |
+| `/api/trees/[treeId]/access-request` | GET, POST | Requester's own access request. |
+| `/api/trees/[treeId]/access-requests` | GET, POST | Owner lists and resolves pending requests. |
+| `/api/access-requests` | GET | Owner's pending requests across all trees. |
 
 The normalized protocol transports exactly `persons`, `trees`, `treeMembers`,
 `unions`, `unionEvents`, `treeUnions`, `parentChildRelationships`, and

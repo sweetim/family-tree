@@ -1,7 +1,10 @@
 import Image from "next/image"
 import { GoogleSignInButton } from "./GoogleSignInButton"
 
-const productFacts = ["Invite only", "Viewer or editor", "PDF, GEDCOM, JSON"]
+const productFacts = [
+  "Private by default",
+  "Invite relatives as viewers or editors",
+]
 
 export function LandingPage() {
   return (
@@ -21,11 +24,6 @@ export function LandingPage() {
               FamiKi
             </span>
           </div>
-          <GoogleSignInButton
-            variant="outline"
-            label="Sign in"
-            className="ml-auto"
-          />
         </nav>
       </header>
 
@@ -59,11 +57,6 @@ export function LandingPage() {
                   label="Continue with Google"
                   className="focus-visible:ring-cobalt-300 focus-visible:ring-offset-[#101d46]"
                 />
-                <span className="landing-utility text-[9px] uppercase leading-4 tracking-[0.11em] text-slate-400">
-                  Create your first tree
-                  <br />
-                  No public profile
-                </span>
               </div>
 
               <ul className="landing-utility mt-10 flex max-w-[38rem] flex-wrap border-t border-white/20 pt-5 text-[9px] font-semibold uppercase tracking-[0.12em] text-cobalt-100 sm:mt-12 sm:text-[10px]">
