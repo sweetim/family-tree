@@ -179,7 +179,7 @@ describe("layout rank spacing", () => {
 })
 
 describe("male-line connections", () => {
-  test("animates only father-to-son edges while bloodline highlighting is on", () => {
+  test("highlights father-to-son edges statically while bloodline highlighting is on", () => {
     const people: FamilyData = {
       founder: { ...PERSON("founder", "male"), spouseIds: ["founder-wife"] },
       "founder-wife": {
@@ -222,7 +222,7 @@ describe("male-line connections", () => {
 
     for (const childId of ["son", "grandson"]) {
       expect(edgeForChild(childId)).toMatchObject({
-        animated: true,
+        animated: false,
         zIndex: 500,
         style: { stroke: "#ef4444", strokeWidth: 4 },
         data: { maleLineConnection: true },

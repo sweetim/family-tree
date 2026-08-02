@@ -27,7 +27,7 @@ Private folders are prefixed `_` so Next.js excludes them from routing.
 
 | Component | Location | Responsibility |
 |---|---|---|
-| `TreeView` | `_tree/TreeView.tsx:39` | Orchestrates React Flow. Manages sidebar state, click-to-connect (same cycle/eligibility rules as the sidebar), edge-click removal (with confirm), and delete-key handling (confirm "from ALL trees"). When `Highlight bloodline` is enabled, father-to-son male-line connections are raised above ordinary edges, colored red, and animated. |
+| `TreeView` | `_tree/TreeView.tsx:39` | Orchestrates React Flow. Manages sidebar state, click-to-connect (same cycle/eligibility rules as the sidebar), edge-click removal (with confirm), and delete-key handling (confirm "from ALL trees"). When `Highlight bloodline` is enabled, father-to-son male-line connections are raised above ordinary edges and colored red. |
 
 ### Sidebar
 

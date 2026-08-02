@@ -560,7 +560,7 @@ export function buildFlow(
       targetHandle: "t",
       type: "smoothstep",
       pathOptions: { borderRadius: 0, stepPosition: CHILD_BUS_POSITION },
-      animated: highlightChild || highlightMaleLineConnection,
+      animated: highlightChild,
       zIndex: highlightChild
         ? Z_INDEX.edgeSelected
         : highlightMaleLineConnection
