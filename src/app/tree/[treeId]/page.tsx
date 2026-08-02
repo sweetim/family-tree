@@ -68,7 +68,7 @@ function TreeNotFound() {
   if (!hydrated) {
     return (
       <CenteredCard>
-        <p className="text-sm text-slate-500">Loading…</p>
+        <AccessRequestSkeleton />
       </CenteredCard>
     )
   }
@@ -81,6 +81,26 @@ function TreeNotFound() {
       />
       <BackHome />
     </CenteredCard>
+  )
+}
+
+function AccessRequestSkeleton() {
+  return (
+    <div
+      className="space-y-4"
+      aria-busy="true"
+    >
+      <div className="mx-auto h-6 w-52 tree-skeleton animate-shimmer rounded" />
+      <div className="space-y-2">
+        <div className="mx-auto h-4 w-full tree-skeleton animate-shimmer rounded" />
+        <div className="mx-auto h-4 w-4/5 tree-skeleton animate-shimmer rounded" />
+      </div>
+      <div className="space-y-2">
+        <div className="h-3 w-20 tree-skeleton animate-shimmer rounded" />
+        <div className="h-24 w-full tree-skeleton animate-shimmer rounded-xl" />
+      </div>
+      <div className="ml-auto h-9 w-32 tree-skeleton animate-shimmer rounded-xl" />
+    </div>
   )
 }
 
@@ -147,8 +167,8 @@ function RequestAccessCard({
       </p>
 
       {status.kind === "loading" ? (
-        <div className="mt-5 flex justify-center text-slate-400">
-          <Loader2 className="h-5 w-5 animate-spin" />
+        <div className="mt-5">
+          <AccessRequestSkeleton />
         </div>
       ) : isPending && !editing ? (
         <div className="mt-5">

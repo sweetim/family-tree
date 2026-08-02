@@ -315,6 +315,39 @@ function SharedTreeCard({
   )
 }
 
+function HomeSkeleton() {
+  return (
+    <div aria-busy="true">
+      <div className="flex items-end justify-between gap-4">
+        <div className="space-y-2">
+          <div className="h-7 w-52 tree-skeleton animate-shimmer rounded" />
+          <div className="h-4 w-32 tree-skeleton animate-shimmer rounded" />
+        </div>
+      </div>
+      <div className="mt-8">
+        <div className="mb-3 h-3 w-20 tree-skeleton animate-shimmer rounded" />
+        <div className="grid gap-4 sm:grid-cols-2">
+          {[1, 2, 3].map((item) => (
+            <div
+              key={item}
+              className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
+            >
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 shrink-0 tree-skeleton animate-shimmer rounded-lg" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-2/3 tree-skeleton animate-shimmer rounded" />
+                  <div className="h-3 w-1/2 tree-skeleton animate-shimmer rounded" />
+                </div>
+              </div>
+              <div className="mt-4 h-9 w-full tree-skeleton animate-shimmer rounded-lg" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 type SearchStatus = "idle" | "loading" | "done" | "error"
 
 function PersonSearch({
@@ -369,15 +402,14 @@ function PersonSearch({
   const loading = status === "loading"
   const showPanel =
     searchQuery.length >= 3
-    && (matches.length > 0 || status === "done" || status === "error")
+    && (loading
+      || matches.length > 0
+      || status === "done"
+      || status === "error")
 
   return (
     <div className="relative w-full">
-      {loading ? (
-        <Loader2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-400" />
-      ) : (
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-      )}
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
@@ -386,7 +418,15 @@ function PersonSearch({
       />
       {showPanel ? (
         <ul className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lift">
-          {status === "error" ? (
+          {loading ? (
+            <li
+              className="space-y-2 px-3 py-3"
+              aria-busy="true"
+            >
+              <div className="h-4 w-2/3 tree-skeleton animate-shimmer rounded" />
+              <div className="h-4 w-1/2 tree-skeleton animate-shimmer rounded" />
+            </li>
+          ) : status === "error" ? (
             <li className="px-3 py-3 text-sm text-red-600">
               Couldn't load results. Try again.
             </li>
@@ -540,11 +580,7 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
 
   let body: ReactNode
   if (isPending || !hydrated) {
-    body = (
-      <p className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
-        Loading…
-      </p>
-    )
+    body = <HomeSkeleton />
   } else if (!session?.user) {
     return (
       <LandingPage

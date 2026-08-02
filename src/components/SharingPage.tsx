@@ -120,6 +120,30 @@ function SharingSkeleton() {
   )
 }
 
+function AccessRequestsSkeleton() {
+  return (
+    <div
+      className="space-y-2"
+      aria-busy="true"
+    >
+      {[1, 2].map((item) => (
+        <div
+          key={item}
+          className="rounded-xl bg-slate-50 px-3 py-3 ring-1 ring-slate-200"
+        >
+          <div className="h-4 w-2/5 tree-skeleton animate-shimmer rounded" />
+          <div className="mt-1.5 h-3 w-1/3 tree-skeleton animate-shimmer rounded" />
+          <div className="mt-3 h-4 w-4/5 tree-skeleton animate-shimmer rounded" />
+          <div className="mt-3 flex gap-2">
+            <div className="h-8 flex-1 tree-skeleton animate-shimmer rounded-lg" />
+            <div className="h-8 flex-1 tree-skeleton animate-shimmer rounded-lg" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function initialFor(value: string): string {
   return value.trim().charAt(0).toUpperCase() || "?"
 }
@@ -315,9 +339,7 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
             ) : null}
           </div>
           {requestsLoading ? (
-            <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-4 text-sm text-slate-500 ring-1 ring-slate-200">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading requests…
-            </div>
+            <AccessRequestsSkeleton />
           ) : requests.length === 0 ? (
             <p className="rounded-xl bg-slate-50 px-3 py-4 text-center text-sm text-slate-500 ring-1 ring-slate-200">
               No pending access requests.
