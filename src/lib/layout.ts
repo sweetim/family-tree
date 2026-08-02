@@ -493,7 +493,7 @@ export function buildFlow(
 
   const edges: FlowEdge[] = []
   const coupleStroke = { stroke: "#94a3b8", strokeWidth: 2 }
-  const maleLineStroke = { stroke: "#2563eb", strokeWidth: 4 }
+  const maleLineStroke = { stroke: "#ef4444", strokeWidth: 4 }
   const selectedStroke = { stroke: "#3258f5", strokeWidth: 3 }
   const touchesSelected = (ids: (string | undefined)[]) =>
     selectedId !== undefined && ids.includes(selectedId)

@@ -58,7 +58,7 @@ const CARD_BORDER: Record<string, string> = {
   eligible: "border-emerald-400 ring-2 ring-emerald-300",
   blocked: "border-slate-200 opacity-30",
   selected: "border-cobalt-500 ring-2 ring-cobalt-300 shadow-lift",
-  maleLine: "border-cobalt-600 ring-4 ring-cobalt-200 shadow-lift",
+  maleLine: "border-red-500 ring-4 ring-red-200 shadow-lift",
   bloodline: "border-amber-300 ring-2 ring-amber-200",
   default: "border-slate-200",
 }

@@ -224,7 +224,7 @@ describe("male-line connections", () => {
       expect(edgeForChild(childId)).toMatchObject({
         animated: true,
         zIndex: 500,
-        style: { stroke: "#2563eb", strokeWidth: 4 },
+        style: { stroke: "#ef4444", strokeWidth: 4 },
         data: { maleLineConnection: true },
       })
     }

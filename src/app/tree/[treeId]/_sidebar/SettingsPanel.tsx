@@ -241,7 +241,7 @@ export function SettingsPanel({
             <SettingToggle
               icon={<GitBranch className="h-4 w-4" />}
               title="Highlight bloodline"
-              description="Blue marks the male line. Amber marks other descendants. Married-in spouses are muted."
+              description="Red marks the male line. Amber marks other descendants. Married-in spouses are muted."
               checked={settings.highlightBloodline}
               onChange={(checked) => update({ highlightBloodline: checked })}
             />

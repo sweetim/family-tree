@@ -29,7 +29,7 @@ export type ViewSettings = {
    */
   showAllFamilies: boolean
   /**
-   * Highlight the family bloodline: male-line members in blue, other
+   * Highlight the family bloodline: male-line members in red, other
    * bloodline members in amber, and married-in spouses dimmed.
    */
   highlightBloodline: boolean

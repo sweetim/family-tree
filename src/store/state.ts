@@ -1623,7 +1623,7 @@ export async function deleteTreeOnServer(treeId: string): Promise<void> {
 }
 
 export function applyTreeSnapshot(snapshot: TreeSnapshotResponse): void {
-  freshlyLoadedTrees.add(snapshot.tree.id)
+  const wasFreshlyLoaded = freshlyLoadedTrees.has(snapshot.tree.id)
   if (!snapshot.partial) {
     update(
       (previous) => ({
@@ -1677,6 +1677,10 @@ export function applyTreeSnapshot(snapshot: TreeSnapshotResponse): void {
     }),
     { remote: true },
   )
+  if (!wasFreshlyLoaded) {
+    freshlyLoadedTrees.add(snapshot.tree.id)
+    notifyListeners()
+  }
 }
 
 async function runTreeSynchronization(treeId: string): Promise<void> {
@@ -2552,9 +2556,13 @@ export function useHydrated(): boolean {
 export function useTreeFreshlyLoaded(treeId: string): boolean {
   return useSyncExternalStore(
     subscribe,
-    () => freshlyLoadedTrees.has(treeId),
-    () => freshlyLoadedTrees.has(treeId),
+    () => isTreeFreshlyLoaded(treeId),
+    () => isTreeFreshlyLoaded(treeId),
   )
+}
+
+export function isTreeFreshlyLoaded(treeId: string): boolean {
+  return freshlyLoadedTrees.has(treeId)
 }
 
 export function useSyncStatus(): SyncStatus {

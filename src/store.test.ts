@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import { type DirtyState, findAncestorTree, type GlobalState } from "./store"
 import { ensureParentChildRelationship } from "./store/parent-child"
-import { update } from "./store/state"
+import {
+  getAncestorTreeLinks,
+  isTreeFreshlyLoaded,
+  subscribe,
+  update,
+} from "./store/state"
 import type {
   SyncPullResponse,
   SyncRecordSet,
@@ -2820,6 +2825,81 @@ describe("dirty tracking and push wires", () => {
     } finally {
       globalThis.fetch = originalFetch
     }
+  })
+
+  test("marks a tree fresh only after its ancestor links are applied", async () => {
+    const store = await freshStore()
+    store.applyTreeManifest([
+      {
+        id: "tree",
+        name: "Ho",
+        ownerId: "owner",
+        role: "owner",
+        memberCount: 1,
+        syncVersion: 1,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        revision: 1,
+      },
+      {
+        id: "loh",
+        name: "Loh",
+        ownerId: "owner",
+        role: "owner",
+        memberCount: 2,
+        syncVersion: 1,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        revision: 1,
+      },
+    ])
+    const observedFreshStates: Array<string | undefined> = []
+    const unsubscribe = subscribe(() => {
+      if (!isTreeFreshlyLoaded("tree")) return
+      observedFreshStates.push(getAncestorTreeLinks().get("wai-keen"))
+    })
+
+    store.applyTreeSnapshot({
+      tree: {
+        id: "tree",
+        name: "Ho",
+        ownerId: "owner",
+        role: "owner",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        revision: 1,
+      },
+      records: {
+        persons: [
+          {
+            id: "wai-keen",
+            name: "Wai Keen",
+            revision: 1,
+            updatedAt: timestamp,
+          },
+        ],
+        treeMembers: [
+          {
+            treeId: "tree",
+            personId: "wai-keen",
+            revision: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+        unions: [],
+        unionEvents: [],
+        treeUnions: [],
+        parentChildRelationships: [],
+        treeParentChildRelationships: [],
+      },
+      ancestorTrees: [{ personId: "wai-keen", treeId: "loh" }],
+      syncVersion: 1,
+      cursor: "cursor",
+    })
+    unsubscribe()
+
+    expect(observedFreshStates).toEqual(["loh"])
   })
 
   test("fresh tree synchronization replaces cursor sync with a snapshot", async () => {
