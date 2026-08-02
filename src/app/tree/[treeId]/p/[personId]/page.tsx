@@ -1,20 +1,19 @@
 "use client"
 
 import { useParams } from "next/navigation"
-import { useTreeIndex } from "@/store"
+import { useResolvedTree } from "@/lib/use-resolved-tree"
 import { TreeView } from "../../_tree/TreeView"
 
 export default function TreePersonPage() {
-  const params = useParams<{ treeId: string; personId: string }>()
-  const index = useTreeIndex()
-  const tree = index.trees.find((t) => t.id === params?.treeId)
-  if (!tree) return null
+  const resolved = useResolvedTree()
+  const { personId } = useParams<{ personId: string }>()
+  if (!resolved) return null
   return (
     <TreeView
-      key={tree.id}
-      tree={tree}
-      allTrees={index.trees}
-      openPersonId={params?.personId}
+      key={resolved.tree.id}
+      tree={resolved.tree}
+      allTrees={resolved.allTrees}
+      openPersonId={personId}
     />
   )
 }

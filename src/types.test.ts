@@ -5,6 +5,7 @@ import {
   type NormalizedRelationships,
   type PersonIdentity,
   projectTree,
+  projectTreeStable,
   projectTrees,
   unionIsCurrent,
 } from "./types"
@@ -275,5 +276,94 @@ describe("relationship traversal", () => {
       "kid",
     ])
     expect(ancestorsOf(family, "kid")).toEqual(new Set(["tim"]))
+  })
+})
+
+describe("projectTreeStable", () => {
+  test("returns the previous reference when nothing changed", () => {
+    const rel = relationships()
+    const first = projectTreeStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      rel,
+      "a",
+    )
+    const second = projectTreeStable(
+      first,
+      identities,
+      rel,
+      identities,
+      rel,
+      "a",
+    )
+    expect(second).toBe(first)
+  })
+
+  test("reuses unchanged Person objects when one identity changes", () => {
+    const rel = relationships()
+    const first = projectTreeStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      rel,
+      "a",
+    )
+    const nextIdentities: Record<string, PersonIdentity> = {
+      ...identities,
+      tim: { id: "tim", name: "Timothy", familyName: "" },
+    }
+    const second = projectTreeStable(
+      first,
+      identities,
+      rel,
+      nextIdentities,
+      rel,
+      "a",
+    )
+    expect(second).not.toBe(first)
+    expect(second.tim).not.toBe(first.tim)
+    expect(second.tim?.name).toBe("Timothy")
+    expect(second.yumi).toBe(first.yumi)
+    expect(second.kid).toBe(first.kid)
+  })
+
+  test("recomputes everyone when a relationship collection changes", () => {
+    const rel = relationships()
+    const first = projectTreeStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      rel,
+      "a",
+    )
+    const nextRel: NormalizedRelationships = {
+      ...rel,
+      unions: { ...rel.unions },
+    }
+    const second = projectTreeStable(
+      first,
+      identities,
+      rel,
+      identities,
+      nextRel,
+      "a",
+    )
+    expect(second.tim).not.toBe(first.tim)
+  })
+
+  test("first call with no previous projects normally", () => {
+    const family = projectTreeStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      relationships(),
+      "a",
+    )
+    expect(family.tim?.spouseIds).toEqual(["yumi"])
   })
 })

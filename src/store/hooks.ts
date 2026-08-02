@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react"
 import {
   descendantsOf,
   type FamilyData,
+  type NormalizedRelationships,
   type ParentChildRelationship,
   type ParentChildRelationshipType,
   type ParentLink,
@@ -9,6 +16,7 @@ import {
   type PersonIdentity,
   type PersonInput,
   projectTree,
+  projectTreeStable,
   projectTrees,
   type Relationship,
 } from "../types"
@@ -183,6 +191,7 @@ export function useAncestorTree(
 }
 
 const NO_PARENT_LINKS: { link: ParentLink; person: Person }[] = []
+const NO_FAMILY: FamilyData = {}
 
 /**
  * A person's parents that live in their "ancestor family" — another tree that
@@ -331,7 +340,9 @@ export function usePersonSearch(): PersonSearchResult[] {
 export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
   return useMemo(() => {
-    if (!enabled) return projectTree(graph.persons, graph, treeId)
+    // When "show all families" is off, the caller reuses `useFamily`'s tree
+    // projection as `renderPeople`, so this hook skips projecting a second time.
+    if (!enabled) return NO_FAMILY
     // Only render trees that share at least one member with the current tree:
     // those are the families connected/related to this one. Trees with no
     // overlapping members stay off the canvas.
@@ -356,10 +367,37 @@ export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
 
 export function useFamily(treeId: string) {
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
-  const people = useMemo(
-    () => projectTree(graph.persons, graph, treeId),
-    [graph, treeId],
-  )
+  // Structural-sharing projection: returns the same `people` reference (and the
+  // same `Person` objects within it) whenever this tree's underlying records
+  // are unchanged, so the layout memo and per-card `React.memo` actually fire.
+  const projectionRef = useRef<
+    | {
+        treeId: string
+        identities: Record<string, PersonIdentity>
+        relationships: NormalizedRelationships
+        people: FamilyData
+      }
+    | undefined
+  >(undefined)
+  const people = useMemo(() => {
+    const prev = projectionRef.current
+    const sameTree = prev?.treeId === treeId
+    const next = projectTreeStable(
+      sameTree ? prev?.people : undefined,
+      sameTree ? prev?.identities : undefined,
+      sameTree ? prev?.relationships : undefined,
+      graph.persons,
+      graph,
+      treeId,
+    )
+    projectionRef.current = {
+      treeId,
+      identities: graph.persons,
+      relationships: graph,
+      people: next,
+    }
+    return next
+  }, [graph, treeId])
   const readOnly = useMemo(
     () => graph.index.find((tree) => tree.id === treeId)?.role === "viewer",
     [graph, treeId],

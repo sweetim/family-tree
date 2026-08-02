@@ -1,7 +1,8 @@
 import { Check, Loader2, Trash2, X, XCircle } from "lucide-react"
-import { type FormEvent, useEffect, useState } from "react"
+import { type FormEvent, useState } from "react"
 import { useOwnerAccessRequests } from "@/lib/access-requests"
 import { useShares } from "@/lib/shares"
+import { Modal } from "./Modal"
 
 /**
  * Modal for a tree owner to manage shares and access requests.
@@ -25,14 +26,6 @@ export function ShareDialog({
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<"viewer" | "editor">("viewer")
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     const trimmed = email.trim().toLowerCase()
@@ -42,13 +35,9 @@ export function ShareDialog({
   }
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a convenience; Escape (handled above) is the keyboard equivalent
-    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close is via the Escape listener in the effect above
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
+    <Modal
+      onClose={onClose}
+      backdropClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
     >
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-lift">
         <div className="mb-1 flex items-start justify-between gap-2">
@@ -208,6 +197,6 @@ export function ShareDialog({
           </div>
         ) : null}
       </div>
-    </div>
+    </Modal>
   )
 }

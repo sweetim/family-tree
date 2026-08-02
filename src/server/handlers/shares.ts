@@ -1,11 +1,10 @@
 import { and, asc, eq, gt, sql } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { treeShares, user } from "../../db/schema"
-import { treeRole } from "../acl"
+import { requireOwner } from "../acl"
 import { DEFAULT_LIST_PAGE_SIZE, MAXIMUM_LIST_PAGE_SIZE } from "../limits"
 import { readJsonBody } from "../request"
 import { requireSession } from "../session"
-import { isValidSyncId } from "../sync-validation"
 
 type ShareRow = {
   email: string
@@ -23,18 +22,6 @@ function decodeShareCursor(value: string | null): string | null | undefined {
   } catch {
     return undefined
   }
-}
-
-async function requireOwner(request: Request, treeId: string) {
-  if (!isValidSyncId(treeId)) {
-    return { status: 400, error: "invalid tree id" } as const
-  }
-  const me = await requireSession(request)
-  if (!me) return { status: 401, error: "unauthorized" } as const
-  const db = getDB()
-  const role = await treeRole(db, me.id, treeId)
-  if (role !== "owner") return { status: 403, error: "forbidden" } as const
-  return { me, db } as const
 }
 
 /** GET /api/trees/:treeId/shares — list shares (owner-only). */

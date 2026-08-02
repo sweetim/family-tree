@@ -19,7 +19,11 @@ import type {
 import { treeRole } from "../acl"
 import { MAX_RESPONSE_PAGE_BYTES } from "../limits"
 import { requireSession } from "../session"
-import { encodeSyncCursor } from "../sync/cursor"
+import {
+  decodeCursorJson,
+  encodeCursorJson,
+  encodeSyncCursor,
+} from "../sync/cursor"
 import {
   loadActiveRecordsByTree,
   loadActiveRecordsForPeople,
@@ -85,34 +89,32 @@ function snapshotWireKey(value: object): string {
 }
 
 function encodeSnapshotCursor(cursor: SnapshotPageCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString("base64url")
+  return encodeCursorJson(cursor)
 }
 
 function decodeSnapshotCursor(
   value: string | null,
   expected: Omit<SnapshotPageCursor, "syncVersion" | "offset">,
 ): SnapshotPageCursor | null | undefined {
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(
-      Buffer.from(value, "base64url").toString("utf8"),
-    ) as Partial<SnapshotPageCursor>
-    if (
-      parsed.treeId !== expected.treeId
-      || parsed.mode !== expected.mode
-      || parsed.focusPersonId !== expected.focusPersonId
-      || parsed.radius !== expected.radius
-      || !Number.isSafeInteger(parsed.syncVersion)
-      || (parsed.syncVersion ?? -1) < 0
-      || !Number.isSafeInteger(parsed.offset)
-      || (parsed.offset ?? -1) < 0
-    ) {
-      return undefined
-    }
-    return parsed as SnapshotPageCursor
-  } catch {
+  const parsed = decodeCursorJson(value) as
+    | Partial<SnapshotPageCursor>
+    | null
+    | undefined
+  if (parsed === null) return null
+  if (parsed === undefined) return undefined
+  if (
+    parsed.treeId !== expected.treeId
+    || parsed.mode !== expected.mode
+    || parsed.focusPersonId !== expected.focusPersonId
+    || parsed.radius !== expected.radius
+    || !Number.isSafeInteger(parsed.syncVersion)
+    || (parsed.syncVersion ?? -1) < 0
+    || !Number.isSafeInteger(parsed.offset)
+    || (parsed.offset ?? -1) < 0
+  ) {
     return undefined
   }
+  return parsed as SnapshotPageCursor
 }
 
 function paginateSnapshot(
@@ -198,28 +200,24 @@ function parseLimit(value: string | null): number | null {
 }
 
 function encodeCursor(cursor: ManifestCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString("base64url")
+  return encodeCursorJson(cursor)
 }
 
 function decodeCursor(value: string | null): ManifestCursor | null | undefined {
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(
-      Buffer.from(value, "base64url").toString("utf8"),
-    ) as unknown
-    if (!parsed || typeof parsed !== "object") return undefined
-    const cursor = parsed as Record<string, unknown>
-    if (
-      typeof cursor.createdAt !== "string"
-      || !Number.isFinite(new Date(cursor.createdAt).getTime())
-      || !isValidSyncId(cursor.id)
-    ) {
-      return undefined
-    }
-    return { createdAt: cursor.createdAt, id: cursor.id }
-  } catch {
+  const parsed = decodeCursorJson(value)
+  if (parsed === null) return null
+  if (parsed === undefined || !parsed || typeof parsed !== "object") {
     return undefined
   }
+  const cursor = parsed as Record<string, unknown>
+  if (
+    typeof cursor.createdAt !== "string"
+    || !Number.isFinite(new Date(cursor.createdAt).getTime())
+    || !isValidSyncId(cursor.id)
+  ) {
+    return undefined
+  }
+  return { createdAt: cursor.createdAt, id: cursor.id }
 }
 
 type ManifestRow = {
@@ -352,15 +350,6 @@ export async function listTrees(request: Request): Promise<Response> {
   }
 
   const db = getDB()
-  await db
-    .update(treeShares)
-    .set({ userId: me.id })
-    .where(
-      and(
-        eq(treeShares.email, me.email.toLowerCase()),
-        isNull(treeShares.userId),
-      ),
-    )
   const result = await db.execute(sql<ManifestRow>`
     SELECT
       t.id,
@@ -564,7 +553,7 @@ export async function getTreeGraph(
   }
 
   const reachable = await db.execute<{ personId: string; depth: number }>(sql`
-    WITH RECURSIVE edges AS (
+    WITH RECURSIVE forward_edges AS (
       SELECT u.first_person_id AS first_id, u.second_person_id AS second_id
       FROM tree_unions tu
       INNER JOIN unions u ON u.id = tu.union_id AND u.deleted_at IS NULL
@@ -592,36 +581,11 @@ export async function getTreeGraph(
         AND child_member.person_id = r.child_person_id
         AND child_member.deleted_at IS NULL
       WHERE tr.tree_id = ${treeId} AND tr.deleted_at IS NULL
+    ),
+    edges AS (
+      SELECT first_id, second_id FROM forward_edges
       UNION
-      SELECT second_id, first_id FROM (
-        SELECT u.first_person_id AS first_id, u.second_person_id AS second_id
-        FROM tree_unions tu
-        INNER JOIN unions u ON u.id = tu.union_id AND u.deleted_at IS NULL
-        INNER JOIN tree_members first_member
-          ON first_member.tree_id = tu.tree_id
-          AND first_member.person_id = u.first_person_id
-          AND first_member.deleted_at IS NULL
-        INNER JOIN tree_members second_member
-          ON second_member.tree_id = tu.tree_id
-          AND second_member.person_id = u.second_person_id
-          AND second_member.deleted_at IS NULL
-        WHERE tu.tree_id = ${treeId} AND tu.deleted_at IS NULL
-        UNION
-        SELECT r.parent_person_id, r.child_person_id
-        FROM tree_parent_child_relationships tr
-        INNER JOIN parent_child_relationships r
-          ON r.id = tr.parent_child_relationship_id
-          AND r.deleted_at IS NULL
-        INNER JOIN tree_members parent_member
-          ON parent_member.tree_id = tr.tree_id
-          AND parent_member.person_id = r.parent_person_id
-          AND parent_member.deleted_at IS NULL
-        INNER JOIN tree_members child_member
-          ON child_member.tree_id = tr.tree_id
-          AND child_member.person_id = r.child_person_id
-          AND child_member.deleted_at IS NULL
-        WHERE tr.tree_id = ${treeId} AND tr.deleted_at IS NULL
-      ) forward_edges
+      SELECT second_id, first_id FROM forward_edges
     ),
     reachable(person_id, depth) AS (
       SELECT m.person_id, 0

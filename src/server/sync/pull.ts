@@ -25,6 +25,7 @@ import {
   activeDependencyIds,
   isReasonableClientTimestamp,
 } from "../sync-validation"
+import { decodeCursorJson, encodeCursorJson } from "./cursor"
 import {
   parentRelationshipToWire,
   personToWire,
@@ -87,31 +88,29 @@ function pullWireKey(value: object): string {
 }
 
 function encodePullCursor(cursor: PullPageCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString("base64url")
+  return encodeCursorJson(cursor)
 }
 
 function decodePullCursor(
   value: string | null,
 ): PullPageCursor | null | undefined {
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(
-      Buffer.from(value, "base64url").toString("utf8"),
-    ) as Partial<PullPageCursor>
-    if (
-      typeof parsed.since !== "string"
-      || typeof parsed.cutoff !== "string"
-      || !Number.isFinite(new Date(parsed.since).getTime())
-      || !Number.isFinite(new Date(parsed.cutoff).getTime())
-      || !Number.isSafeInteger(parsed.offset)
-      || (parsed.offset ?? -1) < 0
-    ) {
-      return undefined
-    }
-    return parsed as PullPageCursor
-  } catch {
+  const parsed = decodeCursorJson(value) as
+    | Partial<PullPageCursor>
+    | null
+    | undefined
+  if (parsed === null) return null
+  if (parsed === undefined) return undefined
+  if (
+    typeof parsed.since !== "string"
+    || typeof parsed.cutoff !== "string"
+    || !Number.isFinite(new Date(parsed.since).getTime())
+    || !Number.isFinite(new Date(parsed.cutoff).getTime())
+    || !Number.isSafeInteger(parsed.offset)
+    || (parsed.offset ?? -1) < 0
+  ) {
     return undefined
   }
+  return parsed as PullPageCursor
 }
 
 function paginatePull(

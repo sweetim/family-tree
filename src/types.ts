@@ -376,6 +376,100 @@ export function projectTrees(
   return output
 }
 
+/**
+ * Reuse `Person` objects from `previous` whenever their inputs are unchanged,
+ * so `React.memo` on a card skips re-rendering them. A person's projection is
+ * fully determined by its identity ref plus the relationship collections, so:
+ * when every relationship collection ref is unchanged, a person whose identity
+ * ref is also unchanged can reuse its previous object. When nothing in the
+ * whole projection changed, the previous `FamilyData` reference is returned so
+ * the layout memo stays stable too.
+ */
+export function stabilizeFamily(
+  previous: FamilyData | undefined,
+  prevIdentities: Record<string, PersonIdentity> | undefined,
+  prevRelationships: NormalizedRelationships | undefined,
+  computed: FamilyData,
+  identities: Record<string, PersonIdentity>,
+  relationships: NormalizedRelationships,
+): FamilyData {
+  const relationshipsUnchanged =
+    !!prevRelationships
+    && prevRelationships.treeMembers === relationships.treeMembers
+    && prevRelationships.unions === relationships.unions
+    && prevRelationships.unionEvents === relationships.unionEvents
+    && prevRelationships.treeUnions === relationships.treeUnions
+    && prevRelationships.parentChildRelationships
+      === relationships.parentChildRelationships
+    && prevRelationships.treeParentChildRelationships
+      === relationships.treeParentChildRelationships
+  if (!previous || !prevIdentities || !relationshipsUnchanged) {
+    return computed
+  }
+  if (Object.keys(computed).length !== Object.keys(previous).length) {
+    return computed
+  }
+  let changed = false
+  const result: FamilyData = {}
+  for (const [id, person] of Object.entries(computed)) {
+    const prev = previous[id]
+    if (prev && identities[id] === prevIdentities[id]) {
+      result[id] = prev
+    } else {
+      result[id] = person
+      changed = true
+    }
+  }
+  return changed ? result : previous
+}
+
+function relationshipsSame(
+  previous: NormalizedRelationships,
+  current: NormalizedRelationships,
+): boolean {
+  return (
+    previous.treeMembers === current.treeMembers
+    && previous.unions === current.unions
+    && previous.unionEvents === current.unionEvents
+    && previous.treeUnions === current.treeUnions
+    && previous.parentChildRelationships === current.parentChildRelationships
+    && previous.treeParentChildRelationships
+      === current.treeParentChildRelationships
+  )
+}
+
+/**
+ * Project a tree with structural sharing. Short-circuits to the previous
+ * result when neither identities nor any relationship collection changed;
+ * otherwise recomputes and reuses unchanged `Person` objects.
+ */
+export function projectTreeStable(
+  previous: FamilyData | undefined,
+  prevIdentities: Record<string, PersonIdentity> | undefined,
+  prevRelationships: NormalizedRelationships | undefined,
+  identities: Record<string, PersonIdentity>,
+  relationships: NormalizedRelationships,
+  treeId: string,
+): FamilyData {
+  if (
+    previous
+    && prevIdentities
+    && prevRelationships
+    && prevIdentities === identities
+    && relationshipsSame(prevRelationships, relationships)
+  ) {
+    return previous
+  }
+  return stabilizeFamily(
+    previous,
+    prevIdentities,
+    prevRelationships,
+    projectTree(identities, relationships, treeId),
+    identities,
+    relationships,
+  )
+}
+
 export type Relationship =
   | { kind: "root" }
   | {

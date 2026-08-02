@@ -32,13 +32,11 @@ import {
 import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
 import { LandingPage } from "./LandingPage"
+import { Modal } from "./Modal"
 import { ShareDialog } from "./ShareDialog"
 import { useToast } from "./Toast"
+import { inputCls, primaryBtn } from "./ui"
 
-const inputCls =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 transition-colors placeholder:text-slate-400 focus:border-cobalt-500 focus:outline-none focus:ring-2 focus:ring-cobalt-200"
-const primaryBtn =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-cobalt-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
 const ghostBtn =
   "inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 active:scale-95"
 
@@ -337,14 +335,6 @@ function NewTreeDialog({
     inputRef.current?.focus()
   }, [])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
-
   function onSubmit(e: FormEvent) {
     e.preventDefault()
     const trimmed = name.trim()
@@ -353,13 +343,9 @@ function NewTreeDialog({
   }
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a convenience; Escape (handled above) is the keyboard equivalent
-    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close is via the Escape listener in the effect above
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm animate-fade-in"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
+    <Modal
+      onClose={onClose}
+      backdropClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm animate-fade-in"
     >
       <div className="w-full max-w-md animate-scale-in rounded-2xl border border-slate-200 bg-white p-6 shadow-lift">
         <div className="flex items-start justify-between gap-2">
@@ -416,7 +402,7 @@ function NewTreeDialog({
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   )
 }
 

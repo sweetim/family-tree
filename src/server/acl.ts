@@ -1,8 +1,35 @@
 import { and, eq, isNull, or } from "drizzle-orm"
 import type { DB } from "../db"
+import { getDB } from "../db/index"
 import { persons, treeMembers, treeShares, trees } from "../db/schema"
+import { requireSession, type SessionUser } from "./session"
+import { isValidSyncId } from "./sync-validation"
 
 export type Role = "owner" | "editor" | "viewer"
+
+export type OwnerGuardError = { status: 400 | 401 | 403; error: string }
+export type OwnerGuardOk = { me: SessionUser; db: DB }
+export type OwnerGuardResult = OwnerGuardError | OwnerGuardOk
+
+/**
+ * Resolve the session and verify the caller owns `treeId`. Shared by the
+ * owner-only share and access-request handlers. Returns an error object
+ * (with `error`/`status`) on failure, or `{ me, db }` on success.
+ */
+export async function requireOwner(
+  request: Request,
+  treeId: string,
+): Promise<OwnerGuardResult> {
+  if (!isValidSyncId(treeId)) {
+    return { status: 400, error: "invalid tree id" }
+  }
+  const me = await requireSession(request)
+  if (!me) return { status: 401, error: "unauthorized" }
+  const db = getDB()
+  const role = await treeRole(db, me.id, treeId)
+  if (role !== "owner") return { status: 403, error: "forbidden" }
+  return { me, db }
+}
 
 const RANK: Record<Role, number> = { viewer: 1, editor: 2, owner: 3 }
 const FROM_RANK: Record<number, Role> = { 1: "viewer", 2: "editor", 3: "owner" }

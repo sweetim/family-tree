@@ -1,10 +1,11 @@
 import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { treeAccessRequests, treeShares, trees, user } from "../../db/schema"
-import { treeRole } from "../acl"
+import { requireOwner, treeRole } from "../acl"
 import { DEFAULT_LIST_PAGE_SIZE, MAXIMUM_LIST_PAGE_SIZE } from "../limits"
 import { readJsonBody } from "../request"
 import { requireSession } from "../session"
+import { decodeCursorJson, encodeCursorJson } from "../sync/cursor"
 import { isValidSyncId } from "../sync-validation"
 
 const MAX_COMMENT = 500
@@ -136,18 +137,6 @@ export async function createAccessRequest(
   )
 }
 
-async function requireOwner(request: Request, treeId: string) {
-  if (!isValidSyncId(treeId)) {
-    return { status: 400, error: "invalid tree id" } as const
-  }
-  const me = await requireSession(request)
-  if (!me) return { status: 401, error: "unauthorized" } as const
-  const db = getDB()
-  const role = await treeRole(db, me.id, treeId)
-  if (role !== "owner") return { status: 403, error: "forbidden" } as const
-  return { db, me } as const
-}
-
 type OwnerRequestRow = {
   userId: string
   email: string
@@ -161,22 +150,20 @@ type AccessRequestCursor = { createdAt: string; userId: string }
 function decodeAccessRequestCursor(
   value: string | null,
 ): AccessRequestCursor | null | undefined {
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(
-      Buffer.from(value, "base64url").toString("utf8"),
-    ) as Partial<AccessRequestCursor>
-    if (
-      typeof parsed.createdAt !== "string"
-      || !Number.isFinite(new Date(parsed.createdAt).getTime())
-      || !isValidSyncId(parsed.userId)
-    ) {
-      return undefined
-    }
-    return parsed as AccessRequestCursor
-  } catch {
+  const parsed = decodeCursorJson(value) as
+    | Partial<AccessRequestCursor>
+    | null
+    | undefined
+  if (parsed === null) return null
+  if (parsed === undefined) return undefined
+  if (
+    typeof parsed.createdAt !== "string"
+    || !Number.isFinite(new Date(parsed.createdAt).getTime())
+    || !isValidSyncId(parsed.userId)
+  ) {
     return undefined
   }
+  return parsed as AccessRequestCursor
 }
 
 /** GET /api/trees/:treeId/access-requests — owner lists pending requests. */
@@ -243,12 +230,10 @@ export async function listAccessRequests(
       requests: out,
       ...(rows.length > limit && page.at(-1)
         ? {
-            nextCursor: Buffer.from(
-              JSON.stringify({
-                createdAt: page.at(-1)?.createdAt.toISOString(),
-                userId: page.at(-1)?.userId,
-              }),
-            ).toString("base64url"),
+            nextCursor: encodeCursorJson({
+              createdAt: page.at(-1)?.createdAt.toISOString(),
+              userId: page.at(-1)?.userId,
+            }),
           }
         : {}),
     },

@@ -1,10 +1,11 @@
 import type { SyncPushRequest } from "../sync/types"
+import { MAX_PHOTO_BYTES } from "./limits"
 
 export type SyncCollectionName = keyof SyncPushRequest
 
 export const MAX_SYNC_ID_LENGTH = 512
 export const MAX_SYNC_TEXT_LENGTH = 10_000
-export const MAX_SYNC_PHOTO_LENGTH = 1024 * 1024
+export const MAX_SYNC_PHOTO_LENGTH = MAX_PHOTO_BYTES
 export const MAX_SYNC_RECORDS_PER_COLLECTION = 2_000
 export const MAX_SYNC_TOTAL_RECORDS = 5_000
 
@@ -18,9 +19,9 @@ const SYNC_COLLECTIONS = [
   "parentChildRelationships",
   "treeParentChildRelationships",
 ] as const satisfies readonly SyncCollectionName[]
-const GENDERS = new Set(["male", "female", "other"])
+export const GENDERS = new Set(["male", "female", "other"])
 const TREE_ROLES = new Set(["owner", "editor", "viewer"])
-const UNION_EVENT_TYPES = new Set([
+export const UNION_EVENT_TYPES = new Set([
   "relationship_started",
   "engaged",
   "married",
@@ -32,7 +33,7 @@ const UNION_EVENT_TYPES = new Set([
   "annulled",
   "relationship_ended",
 ])
-const PARENT_RELATIONSHIP_TYPES = new Set([
+export const PARENT_RELATIONSHIP_TYPES = new Set([
   "biological",
   "adoptive",
   "foster",

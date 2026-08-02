@@ -21,11 +21,7 @@ import type {
   SyncPushResponse,
   SyncRecordSet,
 } from "../../sync/types"
-import type {
-  Gender,
-  ParentChildRelationshipType,
-  UnionEventType,
-} from "../../types"
+import type { ParentChildRelationshipType } from "../../types"
 import { canWrite, personRole, type Role, treeRole } from "../acl"
 import {
   deletePhoto,
@@ -43,10 +39,13 @@ import { requireSession } from "../session"
 import {
   associationKey,
   clientCanTombstone,
+  GENDERS,
   isCanonicalUnion,
   isValidIsoDate,
   isValidSyncId,
   isValidSyncPushRequest,
+  PARENT_RELATIONSHIP_TYPES,
+  UNION_EVENT_TYPES,
 } from "../sync-validation"
 import {
   parentRelationshipToWire,
@@ -69,26 +68,6 @@ type CascadedTreeReferences = {
   treeParentRelationshipKeys: Set<string>
 }
 
-const GENDERS = new Set<Gender>(["male", "female", "other"])
-const UNION_EVENT_TYPES = new Set<UnionEventType>([
-  "relationship_started",
-  "engaged",
-  "married",
-  "civil_union",
-  "domestic_partnership",
-  "separated",
-  "reconciled",
-  "divorced",
-  "annulled",
-  "relationship_ended",
-])
-const PARENT_RELATIONSHIP_TYPES = new Set<ParentChildRelationshipType>([
-  "biological",
-  "adoptive",
-  "foster",
-  "guardian",
-  "step",
-])
 function emptyAppliedIds(): SyncAppliedIds {
   return {
     persons: [],

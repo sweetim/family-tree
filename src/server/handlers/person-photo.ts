@@ -2,39 +2,12 @@ import { eq } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { persons } from "../../db/schema"
 import { canRead, personRole } from "../acl"
-import { getAuth } from "../auth"
-import {
-  fetchStoredPhoto,
-  isAllowedStoredPhotoUrl,
-  MAX_PHOTO_BYTES,
-} from "../blob"
+import { fetchStoredPhoto, isAllowedStoredPhotoUrl } from "../blob"
+import { MAX_PHOTO_BYTES } from "../limits"
+import { readBoundedBytes } from "../request"
+import { requireSession } from "../session"
 
 const ALLOWED_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
-
-async function readBoundedBody(
-  body: ReadableStream<Uint8Array>,
-): Promise<Uint8Array | null> {
-  const reader = body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > MAX_PHOTO_BYTES) {
-      await reader.cancel()
-      return null
-    }
-    chunks.push(value)
-  }
-  const bytes = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
-}
 
 /**
  * Streams a person's photo to an authorized viewer. Authorization mirrors the
@@ -47,9 +20,8 @@ export async function getPersonPhoto(
   request: Request,
   personId: string,
 ): Promise<Response> {
-  const auth = getAuth()
-  const session = await auth.api.getSession({ headers: request.headers })
-  if (!session?.user) return new Response(null, { status: 401 })
+  const me = await requireSession(request)
+  if (!me) return new Response(null, { status: 401 })
 
   const db = getDB()
   const person = await db.query.persons.findFirst({
@@ -59,8 +31,8 @@ export async function getPersonPhoto(
     return new Response(null, { status: 404 })
   }
   if (
-    person.ownerId !== session.user.id
-    && !canRead(await personRole(db, session.user.id, personId))
+    person.ownerId !== me.id
+    && !canRead(await personRole(db, me.id, personId))
   ) {
     return new Response(null, { status: 404 })
   }
@@ -89,9 +61,9 @@ export async function getPersonPhoto(
     await upstream.body.cancel()
     return new Response(null, { status: 502 })
   }
-  const bytes = await readBoundedBody(upstream.body)
-  if (!bytes) return new Response(null, { status: 502 })
-  return new Response(bytes, {
+  const result = await readBoundedBytes(upstream.body, MAX_PHOTO_BYTES)
+  if (!result.ok) return new Response(null, { status: 502 })
+  return new Response(result.bytes, {
     status: upstream.status,
     headers: {
       "content-type": contentType,

@@ -27,11 +27,7 @@ import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
 import { LandingPage } from "./LandingPage"
 import { useToast } from "./Toast"
-
-const inputCls =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 transition-colors placeholder:text-slate-400 focus:border-cobalt-500 focus:outline-none focus:ring-2 focus:ring-cobalt-200"
-const primaryBtn =
-  "inline-flex items-center justify-center gap-1.5 rounded-lg bg-cobalt-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+import { inputCls, primaryBtn } from "./ui"
 
 type RoleValue = "viewer" | "editor" | "none"
 

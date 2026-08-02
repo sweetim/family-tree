@@ -8,8 +8,8 @@ import {
   useRef,
   useState,
 } from "react"
-import { createPortal } from "react-dom"
 import { cropToAvatar } from "../lib/image"
+import { Modal } from "./Modal"
 
 const CROP_SIZE = 264
 
@@ -117,14 +117,6 @@ export function AvatarCropper({ src, onConfirm, onCancel }: Props) {
     return () => area.removeEventListener("wheel", onWheel)
   }, [scale, zoomTo])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onCancel])
-
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
     const img = imgRef.current
@@ -139,15 +131,11 @@ export function AvatarCropper({ src, onConfirm, onCancel }: Props) {
   // the sidebar's AddForm/EditForm <form> (which would make "Apply" submit
   // the outer form and reload the page), and so the fixed overlay escapes
   // the sidebar's transform containing block.
-  if (typeof document === "undefined") return null
-  return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a convenience; Escape cancels (handled below)
-    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close is via the Escape listener in the effect above
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-fade-in"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onCancel()
-      }}
+  return (
+    <Modal
+      onClose={onCancel}
+      backdropClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 animate-fade-in"
+      portal
     >
       <form
         onSubmit={handleSubmit}
@@ -226,8 +214,7 @@ export function AvatarCropper({ src, onConfirm, onCancel }: Props) {
           </button>
         </div>
       </form>
-    </div>,
-    document.body,
+    </Modal>
   )
 }
 

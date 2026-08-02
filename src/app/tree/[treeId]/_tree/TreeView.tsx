@@ -112,14 +112,64 @@ function SkeletonCard() {
   )
 }
 
-function CanvasSkeleton() {
+function TreeSkeleton() {
+  // A small family tree, not three loose cards: a couple joined by a marriage
+  // line with a union dot at the real COUPLE_LINE_Y, a long parent->child bus,
+  // and three children (the middle one under the dot). Card width (176px) and
+  // the gaps match the live layout, so the placeholder reads as a tree. Lines
+  // are one continuous SVG so the dot-to-bus connector stays unbroken; cards
+  // are placed over it.
   return (
-    <div className="flex h-full w-full items-center justify-center p-6">
-      <div className="flex flex-wrap items-start justify-center gap-8">
-        <SkeletonCard />
-        <SkeletonCard />
+    <div className="relative h-[500px] w-[624px] origin-center scale-75 overflow-hidden md:scale-100">
+      <svg
+        className="absolute inset-0 h-full w-full"
+        viewBox="0 0 624 500"
+        fill="none"
+        aria-hidden="true"
+      >
+        <line
+          x1="288"
+          y1="64"
+          x2="336"
+          y2="64"
+          strokeWidth="1"
+          className="stroke-slate-200"
+        />
+        <circle
+          cx="312"
+          cy="64"
+          r="6"
+          className="fill-slate-200"
+        />
+        <path
+          d="M312 70 V300 M88 270 H536 M88 270 V300 M536 270 V300"
+          strokeWidth="1"
+          className="stroke-slate-200"
+        />
+      </svg>
+      <div className="absolute left-[112px] top-0">
         <SkeletonCard />
       </div>
+      <div className="absolute left-[336px] top-0">
+        <SkeletonCard />
+      </div>
+      <div className="absolute left-0 top-[300px]">
+        <SkeletonCard />
+      </div>
+      <div className="absolute left-[224px] top-[300px]">
+        <SkeletonCard />
+      </div>
+      <div className="absolute left-[448px] top-[300px]">
+        <SkeletonCard />
+      </div>
+    </div>
+  )
+}
+
+function CanvasSkeleton() {
+  return (
+    <div className="flex h-full w-full items-center justify-center overflow-hidden p-6">
+      <TreeSkeleton />
     </div>
   )
 }
@@ -150,8 +200,9 @@ function TreeCanvas({
   const { settings } = useViewSettings()
   // People used for rendering. "Show all families" merges every family that
   // shares at least one member with this one onto the canvas; otherwise this
-  // equals family.people.
-  const renderPeople = useFamilyAll(tree.id, settings.showAllFamilies)
+  // reuses `useFamily`'s projection (avoiding a second projectTree pass).
+  const allFamilies = useFamilyAll(tree.id, settings.showAllFamilies)
+  const renderPeople = settings.showAllFamilies ? allFamilies : family.people
   const [sidebar, setSidebar] = useState<SidebarState>(() =>
     openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },
   )

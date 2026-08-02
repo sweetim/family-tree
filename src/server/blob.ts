@@ -1,7 +1,7 @@
 import { del, get, put } from "@vercel/blob"
+import { MAX_PHOTO_BYTES } from "./limits"
 
 const DATA_URL_PREFIX = "data:"
-export const MAX_PHOTO_BYTES = 512 * 1024
 
 /** Lazily read the server-only Blob token. Throws if not configured. */
 function token(): string {
