@@ -154,7 +154,7 @@ export function Sidebar({
       </div>
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
-        {!loading && !editable && (
+        {!loading && !editable && state.mode !== "settings" && (
           <div className="mb-4">
             <MemberSearch
               family={family}
