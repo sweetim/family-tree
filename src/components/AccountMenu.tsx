@@ -6,6 +6,7 @@ import {
   LogOut,
   TriangleAlert,
 } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { authClient, useSession } from "../lib/auth-client"
 import {
@@ -13,7 +14,7 @@ import {
   useSyncConflictCount,
   useSyncStatus,
 } from "../store"
-import { GoogleIcon } from "./icons"
+import { GoogleSignInButton } from "./GoogleSignInButton"
 
 /**
  * Account menu — Sign in with Google when signed out, an avatar dropdown when
@@ -21,6 +22,7 @@ import { GoogleIcon } from "./icons"
  */
 export function AccountMenu() {
   const { data: session, isPending } = useSession()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const syncStatus = useSyncStatus()
   const conflictCount = useSyncConflictCount()
@@ -45,14 +47,10 @@ export function AccountMenu() {
   // expected) can be truthy yet lack a `user` — treat it as signed-out.
   if (!session?.user) {
     return (
-      <button
-        type="button"
-        onClick={() => authClient.signIn.social({ provider: "google" })}
-        className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
-      >
-        <GoogleIcon />
-        Sign in
-      </button>
+      <GoogleSignInButton
+        variant="outline"
+        label="Sign in"
+      />
     )
   }
 
@@ -170,9 +168,10 @@ export function AccountMenu() {
           ) : null}
           <button
             type="button"
-            onClick={() => {
+            onClick={async () => {
               setOpen(false)
-              authClient.signOut()
+              await authClient.signOut()
+              router.replace("/signed-out")
             }}
             className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
           >

@@ -433,6 +433,31 @@ export async function listTrees(request: Request): Promise<Response> {
   })
 }
 
+/**
+ * Public, unauthenticated preview of a shared tree's name so an invitee who
+ * isn't signed in yet can see which family they were invited to. Tree ids are
+ * unguessable UUIDs and the share model already trusts link possession, so
+ * revealing only the name to a link-holder is low-risk. Returns 404 for
+ * unknown/deleted trees and exposes nothing beyond `{ name }`.
+ */
+export async function getTreeInviteInfo(treeId: string): Promise<Response> {
+  if (!isValidSyncId(treeId)) {
+    return Response.json({ error: "invalid tree id" }, { status: 400 })
+  }
+  const db = getDB()
+  const rows = await db
+    .select({ name: trees.name })
+    .from(trees)
+    .where(and(eq(trees.id, treeId), isNull(trees.deletedAt)))
+    .limit(1)
+  const row = rows[0]
+  if (!row) return Response.json({ error: "tree not found" }, { status: 404 })
+  return Response.json(
+    { name: row.name },
+    { headers: { "cache-control": "public, max-age=60" } },
+  )
+}
+
 /** Loads one selected tree instead of every tree accessible to the account. */
 export async function getTreeSnapshot(
   request: Request,

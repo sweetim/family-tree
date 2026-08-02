@@ -15,7 +15,7 @@ import {
   useMemo,
   useState,
 } from "react"
-import { authClient, useSession } from "../lib/auth-client"
+import { useSession } from "../lib/auth-client"
 import { useOwnedAccessRequests } from "../lib/access-requests"
 import { useOwnerShares } from "../lib/shares"
 import { type TreeIndexStore, useHydrated } from "../store"
@@ -281,11 +281,7 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
   if (isPending || !hydrated) {
     body = <SharingSkeleton />
   } else if (!session?.user) {
-    return (
-      <LandingPage
-        onSignIn={() => authClient.signIn.social({ provider: "google" })}
-      />
-    )
+    return <LandingPage />
   } else if (treeCount === 0) {
     body = (
       <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
@@ -570,7 +566,7 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
               alt=""
               width={32}
               height={32}
-              className="h-8 w-8 shrink-0 rounded-lg object-cover"
+              className="h-8 w-8 shrink-0 object-cover"
             />
             <span className="hidden text-base font-semibold tracking-tight text-slate-900 sm:inline">
               FamiKi

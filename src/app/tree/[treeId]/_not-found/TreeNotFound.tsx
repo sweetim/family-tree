@@ -1,11 +1,13 @@
 "use client"
 
-import { CheckCircle2, Loader2 } from "lucide-react"
+import { CheckCircle2, CircleAlert, Loader2, Mail } from "lucide-react"
+import Image from "next/image"
 import { useParams, usePathname, useRouter } from "next/navigation"
-import { type FormEvent, useState } from "react"
-import { GoogleIcon } from "@/components/icons"
+import { type FormEvent, type ReactNode, useEffect, useState } from "react"
+import { GoogleSignInButton } from "@/components/GoogleSignInButton"
+import { useToast } from "@/components/Toast"
 import { useAccessRequest } from "@/lib/access-requests"
-import { authClient, useSession } from "@/lib/auth-client"
+import { useSession } from "@/lib/auth-client"
 import { useHydrated } from "@/store"
 
 /**
@@ -19,6 +21,7 @@ export function TreeNotFound() {
   const { data: session, isPending } = useSession()
   const hydrated = useHydrated()
   const pathname = usePathname()
+  const treeName = useTreeInviteInfo(params?.treeId)
 
   if (isPending) {
     return (
@@ -31,27 +34,32 @@ export function TreeNotFound() {
   if (!session?.user) {
     return (
       <CenteredCard>
-        <h1 className="text-lg font-semibold text-slate-800">
-          Sign in to request access
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          This family tree was shared with you. Sign in to continue — if you
-          don&apos;t have access yet, you can request it afterwards. An account
-          is created on your first sign-in.
+        <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-cobalt-50 text-cobalt-600 ring-1 ring-cobalt-100">
+          <Mail className="h-6 w-6" />
+        </div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-cobalt-600">
+          You&apos;re invited
         </p>
-        <button
-          type="button"
-          onClick={() =>
-            authClient.signIn.social({
-              provider: "google",
-              callbackURL: pathname,
-            })
-          }
-          className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
-        >
-          <GoogleIcon />
-          Sign in with Google
-        </button>
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#27241f]">
+          {treeName ? (
+            <>
+              {treeName}
+              <span className="mt-0.5 block text-sm font-medium text-[#9b9384]">
+                family tree
+              </span>
+            </>
+          ) : (
+            "A family tree"
+          )}
+        </h1>
+        <p className="mt-1.5 text-sm text-[#686155]">Sign in to view it.</p>
+        <GoogleSignInButton
+          variant="hero"
+          size="lg"
+          label="Continue with Google"
+          callbackURL={pathname}
+          className="mt-5 w-full"
+        />
       </CenteredCard>
     )
   }
@@ -68,11 +76,36 @@ export function TreeNotFound() {
     <CenteredCard>
       <RequestAccessCard
         treeId={params?.treeId ?? ""}
+        treeName={treeName}
         email={session.user.email}
       />
       <BackHome />
     </CenteredCard>
   )
+}
+
+/**
+ * Fetches the public name of the tree referenced by the current route so the
+ * invite card can say which family the visitor was invited to. Returns null
+ * until resolved or if the tree is unknown.
+ */
+function useTreeInviteInfo(treeId: string | undefined): string | null {
+  const [name, setName] = useState<string | null>(null)
+  useEffect(() => {
+    if (!treeId) return
+    let cancelled = false
+    void fetch(`/api/trees/${encodeURIComponent(treeId)}/invite`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (cancelled) return
+        if (data && typeof data.name === "string") setName(data.name)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [treeId])
+  return name
 }
 
 function AccessRequestSkeleton() {
@@ -81,16 +114,13 @@ function AccessRequestSkeleton() {
       className="space-y-4"
       aria-busy="true"
     >
+      <div className="mx-auto h-12 w-12 tree-skeleton animate-shimmer rounded-2xl" />
       <div className="mx-auto h-6 w-52 tree-skeleton animate-shimmer rounded" />
       <div className="space-y-2">
         <div className="mx-auto h-4 w-full tree-skeleton animate-shimmer rounded" />
         <div className="mx-auto h-4 w-4/5 tree-skeleton animate-shimmer rounded" />
       </div>
-      <div className="space-y-2">
-        <div className="h-3 w-20 tree-skeleton animate-shimmer rounded" />
-        <div className="h-24 w-full tree-skeleton animate-shimmer rounded-xl" />
-      </div>
-      <div className="ml-auto h-9 w-32 tree-skeleton animate-shimmer rounded-xl" />
+      <div className="mx-auto h-11 w-full tree-skeleton animate-shimmer rounded-full" />
     </div>
   )
 }
@@ -101,7 +131,7 @@ function BackHome() {
     <button
       type="button"
       onClick={() => router.push("/")}
-      className="mt-5 inline-flex items-center justify-center rounded-xl bg-cobalt-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95"
+      className="mt-5 w-full rounded-full bg-cobalt-600 px-4 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95"
     >
       Back to home
     </button>
@@ -111,21 +141,27 @@ function BackHome() {
 /**
  * Shown to a signed-in user without access to the tree. Lets them request
  * viewer access and attach a short note about who they are, which the owner
- * reviews. Reflects pending/denied states, and allows editing/re-requesting.
+ * reviews. Reflects pending/approved/denied states, and allows
+ * editing/re-requesting.
  */
 function RequestAccessCard({
   treeId,
+  treeName,
   email,
 }: {
   treeId: string
+  treeName: string | null
   email: string
 }) {
   const { status, submitting, submit } = useAccessRequest(treeId)
+  const toast = useToast()
   const [comment, setComment] = useState("")
   const [editing, setEditing] = useState(false)
 
   const isPending =
     status.kind === "present" && status.request.status === "pending"
+  const isApproved =
+    status.kind === "present" && status.request.status === "approved"
   const isDenied =
     status.kind === "present" && status.request.status === "denied"
   const showForm = status.kind === "none" || editing
@@ -141,6 +177,7 @@ function RequestAccessCard({
     if (!trimmed) return
     const ok = await submit(trimmed)
     if (ok) {
+      toast("Access request sent — the owner will review it.", "success")
       setComment("")
       setEditing(false)
     }
@@ -148,12 +185,14 @@ function RequestAccessCard({
 
   return (
     <div className="text-left">
-      <h1 className="text-center text-lg font-semibold text-slate-800">
-        Request access to this tree
+      <h1 className="text-center text-lg font-semibold text-[#27241f]">
+        {treeName
+          ? `Request access to "${treeName}"`
+          : "Request access to this tree"}
       </h1>
-      <p className="mt-1 text-center text-sm text-slate-500">
+      <p className="mt-1 text-center text-sm text-[#686155]">
         You&apos;re signed in as{" "}
-        <span className="font-medium text-slate-700">{email}</span>. Send a
+        <span className="font-medium text-[#27241f]">{email}</span>. Send a
         request and the owner will review it.
       </p>
 
@@ -181,10 +220,17 @@ function RequestAccessCard({
             Edit your message
           </button>
         </div>
+      ) : isApproved && !editing ? (
+        <div className="mt-5">
+          <div className="flex items-start gap-2 rounded-xl bg-emerald-50 px-3 py-3 text-sm text-emerald-700 ring-1 ring-emerald-200">
+            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+            <span>Approved — opening your tree…</span>
+          </div>
+        </div>
       ) : isDenied && !editing ? (
         <div className="mt-5">
           <div className="flex items-start gap-2 rounded-xl bg-red-50 px-3 py-3 text-sm text-red-700 ring-1 ring-red-200">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
             <span>Your access request was declined.</span>
           </div>
           <button
@@ -247,11 +293,23 @@ function RequestAccessCard({
   )
 }
 
-function CenteredCard({ children }: { children: React.ReactNode }) {
+function CenteredCard({ children }: { children: ReactNode }) {
   return (
-    <div className="app-bg flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-soft">
-        {children}
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-[#f7f4ed] p-6 text-[#27241f]">
+      <div className="w-full max-w-sm">
+        <div className="mb-6 flex items-center justify-center gap-2.5">
+          <Image
+            src="/logo.webp"
+            alt=""
+            width={40}
+            height={40}
+            className="h-10 w-10"
+          />
+          <span className="text-lg font-bold tracking-[-0.04em]">FamiKi</span>
+        </div>
+        <div className="rounded-2xl border border-white/70 bg-white/90 p-8 text-center shadow-[0_35px_90px_rgba(47,39,27,0.12)] backdrop-blur">
+          {children}
+        </div>
       </div>
     </div>
   )

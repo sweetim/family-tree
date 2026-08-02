@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useSyncExternalStore,
-} from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import {
   descendantsOf,
   type FamilyData,
@@ -45,14 +39,13 @@ import {
   applyTreeSnapshot,
   deleteTreeOnServer,
   fetchTreeSnapshot,
-  getAncestorTreeLinks,
-  getGraph,
   getSnapshot,
   makeDraft,
   newId,
-  subscribe,
   type TreeMeta,
   update,
+  useAncestorTreeLinks,
+  useGraph,
 } from "./state"
 import {
   ensureUnion,
@@ -63,7 +56,7 @@ import {
 } from "./unions"
 
 export function useTreeIndex() {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const graph = useGraph()
 
   const createTree = useCallback((name: string, seed?: TreeSeed): string => {
     const id = newId()
@@ -156,7 +149,7 @@ export function countMembers(treeId: string): number {
 }
 
 export function useMemberTrees(personId: string): TreeMeta[] {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const graph = useGraph()
   return useMemo(
     () => graph.index.filter((tree) => hasMember(graph, tree.id, personId)),
     [graph, personId],
@@ -174,12 +167,8 @@ export function useAncestorTree(
   personId: string,
   currentTreeId: string,
 ): TreeMeta | undefined {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
-  const links = useSyncExternalStore(
-    subscribe,
-    () => getAncestorTreeLinks(currentTreeId),
-    () => getAncestorTreeLinks(currentTreeId),
-  )
+  const graph = useGraph()
+  const links = useAncestorTreeLinks(currentTreeId)
   return useMemo(() => {
     const linkedTreeId = links.get(personId)
     if (linkedTreeId && linkedTreeId !== currentTreeId) {
@@ -209,7 +198,7 @@ export function useAncestorParents(
   ancestorTree: TreeMeta | undefined
   parents: { link: ParentLink; person: Person }[]
 } {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const graph = useGraph()
   const ancestorTree = useAncestorTree(personId, currentTreeId)
   const ancestorTreeId = ancestorTree?.id
   const loaded = ancestorTreeId
@@ -253,14 +242,14 @@ export function useAncestorParents(
 export function usePersonIdentity(
   personId: string | undefined,
 ): PersonIdentity | undefined {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const graph = useGraph()
   return personId ? graph.persons[personId] : undefined
 }
 
 export function useMembersOf(
   treeId: string | undefined,
 ): { id: string; name: string }[] {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const graph = useGraph()
   const loaded = treeId
     ? graph.index.find((tree) => tree.id === treeId)?.loaded
     : true
@@ -293,7 +282,7 @@ export function useMembersOf(
 }
 
 export function useTreePeople(treeId: string | undefined): Person[] {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const graph = useGraph()
   return useMemo(
     () =>
       treeId ? Object.values(projectTree(graph.persons, graph, treeId)) : [],
@@ -310,7 +299,7 @@ export type PersonSearchResult = {
 
 /** Every person in the store, each paired with the earliest tree they're in. */
 export function usePersonSearch(): PersonSearchResult[] {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const graph = useGraph()
   return useMemo(() => {
     const treeExists = new Set(graph.index.map((tree) => tree.id))
     const earliest = new Map<
@@ -338,7 +327,7 @@ export function usePersonSearch(): PersonSearchResult[] {
 }
 
 export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const graph = useGraph()
   return useMemo(() => {
     // When "show all families" is off, the caller reuses `useFamily`'s tree
     // projection as `renderPeople`, so this hook skips projecting a second time.
@@ -366,7 +355,7 @@ export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
 }
 
 export function useFamily(treeId: string) {
-  const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
+  const graph = useGraph()
   // Structural-sharing projection: returns the same `people` reference (and the
   // same `Person` objects within it) whenever this tree's underlying records
   // are unchanged, so the layout memo and per-card `React.memo` actually fire.

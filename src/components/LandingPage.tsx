@@ -6,11 +6,7 @@ import {
   useEffect,
   useState,
 } from "react"
-import { GoogleIcon } from "./icons"
-
-type LandingPageProps = {
-  onSignIn: () => void
-}
+import { GoogleSignInButton } from "./GoogleSignInButton"
 
 type FamilyPerson = {
   name: string
@@ -266,7 +262,7 @@ function GrowingFamilyTree() {
   )
 }
 
-export function LandingPage({ onSignIn }: LandingPageProps) {
+export function LandingPage() {
   return (
     <div className="landing-page flex h-dvh flex-col overflow-hidden bg-[#f7f4ed] text-[#27241f]">
       <header className="relative z-40 shrink-0 border-b border-[#2e2a24]/8 bg-[#f7f4ed]/80 backdrop-blur-xl">
@@ -278,18 +274,15 @@ export function LandingPage({ onSignIn }: LandingPageProps) {
               width={44}
               height={44}
               priority
-              className="h-10 w-10 rounded-xl object-cover shadow-[0_8px_20px_rgba(31,65,224,0.16)] sm:h-11 sm:w-11"
+              className="h-10 w-10 object-cover sm:h-11 sm:w-11"
             />
             <span className="text-lg font-bold tracking-[-0.04em]">FamiKi</span>
           </div>
-          <button
-            type="button"
-            onClick={onSignIn}
-            className="ml-auto inline-flex items-center gap-2 rounded-full border border-[#d8d1c4] bg-white/75 px-4 py-2 text-sm font-bold text-[#373229] shadow-sm transition-all hover:-translate-y-0.5 hover:bg-white hover:shadow-md"
-          >
-            <GoogleIcon />
-            <span className="hidden sm:inline">Sign in</span>
-          </button>
+          <GoogleSignInButton
+            variant="outline"
+            label="Sign in"
+            className="ml-auto"
+          />
         </nav>
       </header>
 
@@ -326,14 +319,13 @@ export function LandingPage({ onSignIn }: LandingPageProps) {
               Build a living family tree that organizes every generation,
               memory, and relationship in one private place.
             </p>
-            <button
-              type="button"
-              onClick={onSignIn}
-              className="group mt-5 inline-flex items-center justify-center gap-3 rounded-full bg-[#29261f] px-5 py-3 text-sm font-bold text-white shadow-[0_15px_35px_rgba(41,38,31,0.22)] transition-all hover:-translate-y-1 hover:bg-cobalt-700 hover:shadow-[0_18px_40px_rgba(31,65,224,0.24)] active:translate-y-0 sm:mt-7 sm:px-6 sm:py-3.5"
-            >
-              Start your family tree
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-            </button>
+            <GoogleSignInButton
+              variant="hero"
+              size="lg"
+              label="Start your family tree"
+              trailingIcon={<ArrowRight className="h-4 w-4" />}
+              className="mt-5 sm:mt-7"
+            />
             <div className="mt-5 hidden flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-[#756e62] sm:flex lg:mt-7">
               <span className="inline-flex items-center gap-1.5">
                 <Check className="h-3.5 w-3.5 text-emerald-700" /> Private by

@@ -1,31 +1,20 @@
-import { useSyncExternalStore } from "react"
+import { create } from "zustand"
 import type {
   ParentChildRelationshipRecordWire,
-  ParentChildRelationshipWire,
-  PersonPushWire,
   PersonRecordWire,
-  PersonWire,
   SyncChangePage,
   LocalRole as SyncLocalRole,
   SyncMutationResponse,
   SyncPullResponse,
   SyncPushRequest,
-  SyncPushResponse,
   SyncRecordSet,
   ShareRole as SyncShareRole,
   TreeManifestItem,
-  TreeManifestResponse,
-  TreeMemberWire,
   TreeParentChildRelationshipRecordWire,
-  TreeParentChildRelationshipWire,
-  TreePushWire,
   TreeSnapshotResponse,
-  TreeUnionWire,
-  TreeWire,
-  UnionEventWire,
-  UnionWire,
 } from "../sync/types"
 import type { NormalizedRelationships, PersonIdentity } from "../types"
+import { clearDirty, dirtyToken, snapshotDirty, stampAndEnqueue } from "./dirty"
 import {
   loadPersistedStore,
   type PersistedConflict,
@@ -34,6 +23,64 @@ import {
   type PersistedStore,
   savePersistedStore,
 } from "./persistence"
+import {
+  acknowledgeApplied,
+  applyAliases,
+  applyRemote,
+  recordTombstone,
+  sharedRemoteRecords,
+} from "./remote"
+import {
+  blockedChangesForTree,
+  buildPushWires,
+  dirtyBatchKey,
+  emptyDirtyState,
+  firstPendingOperation,
+  hasAcknowledgedIds,
+  isStoredPhotoMarker,
+  MAX_SYNC_BATCH_BYTES,
+  MAX_SYNC_BATCH_RECORDS,
+  newId,
+  now,
+  operationExceedsRecordLimits,
+  persistableDirty,
+  pullRecordSet,
+  RECORD_COLLECTIONS,
+  recordSetValue,
+  restoredDirty,
+  STORED_PHOTO_MARKER,
+  takeDirtyBatch,
+  treeMemberKey,
+  treeParentChildRelationshipKey,
+  treeUnionKey,
+  valueFor,
+} from "./state-internals"
+import {
+  fetchFullPull,
+  fetchTreeManifest,
+  fetchTreeSnapshot,
+} from "./sync-transport"
+
+// Re-export stateless helpers so the barrel and sibling modules can keep
+// importing them from "./state".
+export {
+  applyRemote,
+  blockedChangesForTree,
+  buildPushWires,
+  clearDirty,
+  fetchFullPull,
+  fetchTreeManifest,
+  fetchTreeSnapshot,
+  isStoredPhotoMarker,
+  newId,
+  now,
+  snapshotDirty,
+  stampAndEnqueue,
+  takeDirtyBatch,
+  treeMemberKey,
+  treeParentChildRelationshipKey,
+  treeUnionKey,
+}
 
 export type ShareRole = SyncShareRole
 export type LocalRole = SyncLocalRole
@@ -59,26 +106,6 @@ export type GlobalState = NormalizedRelationships & {
 }
 
 export type SyncStatus = "saved" | "saving" | "offline" | "conflict"
-
-const RECORD_COLLECTIONS = [
-  "persons",
-  "trees",
-  "treeMembers",
-  "unions",
-  "unionEvents",
-  "treeUnions",
-  "parentChildRelationships",
-  "treeParentChildRelationships",
-] as const
-const SNAPSHOT_RECORD_COLLECTIONS = [
-  "persons",
-  "treeMembers",
-  "unions",
-  "unionEvents",
-  "treeUnions",
-  "parentChildRelationships",
-  "treeParentChildRelationships",
-] as const satisfies readonly (keyof TreeSnapshotResponse["records"])[]
 
 export type DirtyCollection = (typeof RECORD_COLLECTIONS)[number]
 export type DirtyAction = "upsert" | "delete"
@@ -107,47 +134,6 @@ export type BlockedChange = {
 type TombstoneClock = { updatedAt: string; revision?: number }
 type TombstoneClocks = Record<DirtyCollection, Map<string, TombstoneClock>>
 
-const EPOCH = "1970-01-01T00:00:00.000Z"
-const STORED_PHOTO_MARKER = "stored-photo"
-const MAX_SYNC_BATCH_RECORDS = 5_000
-const MAX_SYNC_RECORDS_PER_COLLECTION = 2_000
-const MAX_SYNC_BATCH_BYTES = 4 * 1024 * 1024
-
-export function isStoredPhotoMarker(value: string | undefined): boolean {
-  return value === STORED_PHOTO_MARKER
-}
-
-export function newId(): string {
-  return crypto.randomUUID()
-}
-
-export function treeMemberKey(treeId: string, personId: string): string {
-  return JSON.stringify([treeId, personId])
-}
-
-export function treeUnionKey(treeId: string, unionId: string): string {
-  return JSON.stringify([treeId, unionId])
-}
-
-export function treeParentChildRelationshipKey(
-  treeId: string,
-  parentChildRelationshipId: string,
-): string {
-  return JSON.stringify([treeId, parentChildRelationshipId])
-}
-
-function parseAssociationKey(key: string): [string, string] {
-  const parsed = JSON.parse(key) as unknown
-  if (
-    !Array.isArray(parsed)
-    || typeof parsed[0] !== "string"
-    || typeof parsed[1] !== "string"
-  ) {
-    throw new Error(`Invalid association key: ${key}`)
-  }
-  return [parsed[0], parsed[1]]
-}
-
 function emptyState(): GlobalState {
   return {
     persons: {},
@@ -158,19 +144,6 @@ function emptyState(): GlobalState {
     treeUnions: {},
     parentChildRelationships: {},
     treeParentChildRelationships: {},
-  }
-}
-
-function emptyDirtyState(): DirtyState {
-  return {
-    persons: new Map(),
-    trees: new Map(),
-    treeMembers: new Map(),
-    unions: new Map(),
-    unionEvents: new Map(),
-    treeUnions: new Map(),
-    parentChildRelationships: new Map(),
-    treeParentChildRelationships: new Map(),
   }
 }
 
@@ -188,13 +161,48 @@ function emptyTombstoneClocks(): TombstoneClocks {
 }
 
 // ---------------------------------------------------------------------------
+// Reactive store (Zustand). Mirrors the engine's reactive singletons so React
+// subscribes via selectors. The module-scoped `let` bindings below remain the
+// source of truth; `notifyListeners` pushes their current values here, and
+// subscribers re-render only when their selected slice actually changes
+// (Object.is per selector), matching the previous `useSyncExternalStore` model.
+// ---------------------------------------------------------------------------
+
+type ReactiveState = {
+  state: GlobalState
+  hydrated: boolean
+  syncStatus: SyncStatus
+  freshlyLoadedTrees: Set<string>
+  syncConflicts: PersistedConflict[]
+  operationConflicts: PersistedOperationConflict[]
+  ancestorTreeLinks: Map<string, Map<string, string>>
+  blockedChangesVersion: number
+}
+
+const useStore = create<ReactiveState>(() => ({
+  state: emptyState(),
+  hydrated: false,
+  syncStatus: "saved" as SyncStatus,
+  freshlyLoadedTrees: new Set(),
+  syncConflicts: [],
+  operationConflicts: [],
+  ancestorTreeLinks: new Map(),
+  blockedChangesVersion: 0,
+}))
+
+// ---------------------------------------------------------------------------
 // Per-record dirty tracking and normalized sync.
 // ---------------------------------------------------------------------------
 
 let state = emptyState()
-let dirtyState = emptyDirtyState()
-let remoteTombstoneClocks = emptyTombstoneClocks()
+export let dirtyState = emptyDirtyState()
+export let remoteTombstoneClocks = emptyTombstoneClocks()
 let nextRevision = 1
+/** Bump and return the next optimistic-concurrency revision. Extracted modules
+ *  can't reassign the imported `nextRevision` binding, so they bump via this. */
+export function bumpRevision(): number {
+  return nextRevision++
+}
 let storeGeneration = 0
 let pushInFlight: Promise<void> | undefined
 let pushInFlightGeneration = -1
@@ -202,10 +210,10 @@ let conflictResolutionInFlight: Promise<unknown> | undefined
 const treeSyncInFlight = new Map<string, Promise<void>>()
 const treeFreshSyncInFlight = new Map<string, Promise<void>>()
 let deviceId = newId()
-const storeInstanceId = newId()
+export const storeInstanceId = newId()
 const mutationIdsByBatch = new Map<string, string>()
-const clearedDirtyTokens = new Set<string>()
-let pendingMutation: PersistedPendingMutation | undefined
+export const clearedDirtyTokens = new Set<string>()
+export let pendingMutation: PersistedPendingMutation | undefined
 const clearedMutationIds = new Set<string>()
 let syncConflicts: PersistedConflict[] = []
 let operationConflicts: PersistedOperationConflict[] = []
@@ -294,7 +302,7 @@ function persistCurrentStore(): Promise<void> {
   return persistenceWrite
 }
 
-function schedulePersistence(): void {
+export function schedulePersistence(): void {
   if (!persistenceUserId || persistenceScheduled) return
   persistenceScheduled = true
   queueMicrotask(() => {
@@ -305,261 +313,8 @@ function schedulePersistence(): void {
   })
 }
 
-function markDirty(
-  collection: DirtyCollection,
-  id: string,
-  action: DirtyAction,
-  baseRevision?: number,
-  operationId?: string,
-): void {
-  const current = dirtyState[collection].get(id)
-  const isPending = Boolean(
-    pendingMutation?.dirty[collection].some(
-      ([pendingId, pending]) =>
-        pendingId === id && pending.revision === current?.revision,
-    ),
-  )
-  if (
-    action === "delete"
-    && current?.action === "upsert"
-    && current.baseRevision === undefined
-    && !current.blocked
-    && !isPending
-  ) {
-    const token = dirtyToken(collection, id, current)
-    if (token) clearedDirtyTokens.add(token)
-    dirtyState[collection].delete(id)
-    return
-  }
-  dirtyState[collection].set(id, {
-    action,
-    revision: nextRevision++,
-    baseRevision: current?.blocked
-      ? baseRevision
-      : (current?.baseRevision ?? baseRevision),
-    operationId,
-    sourceId: storeInstanceId,
-    changedAt: Date.now(),
-  })
-}
-
-function dirtyToken(
-  collection: DirtyCollection,
-  id: string,
-  record: DirtyRecord,
-): string | undefined {
-  return record.sourceId
-    ? JSON.stringify([collection, id, record.sourceId, record.revision])
-    : undefined
-}
-
-function stampRecordMap<T extends { updatedAt: string; revision?: number }>(
-  previous: Record<string, T>,
-  next: Record<string, T>,
-  collection: Exclude<DirtyCollection, "persons" | "trees">,
-  now: string,
-  operationId: string,
-  enqueueDeletes = true,
-): Record<string, T> {
-  if (previous === next) return next
-  let stamped = next
-  let cloned = false
-  for (const [id, record] of Object.entries(next)) {
-    if (record === previous[id]) continue
-    if (!cloned) {
-      stamped = { ...next }
-      cloned = true
-    }
-    stamped[id] = { ...record, updatedAt: now }
-    markDirty(collection, id, "upsert", previous[id]?.revision, operationId)
-  }
-  for (const id of Object.keys(previous)) {
-    if (!next[id]) {
-      if (enqueueDeletes) {
-        markDirty(collection, id, "delete", previous[id]?.revision, operationId)
-      } else {
-        const current = dirtyState[collection].get(id)
-        const token = current ? dirtyToken(collection, id, current) : undefined
-        if (token) clearedDirtyTokens.add(token)
-        dirtyState[collection].delete(id)
-      }
-    }
-  }
-  return stamped
-}
-
-/** Stamp and enqueue only the normalized records whose object references changed. */
-export function stampAndEnqueue(
-  previous: GlobalState,
-  next: GlobalState,
-): GlobalState {
-  if (previous === next) return next
-  const changedValues = <T>(
-    previousRecords: Record<string, T>,
-    nextRecords: Record<string, T>,
-  ): unknown[] => [
-    ...Object.entries(nextRecords)
-      .filter(([id, record]) => record !== previousRecords[id])
-      .map(([, record]) => record),
-    ...Object.keys(previousRecords)
-      .filter((id) => !nextRecords[id])
-      .map((id) => ({ id, deleted: true })),
-  ]
-  const previousTrees = Object.fromEntries(
-    previous.index.map((tree) => [tree.id, tree]),
-  )
-  const nextTrees = Object.fromEntries(
-    next.index.map((tree) => [tree.id, tree]),
-  )
-  const operationCollections = [
-    changedValues(previous.persons, next.persons),
-    changedValues(previousTrees, nextTrees),
-    changedValues(previous.treeMembers, next.treeMembers),
-    changedValues(previous.unions, next.unions),
-    changedValues(previous.unionEvents, next.unionEvents),
-    changedValues(previous.treeUnions, next.treeUnions),
-    changedValues(
-      previous.parentChildRelationships,
-      next.parentChildRelationships,
-    ),
-    changedValues(
-      previous.treeParentChildRelationships,
-      next.treeParentChildRelationships,
-    ),
-  ]
-  const operationRecordCount = operationCollections.reduce(
-    (total, records) => total + records.length,
-    0,
-  )
-  const operationBytes = new TextEncoder().encode(
-    JSON.stringify(operationCollections),
-  ).byteLength
-  if (
-    operationCollections.some(
-      (records) => records.length > MAX_SYNC_RECORDS_PER_COLLECTION,
-    )
-    || operationRecordCount > MAX_SYNC_BATCH_RECORDS
-    || operationBytes > MAX_SYNC_BATCH_BYTES
-  ) {
-    throw new Error("This change is too large to synchronize atomically.")
-  }
-  const now = new Date().toISOString()
-  const operationId = newId()
-
-  let persons = next.persons
-  if (previous.persons !== next.persons) {
-    let cloned = false
-    for (const [id, person] of Object.entries(next.persons)) {
-      if (person === previous.persons[id]) continue
-      if (!cloned) {
-        persons = { ...next.persons }
-        cloned = true
-      }
-      persons[id] = { ...person, updatedAt: now }
-      markDirty(
-        "persons",
-        id,
-        "upsert",
-        previous.persons[id]?.revision,
-        operationId,
-      )
-    }
-    for (const id of Object.keys(previous.persons)) {
-      if (!next.persons[id]) {
-        markDirty(
-          "persons",
-          id,
-          "delete",
-          previous.persons[id]?.revision,
-          operationId,
-        )
-      }
-    }
-  }
-
-  let index = next.index
-  if (previous.index !== next.index) {
-    const previousById = new Map(
-      previous.index.map((tree) => [tree.id, tree] as const),
-    )
-    let cloned = false
-    for (let position = 0; position < next.index.length; position++) {
-      const tree = next.index[position]
-      if (!tree || tree === previousById.get(tree.id)) continue
-      if (!cloned) {
-        index = [...next.index]
-        cloned = true
-      }
-      index[position] = { ...tree, updatedAt: now }
-      markDirty(
-        "trees",
-        tree.id,
-        "upsert",
-        previousById.get(tree.id)?.revision,
-        operationId,
-      )
-    }
-    const nextIds = new Set(next.index.map((tree) => tree.id))
-    for (const tree of previous.index) {
-      if (!nextIds.has(tree.id)) {
-        markDirty("trees", tree.id, "delete", tree.revision, operationId)
-      }
-    }
-  }
-
-  return {
-    ...next,
-    persons,
-    index,
-    treeMembers: stampRecordMap(
-      previous.treeMembers,
-      next.treeMembers,
-      "treeMembers",
-      now,
-      operationId,
-    ),
-    unions: stampRecordMap(
-      previous.unions,
-      next.unions,
-      "unions",
-      now,
-      operationId,
-    ),
-    unionEvents: stampRecordMap(
-      previous.unionEvents,
-      next.unionEvents,
-      "unionEvents",
-      now,
-      operationId,
-    ),
-    treeUnions: stampRecordMap(
-      previous.treeUnions,
-      next.treeUnions,
-      "treeUnions",
-      now,
-      operationId,
-    ),
-    parentChildRelationships: stampRecordMap(
-      previous.parentChildRelationships,
-      next.parentChildRelationships,
-      "parentChildRelationships",
-      now,
-      operationId,
-      false,
-    ),
-    treeParentChildRelationships: stampRecordMap(
-      previous.treeParentChildRelationships,
-      next.treeParentChildRelationships,
-      "treeParentChildRelationships",
-      now,
-      operationId,
-    ),
-  }
-}
-
 type UpdateOptions = { remote?: boolean }
 
-const listeners = new Set<() => void>()
 let hydrated = false
 let notificationsSuppressed = false
 let syncStatus: SyncStatus = "saved"
@@ -572,7 +327,16 @@ const blockedChangesCache = new Map<
 function notifyListeners(): void {
   blockedChangesVersion++
   blockedChangesCache.clear()
-  for (const listener of listeners) listener()
+  useStore.setState({
+    state,
+    hydrated,
+    syncStatus,
+    freshlyLoadedTrees,
+    syncConflicts,
+    operationConflicts,
+    ancestorTreeLinks,
+    blockedChangesVersion,
+  })
 }
 
 function setSyncStatus(value: SyncStatus): void {
@@ -614,160 +378,6 @@ export function update(
 
 export function getSnapshot(): GlobalState {
   return state
-}
-
-export function snapshotDirty(): DirtyState {
-  return Object.fromEntries(
-    RECORD_COLLECTIONS.map((collection) => [
-      collection,
-      new Map(dirtyState[collection]),
-    ]),
-  ) as DirtyState
-}
-
-export function blockedChangesForTree(
-  currentState: GlobalState,
-  currentDirtyState: DirtyState,
-  treeId: string,
-): BlockedChange[] {
-  const operations = new Map<
-    string,
-    { action: DirtyAction; labels: Set<string> }
-  >()
-  const personName = (personId: string): string | undefined =>
-    currentState.persons[personId]?.name
-
-  for (const collection of RECORD_COLLECTIONS) {
-    for (const [id, record] of currentDirtyState[collection]) {
-      if (!record.blocked) continue
-      if (
-        (collection === "treeMembers"
-          || collection === "treeUnions"
-          || collection === "treeParentChildRelationships")
-        && parseAssociationKey(id)[0] !== treeId
-      ) {
-        continue
-      }
-
-      const operationId = record.operationId ?? `${collection}:${id}`
-      const operation = operations.get(operationId) ?? {
-        action: record.action,
-        labels: new Set<string>(),
-      }
-      operations.set(operationId, operation)
-
-      if (collection === "persons") {
-        const name = personName(id)
-        if (name) operation.labels.add(name)
-      } else if (collection === "trees") {
-        const tree = currentState.index.find((item) => item.id === id)
-        if (tree?.name) operation.labels.add(tree.name)
-      } else if (collection === "treeMembers") {
-        const name = personName(parseAssociationKey(id)[1])
-        if (name) operation.labels.add(name)
-      } else if (collection === "parentChildRelationships") {
-        const relationship = currentState.parentChildRelationships[id]
-        const parent = relationship
-          ? personName(relationship.parentPersonId)
-          : undefined
-        const child = relationship
-          ? personName(relationship.childPersonId)
-          : undefined
-        if (parent && child) operation.labels.add(`${parent} and ${child}`)
-      } else if (collection === "unions") {
-        const union = currentState.unions[id]
-        const first = union ? personName(union.firstPersonId) : undefined
-        const second = union ? personName(union.secondPersonId) : undefined
-        if (first && second) operation.labels.add(`${first} and ${second}`)
-      }
-    }
-  }
-
-  return [...operations].map(([id, operation]) => {
-    const subject = [...operation.labels].slice(0, 2).join(", ")
-    const label = subject
-      ? operation.action === "delete"
-        ? `Remove ${subject}`
-        : `Update ${subject}`
-      : operation.action === "delete"
-        ? "Remove family connection"
-        : "Update family details"
-    return {
-      id,
-      action: operation.action,
-      label,
-      reason: "This change conflicts with a newer server version.",
-      retryable: true,
-      device: [],
-      server: [],
-    }
-  })
-}
-
-function valueFor(
-  currentState: GlobalState,
-  collection: DirtyCollection,
-  id: string,
-): unknown {
-  return collection === "trees"
-    ? currentState.index.find((tree) => tree.id === id)
-    : currentState[collection][id]
-}
-
-function wireId(
-  collection: DirtyCollection,
-  wire: Record<string, string>,
-): string {
-  if (collection === "treeMembers") {
-    return treeMemberKey(wire.treeId ?? "", wire.personId ?? "")
-  }
-  if (collection === "treeUnions") {
-    return treeUnionKey(wire.treeId ?? "", wire.unionId ?? "")
-  }
-  if (collection === "treeParentChildRelationships") {
-    return treeParentChildRelationshipKey(
-      wire.treeId ?? "",
-      wire.parentChildRelationshipId ?? "",
-    )
-  }
-  return wire.id ?? ""
-}
-
-function recordSetValue(
-  records: SyncRecordSet,
-  collection: DirtyCollection,
-  id: string,
-): unknown {
-  return records[collection].find(
-    (wire) =>
-      wireId(collection, wire as unknown as Record<string, string>) === id,
-  )
-}
-
-/** Flatten a pull into one record set so authoritative revisions can be looked
- *  up for any accessible record, including ones outside a single tree. */
-function pullRecordSet(pull: SyncPullResponse): SyncRecordSet {
-  const result: SyncRecordSet = {
-    persons: [],
-    trees: [],
-    treeMembers: [],
-    unions: [],
-    unionEvents: [],
-    treeUnions: [],
-    parentChildRelationships: [],
-    treeParentChildRelationships: [],
-  }
-  const append = (records: Partial<SyncRecordSet>) => {
-    for (const collection of RECORD_COLLECTIONS) {
-      const wires = records[collection]
-      if (wires) result[collection].push(...(wires as never[]))
-    }
-  }
-  append(pull.own)
-  for (const shared of pull.shared) {
-    append({ ...shared, trees: [shared.tree] })
-  }
-  return result
 }
 
 function snapshotOperationConflict(
@@ -950,393 +560,9 @@ function recreateMissingParentDependencies(
   }
 }
 
-export function takeDirtyBatch(
-  source: DirtyState,
-  maximumRecords: number,
-): DirtyState {
-  const batch = emptyDirtyState()
-  const targetOperationId = RECORD_COLLECTIONS.flatMap((collection) => [
-    ...source[collection].values(),
-  ]).find((record) => !record.blocked)?.operationId
-  let remaining = maximumRecords
-  for (const collection of RECORD_COLLECTIONS) {
-    if (remaining === 0) break
-    for (const [id, record] of source[collection]) {
-      if (record.blocked) continue
-      if (record.operationId !== targetOperationId) continue
-      batch[collection].set(id, record)
-      remaining--
-      if (remaining === 0) break
-    }
-  }
-  return batch
-}
-
-type DirtyIds = Partial<Record<DirtyCollection, Iterable<string>>>
+export type DirtyIds = Partial<Record<DirtyCollection, Iterable<string>>>
 
 /** Clear acknowledgements only when the shipped revision is still current. */
-export function clearDirty(ids: DirtyIds, shipped?: DirtyState): void {
-  for (const collection of RECORD_COLLECTIONS) {
-    for (const id of ids[collection] ?? []) {
-      const current = dirtyState[collection].get(id)
-      const sent = shipped?.[collection].get(id)
-      if (!shipped || (current && sent && current.revision === sent.revision)) {
-        if (current) {
-          const token = dirtyToken(collection, id, current)
-          if (token) clearedDirtyTokens.add(token)
-        }
-        dirtyState[collection].delete(id)
-      }
-    }
-  }
-  schedulePersistence()
-}
-
-function acknowledgeApplied(
-  result: SyncPushResponse,
-  shipped: DirtyState,
-): void {
-  const acknowledgedRevisions = Object.fromEntries(
-    RECORD_COLLECTIONS.map((collection) => [
-      collection,
-      new Map<string, number>(),
-    ]),
-  ) as Record<DirtyCollection, Map<string, number>>
-
-  for (const collection of RECORD_COLLECTIONS) {
-    for (const id of result.applied[collection]) {
-      const sent = shipped[collection].get(id)
-      if (!sent) continue
-      const revision = (sent.baseRevision ?? 0) + 1
-      acknowledgedRevisions[collection].set(id, revision)
-      const pending = dirtyState[collection].get(id)
-      if (pending && pending.revision !== sent.revision) {
-        dirtyState[collection].set(id, { ...pending, baseRevision: revision })
-      }
-    }
-  }
-
-  update(
-    (previous) => {
-      let persons = previous.persons
-      for (const [id, revision] of acknowledgedRevisions.persons) {
-        const person = persons[id]
-        if (!person) continue
-        if (persons === previous.persons) persons = { ...persons }
-        persons[id] = { ...person, revision, updatedAt: result.serverTime }
-      }
-
-      let index = previous.index
-      for (const [id, revision] of acknowledgedRevisions.trees) {
-        const position = index.findIndex((tree) => tree.id === id)
-        if (position < 0) continue
-        if (index === previous.index) index = [...index]
-        const tree = index[position]
-        if (tree) {
-          index[position] = { ...tree, revision, updatedAt: result.serverTime }
-        }
-      }
-
-      const stampCollection = <
-        T extends { revision?: number; updatedAt: string },
-      >(
-        records: Record<string, T>,
-        collection: Exclude<DirtyCollection, "persons" | "trees">,
-      ): Record<string, T> => {
-        let next = records
-        for (const [id, revision] of acknowledgedRevisions[collection]) {
-          const record = next[id]
-          if (!record) continue
-          if (next === records) next = { ...records }
-          next[id] = { ...record, revision, updatedAt: result.serverTime }
-        }
-        return next
-      }
-
-      return {
-        ...previous,
-        persons,
-        index,
-        treeMembers: stampCollection(previous.treeMembers, "treeMembers"),
-        unions: stampCollection(previous.unions, "unions"),
-        unionEvents: stampCollection(previous.unionEvents, "unionEvents"),
-        treeUnions: stampCollection(previous.treeUnions, "treeUnions"),
-        parentChildRelationships: stampCollection(
-          previous.parentChildRelationships,
-          "parentChildRelationships",
-        ),
-        treeParentChildRelationships: stampCollection(
-          previous.treeParentChildRelationships,
-          "treeParentChildRelationships",
-        ),
-      }
-    },
-    { remote: true },
-  )
-}
-
-function applyAliases(result: SyncPushResponse): void {
-  const aliases = result.aliases?.parentChildRelationships
-  if (!aliases || Object.keys(aliases).length === 0) return
-
-  update(
-    (previous) => {
-      const parentChildRelationships = { ...previous.parentChildRelationships }
-      const treeParentChildRelationships = {
-        ...previous.treeParentChildRelationships,
-      }
-      for (const [clientId, canonical] of Object.entries(aliases)) {
-        const local = parentChildRelationships[clientId]
-        if (local) {
-          delete parentChildRelationships[clientId]
-          parentChildRelationships[canonical.id] = {
-            ...local,
-            id: canonical.id,
-            revision: canonical.revision,
-            type: canonical.type,
-            updatedAt: result.serverTime,
-          }
-        }
-        const dirtyFact = dirtyState.parentChildRelationships.get(clientId)
-        if (dirtyFact) {
-          dirtyState.parentChildRelationships.delete(clientId)
-          dirtyState.parentChildRelationships.set(canonical.id, {
-            ...dirtyFact,
-            baseRevision: canonical.revision,
-          })
-        }
-        for (const [key, association] of Object.entries(
-          treeParentChildRelationships,
-        )) {
-          if (association.parentChildRelationshipId !== clientId) continue
-          delete treeParentChildRelationships[key]
-          const canonicalKey = treeParentChildRelationshipKey(
-            association.treeId,
-            canonical.id,
-          )
-          treeParentChildRelationships[canonicalKey] = {
-            ...association,
-            parentChildRelationshipId: canonical.id,
-            revision:
-              result.aliases?.treeParentChildRelationships?.[key]?.revision
-              ?? association.revision,
-            updatedAt: result.serverTime,
-          }
-          const dirtyAssociation =
-            dirtyState.treeParentChildRelationships.get(key)
-          if (dirtyAssociation) {
-            dirtyState.treeParentChildRelationships.delete(key)
-            dirtyState.treeParentChildRelationships.set(
-              canonicalKey,
-              dirtyAssociation,
-            )
-          }
-        }
-      }
-      return {
-        ...previous,
-        parentChildRelationships,
-        treeParentChildRelationships,
-      }
-    },
-    { remote: true },
-  )
-}
-
-function actionFor(dirty: DirtyMap, id: string): DirtyAction | undefined {
-  return dirty.get(id)?.action
-}
-
-export function buildPushWires(
-  snapshot: GlobalState,
-  dirty: DirtyState,
-  now: string,
-): SyncPushRequest {
-  const persons: PersonPushWire[] = []
-  for (const id of dirty.persons.keys()) {
-    const person = snapshot.persons[id]
-    if (actionFor(dirty.persons, id) === "delete" || !person) {
-      persons.push({
-        id,
-        revision: dirty.persons.get(id)?.baseRevision,
-        updatedAt: now,
-        deletedAt: now,
-      })
-    } else {
-      const dirtyPerson = dirty.persons.get(id)
-      persons.push({
-        id,
-        name: person.name,
-        familyName: person.familyName,
-        dob: person.dob,
-        dod: person.dod,
-        gender: person.gender,
-        birthplace: person.birthplace,
-        revision: dirtyPerson?.baseRevision ?? person.revision,
-        ...(isStoredPhotoMarker(person.photo)
-          ? {}
-          : { photo: person.photo ?? null }),
-        updatedAt: person.updatedAt ?? now,
-        ...(dirtyPerson?.force ? { force: true } : {}),
-      })
-    }
-  }
-
-  const trees: TreePushWire[] = []
-  for (const id of dirty.trees.keys()) {
-    const tree = snapshot.index.find((candidate) => candidate.id === id)
-    if (actionFor(dirty.trees, id) === "delete" || !tree) {
-      trees.push({
-        id,
-        revision: dirty.trees.get(id)?.baseRevision,
-        updatedAt: now,
-        deletedAt: now,
-      })
-    } else {
-      trees.push({
-        id,
-        name: tree.name,
-        createdAt: tree.createdAt,
-        revision: dirty.trees.get(id)?.baseRevision ?? tree.revision,
-        updatedAt: tree.updatedAt ?? now,
-      })
-    }
-  }
-
-  const treeMembers: TreeMemberWire[] = []
-  for (const id of dirty.treeMembers.keys()) {
-    const record = snapshot.treeMembers[id]
-    if (actionFor(dirty.treeMembers, id) === "delete" || !record) {
-      const [treeId, personId] = parseAssociationKey(id)
-      treeMembers.push({
-        treeId,
-        personId,
-        revision: dirty.treeMembers.get(id)?.baseRevision,
-        updatedAt: now,
-        deletedAt: now,
-      })
-    } else {
-      treeMembers.push({
-        ...record,
-        revision: dirty.treeMembers.get(id)?.baseRevision ?? record.revision,
-      })
-    }
-  }
-
-  const unions: UnionWire[] = []
-  for (const id of dirty.unions.keys()) {
-    const record = snapshot.unions[id]
-    unions.push(
-      actionFor(dirty.unions, id) === "delete" || !record
-        ? {
-            id,
-            revision: dirty.unions.get(id)?.baseRevision,
-            updatedAt: now,
-            deletedAt: now,
-          }
-        : {
-            ...record,
-            revision: dirty.unions.get(id)?.baseRevision ?? record.revision,
-          },
-    )
-  }
-
-  const unionEvents: UnionEventWire[] = []
-  for (const id of dirty.unionEvents.keys()) {
-    const record = snapshot.unionEvents[id]
-    unionEvents.push(
-      actionFor(dirty.unionEvents, id) === "delete" || !record
-        ? {
-            id,
-            revision: dirty.unionEvents.get(id)?.baseRevision,
-            updatedAt: now,
-            deletedAt: now,
-          }
-        : {
-            ...record,
-            revision:
-              dirty.unionEvents.get(id)?.baseRevision ?? record.revision,
-          },
-    )
-  }
-
-  const treeUnions: TreeUnionWire[] = []
-  for (const id of dirty.treeUnions.keys()) {
-    const record = snapshot.treeUnions[id]
-    if (actionFor(dirty.treeUnions, id) === "delete" || !record) {
-      const [treeId, unionId] = parseAssociationKey(id)
-      treeUnions.push({
-        treeId,
-        unionId,
-        revision: dirty.treeUnions.get(id)?.baseRevision,
-        updatedAt: now,
-        deletedAt: now,
-      })
-    } else {
-      treeUnions.push({
-        ...record,
-        revision: dirty.treeUnions.get(id)?.baseRevision ?? record.revision,
-      })
-    }
-  }
-
-  const parentChildRelationships: ParentChildRelationshipWire[] = []
-  for (const id of dirty.parentChildRelationships.keys()) {
-    const record = snapshot.parentChildRelationships[id]
-    parentChildRelationships.push(
-      actionFor(dirty.parentChildRelationships, id) === "delete" || !record
-        ? {
-            id,
-            revision: dirty.parentChildRelationships.get(id)?.baseRevision,
-            updatedAt: now,
-            deletedAt: now,
-          }
-        : {
-            ...record,
-            revision:
-              dirty.parentChildRelationships.get(id)?.baseRevision
-              ?? record.revision,
-          },
-    )
-  }
-
-  const treeParentChildRelationships: TreeParentChildRelationshipWire[] = []
-  for (const id of dirty.treeParentChildRelationships.keys()) {
-    const record = snapshot.treeParentChildRelationships[id]
-    if (
-      actionFor(dirty.treeParentChildRelationships, id) === "delete"
-      || !record
-    ) {
-      const [treeId, parentChildRelationshipId] = parseAssociationKey(id)
-      treeParentChildRelationships.push({
-        treeId,
-        parentChildRelationshipId,
-        revision: dirty.treeParentChildRelationships.get(id)?.baseRevision,
-        updatedAt: now,
-        deletedAt: now,
-      })
-    } else {
-      treeParentChildRelationships.push({
-        ...record,
-        revision:
-          dirty.treeParentChildRelationships.get(id)?.baseRevision
-          ?? record.revision,
-      })
-    }
-  }
-
-  return {
-    persons,
-    trees,
-    treeMembers,
-    unions,
-    unionEvents,
-    treeUnions,
-    parentChildRelationships,
-    treeParentChildRelationships,
-  }
-}
-
 function hasNewerDirtyRecords(shipped: DirtyState): boolean {
   return RECORD_COLLECTIONS.some((collection) =>
     [...dirtyState[collection]].some(([id, current]) => {
@@ -1344,67 +570,6 @@ function hasNewerDirtyRecords(shipped: DirtyState): boolean {
       return !sent || sent.revision !== current.revision
     }),
   )
-}
-
-function hasAcknowledgedIds(
-  ids: Partial<SyncPushResponse["skipped"]>,
-): boolean {
-  return RECORD_COLLECTIONS.some(
-    (collection) => (ids[collection]?.length ?? 0) > 0,
-  )
-}
-
-function dirtyBatchKey(dirty: DirtyState): string {
-  return JSON.stringify(
-    RECORD_COLLECTIONS.flatMap((collection) =>
-      [...dirty[collection]].map(([id, record]) => [
-        collection,
-        id,
-        record.revision,
-      ]),
-    ),
-  )
-}
-
-function persistableDirty(
-  dirty: DirtyState,
-): PersistedPendingMutation["dirty"] {
-  return Object.fromEntries(
-    RECORD_COLLECTIONS.map((collection) => [
-      collection,
-      [...dirty[collection]],
-    ]),
-  ) as PersistedPendingMutation["dirty"]
-}
-
-function restoredDirty(dirty: PersistedPendingMutation["dirty"]): DirtyState {
-  return Object.fromEntries(
-    RECORD_COLLECTIONS.map((collection) => [
-      collection,
-      new Map(dirty[collection] ?? []),
-    ]),
-  ) as DirtyState
-}
-
-function firstPendingOperation(source: DirtyState): string | undefined {
-  return RECORD_COLLECTIONS.flatMap((collection) => [
-    ...source[collection].values(),
-  ]).find((record) => !record.blocked)?.operationId
-}
-
-function operationExceedsRecordLimits(
-  source: DirtyState,
-  operationId: string | undefined,
-): boolean {
-  let total = 0
-  for (const collection of RECORD_COLLECTIONS) {
-    const count = [...source[collection].values()].filter(
-      (record) => !record.blocked && record.operationId === operationId,
-    ).length
-    if (count > MAX_SYNC_RECORDS_PER_COLLECTION) return true
-    total += count
-  }
-  return total > MAX_SYNC_BATCH_RECORDS
 }
 
 function blockOperation(
@@ -1422,66 +587,6 @@ function blockOperation(
   }
   schedulePersistence()
   setSyncStatus("conflict")
-}
-
-export async function fetchFullPull(): Promise<SyncPullResponse> {
-  let nextCursor: string | undefined
-  let aggregate: SyncPullResponse | undefined
-  do {
-    const parameters = new URLSearchParams({ since: EPOCH })
-    if (nextCursor) parameters.set("pageCursor", nextCursor)
-    const response = await fetch(`/api/sync?${parameters}`, {
-      credentials: "include",
-    })
-    if (!response.ok) throw new Error(`pull failed: ${response.status}`)
-    const page = (await response.json()) as SyncPullResponse
-    if (aggregate && page.serverTime !== aggregate.serverTime) {
-      throw new Error("sync pull changed while loading")
-    }
-    if (!aggregate) {
-      aggregate = page
-    } else {
-      for (const collection of RECORD_COLLECTIONS) {
-        aggregate.own[collection].push(...(page.own[collection] as never[]))
-      }
-      const sharedByTree = new Map(
-        aggregate.shared.map((shared) => [shared.tree.id, shared]),
-      )
-      for (const sharedPage of page.shared) {
-        const shared = sharedByTree.get(sharedPage.tree.id)
-        if (!shared) {
-          aggregate.shared.push(sharedPage)
-          sharedByTree.set(sharedPage.tree.id, sharedPage)
-          continue
-        }
-        for (const collection of SNAPSHOT_RECORD_COLLECTIONS) {
-          shared[collection].push(...(sharedPage[collection] as never[]))
-        }
-      }
-      aggregate.nextCursor = page.nextCursor
-    }
-    nextCursor = page.nextCursor
-  } while (nextCursor)
-  if (!aggregate) throw new Error("sync pull returned no pages")
-  return aggregate
-}
-
-export async function fetchTreeManifest(): Promise<TreeManifestItem[]> {
-  const trees: TreeManifestItem[] = []
-  let cursor: string | undefined
-  do {
-    const parameters = new URLSearchParams({ limit: "100" })
-    if (cursor) parameters.set("cursor", cursor)
-    const response = await fetch(`/api/trees?${parameters}`, {
-      credentials: "include",
-    })
-    if (!response.ok)
-      throw new Error(`tree manifest failed: ${response.status}`)
-    const page = (await response.json()) as TreeManifestResponse
-    trees.push(...page.trees)
-    cursor = page.nextCursor
-  } while (cursor)
-  return trees
 }
 
 export function applyTreeManifest(manifest: TreeManifestItem[]): void {
@@ -1514,65 +619,6 @@ export function applyTreeManifest(manifest: TreeManifestItem[]): void {
     },
     { remote: true },
   )
-}
-
-export async function fetchTreeSnapshot(
-  treeId: string,
-): Promise<TreeSnapshotResponse> {
-  const basePath = `/api/trees/${encodeURIComponent(treeId)}/snapshot`
-  let restartCount = 0
-  while (true) {
-    let nextCursor: string | undefined
-    let aggregate: TreeSnapshotResponse | undefined
-    do {
-      const path = nextCursor
-        ? `${basePath}?pageCursor=${encodeURIComponent(nextCursor)}`
-        : basePath
-      const response = await fetch(path, { credentials: "include" })
-      if (response.status === 409 && restartCount === 0) {
-        restartCount++
-        aggregate = undefined
-        nextCursor = undefined
-        break
-      }
-      if (!response.ok) {
-        throw Object.assign(
-          new Error(`tree snapshot failed: ${response.status}`),
-          { status: response.status },
-        )
-      }
-      const page = (await response.json()) as TreeSnapshotResponse
-      if (
-        aggregate
-        && (page.tree.id !== aggregate.tree.id
-          || page.syncVersion !== aggregate.syncVersion)
-      ) {
-        throw new Error("tree snapshot changed while loading")
-      }
-      if (aggregate) {
-        const current = aggregate
-        aggregate = {
-          ...current,
-          records: Object.fromEntries(
-            SNAPSHOT_RECORD_COLLECTIONS.map((collection) => [
-              collection,
-              [...current.records[collection], ...page.records[collection]],
-            ]),
-          ) as TreeSnapshotResponse["records"],
-          ancestorTrees: [
-            ...(current.ancestorTrees ?? []),
-            ...(page.ancestorTrees ?? []),
-          ],
-          nextCursor: page.nextCursor,
-        }
-      } else {
-        aggregate = page
-      }
-      nextCursor = page.nextCursor
-    } while (nextCursor)
-    if (aggregate && !aggregate.nextCursor) return aggregate
-    if (restartCount > 0) continue
-  }
 }
 
 export async function deleteTreeOnServer(treeId: string): Promise<void> {
@@ -1934,350 +980,6 @@ export function synchronizePending(): Promise<void> {
   return pushDirty()
 }
 
-type RemoteWire = { updatedAt: string; deletedAt?: string; revision?: number }
-
-function remoteIsNewer(
-  local: { updatedAt?: string; revision?: number },
-  remote: RemoteWire,
-): boolean {
-  if (local.revision !== undefined && remote.revision !== undefined) {
-    return remote.revision > local.revision
-  }
-  return remote.deletedAt
-    ? (local.updatedAt ?? "") <= remote.updatedAt
-    : (local.updatedAt ?? "") < remote.updatedAt
-}
-
-function tombstoneBlocks(
-  collection: DirtyCollection,
-  id: string,
-  updatedAt: string,
-  revision?: number,
-): boolean {
-  const clock = remoteTombstoneClocks[collection].get(id)
-  if (!clock) return false
-  if (clock.revision !== undefined && revision !== undefined) {
-    return clock.revision >= revision
-  }
-  return clock.updatedAt >= updatedAt
-}
-
-function recordTombstone(
-  collection: DirtyCollection,
-  id: string,
-  updatedAt: string,
-  revision?: number,
-): void {
-  const current = remoteTombstoneClocks[collection].get(id)
-  if (
-    !current
-    || (revision !== undefined && current.revision !== undefined
-      ? revision > current.revision
-      : updatedAt > current.updatedAt)
-  ) {
-    remoteTombstoneClocks[collection].set(id, { updatedAt, revision })
-  }
-}
-
-function mergeRemoteRecords<
-  T extends { updatedAt: string; revision?: number },
-  W extends RemoteWire,
->(
-  records: Record<string, T>,
-  wires: Iterable<W> | undefined,
-  collection: Exclude<DirtyCollection, "persons" | "trees">,
-  keyFor: (wire: W) => string,
-  toRecord: (wire: W) => T,
-): Record<string, T> {
-  if (!wires) return records
-  let result = records
-  for (const wire of wires) {
-    const id = keyFor(wire)
-    const local = result[id]
-    if (tombstoneBlocks(collection, id, wire.updatedAt, wire.revision)) continue
-    if (dirtyState[collection].has(id)) continue
-    if (local && !remoteIsNewer(local, wire)) continue
-    if (result === records) result = { ...records }
-    if (wire.deletedAt) {
-      recordTombstone(collection, id, wire.updatedAt, wire.revision)
-      delete result[id]
-    } else result[id] = toRecord(wire)
-  }
-  return result
-}
-
-export type RemoteRecords = {
-  persons?: Iterable<PersonWire>
-  trees?: Iterable<TreeWire>
-  treeMembers?: Iterable<TreeMemberWire>
-  unions?: Iterable<UnionWire>
-  unionEvents?: Iterable<UnionEventWire>
-  treeUnions?: Iterable<TreeUnionWire>
-  parentChildRelationships?: Iterable<ParentChildRelationshipWire>
-  treeParentChildRelationships?: Iterable<TreeParentChildRelationshipWire>
-}
-
-/** Merge each normalized record independently using its own timestamp. */
-export function applyRemote(remote: RemoteRecords): void {
-  update(
-    (previous) => {
-      let persons = previous.persons
-      if (remote.persons) {
-        for (const wire of remote.persons) {
-          const local = persons[wire.id]
-          if (
-            tombstoneBlocks("persons", wire.id, wire.updatedAt, wire.revision)
-          ) {
-            continue
-          }
-          if (dirtyState.persons.has(wire.id)) continue
-          if (local && !remoteIsNewer(local, wire)) continue
-          if (persons === previous.persons) persons = { ...persons }
-          if ("deletedAt" in wire) {
-            recordTombstone("persons", wire.id, wire.updatedAt, wire.revision)
-            delete persons[wire.id]
-          } else {
-            persons[wire.id] = {
-              id: wire.id,
-              name: wire.name,
-              familyName: wire.familyName ?? "",
-              dob: wire.dob,
-              dod: wire.dod,
-              gender: wire.gender,
-              birthplace: wire.birthplace,
-              photo: wire.hasPhoto ? STORED_PHOTO_MARKER : wire.photo,
-              revision: wire.revision,
-              updatedAt: wire.updatedAt,
-              ownerId: wire.ownerId,
-            }
-          }
-        }
-      }
-
-      let index = previous.index
-      const deletedTrees = new Map<string, string>()
-      if (remote.trees) {
-        const byId = new Map(index.map((tree) => [tree.id, tree] as const))
-        for (const wire of remote.trees) {
-          const local = byId.get(wire.id)
-          if (
-            tombstoneBlocks("trees", wire.id, wire.updatedAt, wire.revision)
-          ) {
-            continue
-          }
-          const dirtyTree = dirtyState.trees.get(wire.id)
-          if (dirtyTree) {
-            if (!("deletedAt" in wire) && local) {
-              const role = wire.role ?? local.role
-              const ownerEmail =
-                wire.ownerEmail !== undefined
-                  ? wire.ownerEmail
-                  : local.ownerEmail
-              if (role !== local.role || ownerEmail !== local.ownerEmail) {
-                if (index === previous.index) index = [...index]
-                const position = index.findIndex((tree) => tree.id === wire.id)
-                if (position >= 0)
-                  index[position] = { ...local, role, ownerEmail }
-              }
-            }
-            continue
-          }
-          if ("deletedAt" in wire) {
-            if (local && !remoteIsNewer(local, wire)) continue
-          } else if (local) {
-            const role = wire.role ?? local.role
-            const ownerEmail =
-              wire.ownerEmail !== undefined ? wire.ownerEmail : local.ownerEmail
-            const accessChanged =
-              role !== local.role || ownerEmail !== local.ownerEmail
-            if (!remoteIsNewer(local, wire)) {
-              if (accessChanged) {
-                if (index === previous.index) index = [...index]
-                const position = index.findIndex((tree) => tree.id === wire.id)
-                const replacement = { ...local, role, ownerEmail }
-                if (position >= 0) index[position] = replacement
-                byId.set(wire.id, replacement)
-              }
-              continue
-            }
-            if ((local.updatedAt ?? "") === wire.updatedAt && !accessChanged) {
-              continue
-            }
-          }
-          if (index === previous.index) index = [...index]
-          const position = index.findIndex((tree) => tree.id === wire.id)
-          if ("deletedAt" in wire) {
-            if (position >= 0) index.splice(position, 1)
-            recordTombstone("trees", wire.id, wire.updatedAt, wire.revision)
-            deletedTrees.set(wire.id, wire.updatedAt)
-            byId.delete(wire.id)
-          } else {
-            const replacement: TreeMeta = {
-              id: wire.id,
-              name: wire.name,
-              createdAt: wire.createdAt,
-              revision: wire.revision,
-              updatedAt: wire.updatedAt,
-              ownerId: wire.ownerId,
-              ownerEmail: wire.ownerEmail ?? local?.ownerEmail,
-              role: wire.role ?? local?.role,
-              syncVersion: local?.syncVersion,
-              memberCount: local?.memberCount,
-              loaded: local?.loaded,
-            }
-            if (position >= 0) index[position] = replacement
-            else index.push(replacement)
-            byId.set(wire.id, replacement)
-          }
-        }
-      }
-
-      let treeMembers = mergeRemoteRecords(
-        previous.treeMembers,
-        remote.treeMembers,
-        "treeMembers",
-        (wire) => treeMemberKey(wire.treeId, wire.personId),
-        (wire) => {
-          if (!("createdAt" in wire)) throw new Error("Invalid member wire")
-          return wire
-        },
-      )
-      const unions = mergeRemoteRecords(
-        previous.unions,
-        remote.unions,
-        "unions",
-        (wire) => wire.id,
-        (wire) => {
-          if (!("firstPersonId" in wire)) throw new Error("Invalid union wire")
-          return wire
-        },
-      )
-      const unionEvents = mergeRemoteRecords(
-        previous.unionEvents,
-        remote.unionEvents,
-        "unionEvents",
-        (wire) => wire.id,
-        (wire) => {
-          if (!("unionId" in wire)) throw new Error("Invalid union event wire")
-          return wire
-        },
-      )
-      let treeUnions = mergeRemoteRecords(
-        previous.treeUnions,
-        remote.treeUnions,
-        "treeUnions",
-        (wire) => treeUnionKey(wire.treeId, wire.unionId),
-        (wire) => {
-          if (!("createdAt" in wire)) throw new Error("Invalid tree union wire")
-          return wire
-        },
-      )
-      const parentChildRelationships = mergeRemoteRecords(
-        previous.parentChildRelationships,
-        remote.parentChildRelationships,
-        "parentChildRelationships",
-        (wire) => wire.id,
-        (wire) => {
-          if (!("parentPersonId" in wire)) {
-            throw new Error("Invalid parent-child wire")
-          }
-          return wire
-        },
-      )
-      let treeParentChildRelationships = mergeRemoteRecords(
-        previous.treeParentChildRelationships,
-        remote.treeParentChildRelationships,
-        "treeParentChildRelationships",
-        (wire) =>
-          treeParentChildRelationshipKey(
-            wire.treeId,
-            wire.parentChildRelationshipId,
-          ),
-        (wire) => {
-          if (!("createdAt" in wire)) {
-            throw new Error("Invalid tree parent-child wire")
-          }
-          return wire
-        },
-      )
-
-      if (deletedTrees.size > 0) {
-        for (const [key, record] of Object.entries(treeMembers)) {
-          const deletedAt = deletedTrees.get(record.treeId)
-          if (!deletedAt) continue
-          recordTombstone("treeMembers", key, deletedAt)
-        }
-        for (const [key, record] of Object.entries(treeUnions)) {
-          const deletedAt = deletedTrees.get(record.treeId)
-          if (!deletedAt) continue
-          recordTombstone("treeUnions", key, deletedAt)
-        }
-        for (const [key, record] of Object.entries(
-          treeParentChildRelationships,
-        )) {
-          const deletedAt = deletedTrees.get(record.treeId)
-          if (!deletedAt) continue
-          recordTombstone("treeParentChildRelationships", key, deletedAt)
-        }
-        treeMembers = Object.fromEntries(
-          Object.entries(treeMembers).filter(
-            ([, record]) => !deletedTrees.has(record.treeId),
-          ),
-        )
-        treeUnions = Object.fromEntries(
-          Object.entries(treeUnions).filter(
-            ([, record]) => !deletedTrees.has(record.treeId),
-          ),
-        )
-        treeParentChildRelationships = Object.fromEntries(
-          Object.entries(treeParentChildRelationships).filter(
-            ([, record]) => !deletedTrees.has(record.treeId),
-          ),
-        )
-      }
-
-      const next: GlobalState = {
-        persons,
-        index,
-        treeMembers,
-        unions,
-        unionEvents,
-        treeUnions,
-        parentChildRelationships,
-        treeParentChildRelationships,
-      }
-      return Object.keys(next).every(
-        (key) =>
-          next[key as keyof GlobalState] === previous[key as keyof GlobalState],
-      )
-        ? previous
-        : next
-    },
-    { remote: true },
-  )
-}
-
-function sharedRemoteRecords(
-  shared: SyncPullResponse["shared"][number],
-): RemoteRecords {
-  return {
-    persons: shared.persons,
-    trees: [
-      {
-        ...shared.tree,
-        role: shared.role,
-        ownerEmail: shared.ownerEmail,
-      },
-    ],
-    treeMembers: shared.treeMembers,
-    unions: shared.unions,
-    unionEvents: shared.unionEvents,
-    treeUnions: shared.treeUnions,
-    parentChildRelationships: shared.parentChildRelationships,
-    treeParentChildRelationships: shared.treeParentChildRelationships,
-  }
-}
-
 /** Replace the complete local graph from an authoritative epoch pull. */
 export function applyFullPull(pull: SyncPullResponse): void {
   const previous = state
@@ -2442,13 +1144,8 @@ export function getAncestorTreeLinks(treeId: string): Map<string, string> {
   return ancestorTreeLinks.get(treeId) ?? emptyAncestorTreeLinks
 }
 
-function getHydrated(): boolean {
-  return hydrated
-}
-
 export function subscribe(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
+  return useStore.subscribe(listener)
 }
 
 export function setHydrated(value: boolean): void {
@@ -2548,8 +1245,19 @@ export async function restorePersistentStore(userId: string): Promise<void> {
   await persistenceRestore
 }
 
+export function useGraph(): GlobalState {
+  return useStore((selector) => selector.state)
+}
+
+export function useAncestorTreeLinks(treeId: string): Map<string, string> {
+  return useStore(
+    (selector) =>
+      selector.ancestorTreeLinks.get(treeId) ?? emptyAncestorTreeLinks,
+  )
+}
+
 export function useHydrated(): boolean {
-  return useSyncExternalStore(subscribe, getHydrated, getHydrated)
+  return useStore((selector) => selector.hydrated)
 }
 
 /**
@@ -2559,11 +1267,7 @@ export function useHydrated(): boolean {
  * frame is the authoritative server state, not stale persisted data.
  */
 export function useTreeFreshlyLoaded(treeId: string): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => isTreeFreshlyLoaded(treeId),
-    () => isTreeFreshlyLoaded(treeId),
-  )
+  return useStore((selector) => selector.freshlyLoadedTrees.has(treeId))
 }
 
 export function isTreeFreshlyLoaded(treeId: string): boolean {
@@ -2571,11 +1275,7 @@ export function isTreeFreshlyLoaded(treeId: string): boolean {
 }
 
 export function useSyncStatus(): SyncStatus {
-  return useSyncExternalStore(
-    subscribe,
-    () => syncStatus,
-    () => syncStatus,
-  )
+  return useStore((selector) => selector.syncStatus)
 }
 
 export function getSyncStatus(): SyncStatus {
@@ -2587,11 +1287,7 @@ export function hasBlockedChanges(treeId: string): boolean {
 }
 
 export function useSyncConflictCount(): number {
-  return useSyncExternalStore(
-    subscribe,
-    () => syncConflicts.length,
-    () => syncConflicts.length,
-  )
+  return useStore((selector) => selector.syncConflicts.length)
 }
 
 /** Server conflict reasons are protocol values; the panel shows people text. */
@@ -3222,11 +1918,8 @@ export async function resolveBlockedOperation(
 }
 
 export function useBlockedChanges(treeId: string): BlockedChange[] {
-  return useSyncExternalStore(
-    subscribe,
-    () => getBlockedChangesSnapshot(treeId),
-    () => getBlockedChangesSnapshot(treeId),
-  )
+  useStore((selector) => selector.blockedChangesVersion)
+  return getBlockedChangesSnapshot(treeId)
 }
 
 export function resolveNextSyncConflict(
@@ -3297,10 +1990,6 @@ export function resolveNextSyncConflict(
     schedulePersistence()
     notifyListeners()
   }
-}
-
-export function now(): string {
-  return new Date().toISOString()
 }
 
 export function makeDraft(previous: GlobalState): GlobalState {
