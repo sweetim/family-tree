@@ -513,6 +513,35 @@ export function descendantsOf(people: FamilyData, id: string): Set<string> {
   return seen
 }
 
+/**
+ * Male founders and descendants reached through uninterrupted father-to-son
+ * links. Parent links of every relationship type are included.
+ */
+export function maleLineIds(people: FamilyData): Set<string> {
+  const ids = new Set<string>()
+  const stack: string[] = []
+
+  for (const person of Object.values(people)) {
+    if (person.gender === "male" && isRootFounder(people, person.id)) {
+      ids.add(person.id)
+      stack.push(person.id)
+    }
+  }
+
+  while (stack.length > 0) {
+    const parentId = stack.pop()
+    if (parentId === undefined) break
+    for (const child of childrenOf(people, parentId)) {
+      if (child.gender === "male" && !ids.has(child.id)) {
+        ids.add(child.id)
+        stack.push(child.id)
+      }
+    }
+  }
+
+  return ids
+}
+
 export function ancestorsOf(people: FamilyData, id: string): Set<string> {
   const seen = new Set<string>()
   const stack = [id]

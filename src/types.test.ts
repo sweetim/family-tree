@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import {
   ancestorsOf,
   childrenOf,
+  type FamilyData,
+  maleLineIds,
   type NormalizedRelationships,
   type PersonIdentity,
   projectTree,
@@ -276,6 +278,45 @@ describe("relationship traversal", () => {
       "kid",
     ])
     expect(ancestorsOf(family, "kid")).toEqual(new Set(["tim"]))
+  })
+
+  test("follows male founders through uninterrupted father-to-son links", () => {
+    const person = (
+      id: string,
+      gender: "male" | "female" | "other" | undefined,
+      parents: string[] = [],
+      spouseIds: string[] = [],
+    ) => ({
+      id,
+      name: id,
+      familyName: "",
+      gender,
+      parents: parents.map((parentId) => ({ id: parentId })),
+      spouseIds,
+      marriageDates: {},
+    })
+    const family: FamilyData = {
+      founder: person("founder", "male", [], ["founder-wife"]),
+      "founder-wife": person("founder-wife", "female", [], ["founder"]),
+      son: person("son", "male", ["founder", "founder-wife"], ["son-wife"]),
+      "son-wife": person("son-wife", "female", [], ["son"]),
+      grandson: person("grandson", "male", ["son", "son-wife"]),
+      daughter: person(
+        "daughter",
+        "female",
+        ["founder", "founder-wife"],
+        ["daughter-husband"],
+      ),
+      "daughter-husband": person("daughter-husband", "male", [], ["daughter"]),
+      "daughter-son": person("daughter-son", "male", [
+        "daughter",
+        "daughter-husband",
+      ]),
+      "unknown-child": person("unknown-child", undefined, ["founder"]),
+      "other-child": person("other-child", "other", ["founder"]),
+    }
+
+    expect(maleLineIds(family)).toEqual(new Set(["founder", "son", "grandson"]))
   })
 })
 

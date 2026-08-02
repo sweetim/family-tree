@@ -58,12 +58,13 @@ const CARD_BORDER: Record<string, string> = {
   eligible: "border-emerald-400 ring-2 ring-emerald-300",
   blocked: "border-slate-200 opacity-30",
   selected: "border-cobalt-500 ring-2 ring-cobalt-300 shadow-lift",
+  maleLine: "border-cobalt-600 ring-4 ring-cobalt-200 shadow-lift",
   bloodline: "border-amber-300 ring-2 ring-amber-200",
   default: "border-slate-200",
 }
 
 function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
-  const { person, linkState, marriedIn, rootFounder } = data
+  const { person, linkState, marriedIn, rootFounder, maleLine } = data
   const { openChoose, readOnly } = useTreeActions()
   const { settings } = useViewSettings()
   const router = useRouter()
@@ -86,13 +87,16 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
   // Bloodline highlight only affects the resting state — an active click-to-
   // connect session or the selected card keep their own styling.
   const highlightBloodline = settings.highlightBloodline && !linkState
+  const maleLineHighlighted = highlightBloodline && maleLine
   const cardKey =
     linkState
     ?? (selected
       ? "selected"
-      : highlightBloodline && !marriedIn
-        ? "bloodline"
-        : "default")
+      : maleLineHighlighted
+        ? "maleLine"
+        : highlightBloodline && !marriedIn
+          ? "bloodline"
+          : "default")
   const dimmed = highlightBloodline && marriedIn && !selected
 
   let lifeline: string | null = null
@@ -310,5 +314,6 @@ export const PersonNode = memo(
     && prev.data.person === next.data.person
     && prev.data.linkState === next.data.linkState
     && prev.data.marriedIn === next.data.marriedIn
-    && prev.data.rootFounder === next.data.rootFounder,
+    && prev.data.rootFounder === next.data.rootFounder
+    && prev.data.maleLine === next.data.maleLine,
 )

@@ -29,8 +29,8 @@ export type ViewSettings = {
    */
   showAllFamilies: boolean
   /**
-   * Highlight the family bloodline (founding roots and every descendant)
-   * and dim married-in spouses, so the bloodline stands out at a glance.
+   * Highlight the family bloodline: male-line members in blue, other
+   * bloodline members in amber, and married-in spouses dimmed.
    */
   highlightBloodline: boolean
   /**
@@ -51,12 +51,24 @@ const DEFAULTS: ViewSettings = {
   showOtherTrees: false,
 }
 
+type StoredViewSettings = Partial<ViewSettings> & {
+  highlightMaleLine?: boolean
+}
+
 function load(): ViewSettings {
   if (typeof window === "undefined") return DEFAULTS
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return DEFAULTS
-    return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<ViewSettings>) }
+    const { highlightMaleLine, ...stored } = JSON.parse(
+      raw,
+    ) as StoredViewSettings
+    return {
+      ...DEFAULTS,
+      ...stored,
+      highlightBloodline:
+        stored.highlightBloodline || highlightMaleLine || false,
+    }
   } catch {
     return DEFAULTS
   }

@@ -3,6 +3,7 @@ import {
   type FamilyData,
   isMarriedInSpouse,
   isRootFounder,
+  maleLineIds,
   type Person,
 } from "../types"
 import { Z_INDEX } from "./z-index"
@@ -46,6 +47,7 @@ export type PersonNodeType = Node<
     linkState?: LinkState
     marriedIn?: boolean
     rootFounder?: boolean
+    maleLine?: boolean
   },
   "person"
 >
@@ -427,6 +429,7 @@ export function buildFlow(
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
   const { couples } = layout
   const pos = layout.positions
+  const maleLine = maleLineIds(people)
 
   const unionId = (a: string, b: string) => `u:${pairKey(a, b)}`
 
@@ -445,6 +448,7 @@ export function buildFlow(
         person: p,
         marriedIn: isMarriedInSpouse(people, p.id),
         rootFounder: isRootFounder(people, p.id),
+        maleLine: maleLine.has(p.id),
         linkState: linking
           ? p.id === linking.sourceId
             ? "source"
