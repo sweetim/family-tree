@@ -145,6 +145,11 @@ type OwnerRequestRow = {
   createdAt: string
 }
 
+type OwnedAccessRequestRow = OwnerRequestRow & {
+  treeId: string
+  treeName: string
+}
+
 type AccessRequestCursor = { createdAt: string; userId: string }
 
 function decodeAccessRequestCursor(
@@ -164,6 +169,131 @@ function decodeAccessRequestCursor(
     return undefined
   }
   return parsed as AccessRequestCursor
+}
+
+type OwnedAccessRequestCursor = AccessRequestCursor & { treeId: string }
+
+export function decodeOwnedAccessRequestCursor(
+  value: string | null,
+): OwnedAccessRequestCursor | null | undefined {
+  const parsed = decodeCursorJson(value) as
+    | Partial<OwnedAccessRequestCursor>
+    | null
+    | undefined
+  if (parsed === null) return null
+  if (parsed === undefined) return undefined
+  if (
+    typeof parsed.createdAt !== "string"
+    || !Number.isFinite(new Date(parsed.createdAt).getTime())
+    || !isValidSyncId(parsed.treeId)
+    || !isValidSyncId(parsed.userId)
+  ) {
+    return undefined
+  }
+  return parsed as OwnedAccessRequestCursor
+}
+
+/**
+ * GET /api/access-requests — owner lists pending requests across all of their
+ * trees. The total is included so callers can render a notification badge
+ * without loading every page.
+ */
+export async function listOwnedAccessRequests(request: Request): Promise<Response> {
+  const me = await requireSession(request)
+  if (!me) return Response.json({ error: "unauthorized" }, { status: 401 })
+  const db = getDB()
+  const url = new URL(request.url)
+  const requestedLimit = Number(
+    url.searchParams.get("limit") ?? DEFAULT_LIST_PAGE_SIZE,
+  )
+  const cursor = decodeOwnedAccessRequestCursor(url.searchParams.get("cursor"))
+  if (
+    !Number.isSafeInteger(requestedLimit)
+    || requestedLimit < 1
+    || cursor === undefined
+  ) {
+    return Response.json({ error: "invalid pagination" }, { status: 400 })
+  }
+  const limit = Math.min(requestedLimit, MAXIMUM_LIST_PAGE_SIZE)
+  const ownerRequests = and(
+    eq(trees.ownerId, me.id),
+    isNull(trees.deletedAt),
+    eq(treeAccessRequests.status, "pending"),
+  )
+
+  const [countRows, rows] = await Promise.all([
+    db
+      .select({ total: sql<number>`count(*)` })
+      .from(treeAccessRequests)
+      .innerJoin(trees, eq(trees.id, treeAccessRequests.treeId))
+      .where(ownerRequests),
+    db
+      .select({
+        treeId: trees.id,
+        treeName: trees.name,
+        userId: treeAccessRequests.userId,
+        email: user.email,
+        name: user.name,
+        comment: treeAccessRequests.comment,
+        createdAt: treeAccessRequests.createdAt,
+      })
+      .from(treeAccessRequests)
+      .innerJoin(trees, eq(trees.id, treeAccessRequests.treeId))
+      .innerJoin(user, eq(user.id, treeAccessRequests.userId))
+      .where(
+        and(
+          ownerRequests,
+          cursor
+            ? or(
+                gt(treeAccessRequests.createdAt, new Date(cursor.createdAt)),
+                and(
+                  eq(treeAccessRequests.createdAt, new Date(cursor.createdAt)),
+                  gt(trees.id, cursor.treeId),
+                ),
+                and(
+                  eq(treeAccessRequests.createdAt, new Date(cursor.createdAt)),
+                  eq(trees.id, cursor.treeId),
+                  gt(treeAccessRequests.userId, cursor.userId),
+                ),
+              )
+            : undefined,
+        ),
+      )
+      .orderBy(
+        asc(treeAccessRequests.createdAt),
+        asc(trees.id),
+        asc(treeAccessRequests.userId),
+      )
+      .limit(limit + 1),
+  ])
+
+  const page = rows.slice(0, limit)
+  const last = page.at(-1)
+  const requests: OwnedAccessRequestRow[] = page.map((row) => ({
+    treeId: row.treeId,
+    treeName: row.treeName,
+    userId: row.userId,
+    email: row.email,
+    name: row.name,
+    comment: row.comment,
+    createdAt: row.createdAt.toISOString(),
+  }))
+  return Response.json(
+    {
+      requests,
+      pendingCount: Number(countRows[0]?.total ?? 0),
+      ...(rows.length > limit && last
+        ? {
+            nextCursor: encodeCursorJson({
+              createdAt: last.createdAt.toISOString(),
+              treeId: last.treeId,
+              userId: last.userId,
+            }),
+          }
+        : {}),
+    },
+    { headers: { "cache-control": "private, no-store" } },
+  )
 }
 
 /** GET /api/trees/:treeId/access-requests — owner lists pending requests. */

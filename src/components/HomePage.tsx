@@ -25,6 +25,7 @@ import {
   useState,
 } from "react"
 import { authClient, useSession } from "../lib/auth-client"
+import { useOwnedAccessRequestCount } from "../lib/access-requests"
 import {
   countMembers,
   seedData,
@@ -520,6 +521,9 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
     () => trees.filter((t) => t.role === "viewer" || t.role === "editor"),
     [trees],
   )
+  const pendingAccessRequestCount = useOwnedAccessRequestCount(
+    Boolean(session?.user) && own.length > 0,
+  )
   const treeNameById = useMemo(
     () => new Map(trees.map((tree) => [tree.id, tree.name] as const)),
     [trees],
@@ -562,13 +566,25 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {own.length > 0 && (
-              <button
-                type="button"
-                onClick={() => navigate("/sharing")}
-                className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-cobalt-700 ring-1 ring-cobalt-200 transition-all hover:bg-cobalt-50 active:scale-95"
-              >
-                <Users className="h-4 w-4" /> Sharing
-              </button>
+                <button
+                  type="button"
+                  onClick={() => navigate("/sharing")}
+                  aria-label={
+                    pendingAccessRequestCount > 0
+                      ? `Sharing, ${pendingAccessRequestCount} pending access ${pendingAccessRequestCount === 1 ? "request" : "requests"}`
+                      : "Sharing"
+                  }
+                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-cobalt-700 ring-1 ring-cobalt-200 transition-all hover:bg-cobalt-50 active:scale-95"
+                >
+                  <Users className="h-4 w-4" /> Sharing
+                  {pendingAccessRequestCount > 0 ? (
+                    <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                      {pendingAccessRequestCount > 99
+                        ? "99+"
+                        : pendingAccessRequestCount}
+                    </span>
+                  ) : null}
+                </button>
             )}
           </div>
         </div>

@@ -3,6 +3,7 @@ import {
   Check,
   ChevronLeft,
   LoaderCircle,
+  MousePointerClick,
   Pencil,
   Plus,
   Search,
@@ -289,12 +290,58 @@ export function Sidebar({
             </button>
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
-            <p className="text-sm leading-relaxed text-slate-500">
-              Select a card to view its details. Select{" "}
-              <b className="font-semibold text-slate-700">Edit</b> to add or
-              change people.
-            </p>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="space-y-2">
+              <div className="flex w-full gap-2.5 rounded-lg bg-slate-50/70 p-3">
+                <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-cobalt-600" />
+                <p className="text-sm leading-relaxed text-slate-500">
+                  <b className="font-semibold text-slate-700">
+                    Select a person
+                  </b>
+                  <br />
+                  Select a person&apos;s card to view their details.
+                </p>
+              </div>
+              <div className="flex w-full gap-2.5 rounded-lg bg-slate-50/70 p-3">
+                <Search className="mt-0.5 h-4 w-4 shrink-0 text-cobalt-600" />
+                <p className="text-sm leading-relaxed text-slate-500">
+                  <b className="font-semibold text-slate-700">
+                    Find a family member
+                  </b>
+                  <br />
+                  Use the search field above to quickly open someone.
+                </p>
+              </div>
+              <div className="flex w-full gap-2.5 rounded-lg bg-slate-50/70 p-3">
+                <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-cobalt-600" />
+                <p className="text-sm leading-relaxed text-slate-500">
+                  <b className="font-semibold text-slate-700">Edit</b>
+                  <br />
+                  Choose <b className="font-semibold text-slate-700">Edit</b>{" "}
+                  below to add people or update relationships.
+                </p>
+              </div>
+              {canShare && (
+                <div className="flex w-full gap-2.5 rounded-lg bg-slate-50/70 p-3">
+                  <Share2 className="mt-0.5 h-4 w-4 shrink-0 text-cobalt-600" />
+                  <p className="text-sm leading-relaxed text-slate-500">
+                    <b className="font-semibold text-slate-700">Share</b>
+                    <br />
+                    Use <b className="font-semibold text-slate-700">Share</b>{" "}
+                    below to invite others and manage access.
+                  </p>
+                </div>
+              )}
+              <div className="flex w-full gap-2.5 rounded-lg bg-slate-50/70 p-3">
+                <Settings className="mt-0.5 h-4 w-4 shrink-0 text-cobalt-600" />
+                <p className="text-sm leading-relaxed text-slate-500">
+                  <b className="font-semibold text-slate-700">Settings</b>
+                  <br />
+                  Use <b className="font-semibold text-slate-700">Settings</b>{" "}
+                  below to change the canvas appearance or manage tree data.
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </div>

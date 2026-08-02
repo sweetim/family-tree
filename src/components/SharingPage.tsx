@@ -1,8 +1,10 @@
 import {
   ArrowLeft,
+  Check,
   Loader2,
   Trash2,
   UserPlus,
+  XCircle,
 } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
@@ -14,6 +16,7 @@ import {
   useState,
 } from "react"
 import { authClient, useSession } from "../lib/auth-client"
+import { useOwnedAccessRequests } from "../lib/access-requests"
 import { useOwnerShares } from "../lib/shares"
 import { type TreeIndexStore, useHydrated } from "../store"
 import { AccountMenu } from "./AccountMenu"
@@ -46,6 +49,77 @@ type Row = {
   access: Map<string, "viewer" | "editor">
 }
 
+function SharingMatrixSkeleton() {
+  return (
+    <div className="scroll-area overflow-x-auto">
+      <div className="min-w-[32rem]">
+        <div className="flex border-b border-slate-200 bg-slate-50/80">
+          <div className="w-64 shrink-0 border-r border-slate-200 px-4 py-3">
+            <div className="h-3 w-12 tree-skeleton animate-shimmer rounded" />
+          </div>
+          {[1, 2, 3].map((column) => (
+            <div
+              key={column}
+              className="flex min-w-[5.5rem] flex-1 flex-col items-center gap-1.5 px-2 py-2.5"
+            >
+              <div className="h-7 w-7 tree-skeleton animate-shimmer rounded-lg" />
+              <div className="h-3 w-14 tree-skeleton animate-shimmer rounded" />
+            </div>
+          ))}
+        </div>
+        {[1, 2, 3].map((row) => (
+          <div
+            key={row}
+            className="flex border-b border-slate-100 last:border-b-0"
+          >
+            <div className="flex w-64 shrink-0 items-center gap-2.5 border-r border-slate-100 px-4 py-3">
+              <div className="h-9 w-9 shrink-0 tree-skeleton animate-shimmer rounded-full" />
+              <div className="space-y-1.5">
+                <div className="h-3.5 w-28 tree-skeleton animate-shimmer rounded" />
+                <div className="h-3 w-20 tree-skeleton animate-shimmer rounded" />
+              </div>
+            </div>
+            {[1, 2, 3].map((column) => (
+              <div
+                key={column}
+                className="flex min-w-[5.5rem] flex-1 items-center justify-center px-2 py-2"
+              >
+                <div className="h-8 w-16 tree-skeleton animate-shimmer rounded-lg" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SharingSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-4">
+        {[1, 2, 3].map((item) => (
+          <div
+            key={item}
+            className="h-3 w-16 tree-skeleton animate-shimmer rounded"
+          />
+        ))}
+      </div>
+      <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
+        <div className="h-3 w-28 tree-skeleton animate-shimmer rounded" />
+        <div className="mt-2 flex gap-2">
+          <div className="h-10 flex-1 tree-skeleton animate-shimmer rounded-lg" />
+          <div className="h-10 w-28 tree-skeleton animate-shimmer rounded-lg" />
+        </div>
+        <div className="mt-2 h-3 w-64 tree-skeleton animate-shimmer rounded" />
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-soft">
+        <SharingMatrixSkeleton />
+      </div>
+    </div>
+  )
+}
+
 function initialFor(value: string): string {
   return value.trim().charAt(0).toUpperCase() || "?"
 }
@@ -61,6 +135,13 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
   const hydrated = useHydrated()
   const { trees } = index
   const { entries, loading, setRole } = useOwnerShares()
+  const {
+    requests,
+    pendingCount,
+    loading: requestsLoading,
+    submitting: requestsSubmitting,
+    resolve: resolveRequest,
+  } = useOwnedAccessRequests()
   const confirm = useConfirm()
   const toast = useToast()
   const [drafts, setDrafts] = useState<string[]>([])
@@ -169,11 +250,7 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
 
   let body: ReactNode
   if (isPending || !hydrated) {
-    body = (
-      <p className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
-        Loading…
-      </p>
-    )
+    body = <SharingSkeleton />
   } else if (!session?.user) {
     return (
       <LandingPage
@@ -226,6 +303,86 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
           </span>
         </div>
 
+        <section>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Access requests
+            </h2>
+            {pendingCount > 0 ? (
+              <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-red-200">
+                {pendingCount} pending
+              </span>
+            ) : null}
+          </div>
+          {requestsLoading ? (
+            <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-4 text-sm text-slate-500 ring-1 ring-slate-200">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading requests…
+            </div>
+          ) : requests.length === 0 ? (
+            <p className="rounded-xl bg-slate-50 px-3 py-4 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+              No pending access requests.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {requests.map((request) => (
+                <li
+                  key={`${request.treeId}:${request.userId}`}
+                  className="rounded-xl bg-slate-50 px-3 py-3 ring-1 ring-slate-200"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-800">
+                        {request.name || request.email}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">
+                        {request.treeName}
+                      </p>
+                    </div>
+                    {request.name && request.name !== request.email ? (
+                      <span className="shrink-0 text-[11px] text-slate-400">
+                        {request.email}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                    “{request.comment}”
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void resolveRequest(
+                          request.treeId,
+                          request.userId,
+                          "approve",
+                        )
+                      }
+                      disabled={requestsSubmitting}
+                      className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95 disabled:opacity-50"
+                    >
+                      <Check className="h-3.5 w-3.5" /> Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void resolveRequest(
+                          request.treeId,
+                          request.userId,
+                          "deny",
+                        )
+                      }
+                      disabled={requestsSubmitting}
+                      className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-red-600 ring-1 ring-red-200 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50"
+                    >
+                      <XCircle className="h-3.5 w-3.5" /> Decline
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         {/* Invite bar */}
         <form
           onSubmit={addPerson}
@@ -262,9 +419,7 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
         {/* Matrix */}
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-soft">
           {loading && rows.length === 0 ? (
-            <div className="flex justify-center py-12 text-slate-400">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
+            <SharingMatrixSkeleton />
           ) : (
             <div className="scroll-area overflow-x-auto">
               <table className="w-full border-separate border-spacing-0 text-sm">
@@ -413,8 +568,14 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
               Sharing
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              {peopleCount} {peopleCount === 1 ? "person" : "people"} ·{" "}
-              {treeCount} {treeCount === 1 ? "tree" : "trees"}
+              {isPending || !hydrated || loading ? (
+                <span className="inline-block h-4 w-28 tree-skeleton animate-shimmer rounded align-middle" />
+              ) : (
+                <>
+                  {peopleCount} {peopleCount === 1 ? "person" : "people"} ·{" "}
+                  {treeCount} {treeCount === 1 ? "tree" : "trees"}
+                </>
+              )}
             </p>
           </div>
         </div>

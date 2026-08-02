@@ -1,8 +1,17 @@
-import { Copy, Loader2, Trash2 } from "lucide-react"
+import { Copy, Loader2, Trash2, UserPlus } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
+import { RoleSelect } from "@/components/RoleSelect"
 import { useToast } from "@/components/Toast"
 import { useShares } from "@/lib/shares"
-import { inputCls, labelCls, selectCls } from "./shared"
+import { inputCls, labelCls, primaryBtn } from "./shared"
+
+function initialFor(value: string): string {
+  return value.trim().charAt(0).toUpperCase() || "?"
+}
+
+function roleTextClass(role: "viewer" | "editor") {
+  return role === "editor" ? "text-emerald-600" : "text-cobalt-600"
+}
 
 /**
  * Sidebar panel version of tree sharing for the tree's owner. Mirrors
@@ -16,7 +25,16 @@ export function SharePanel({
   treeId: string
   treeName: string
 }) {
-  const { shares, loading, submitting, add, remove } = useShares(treeId)
+  const {
+    shares,
+    loading,
+    adding,
+    submittingEmail,
+    submittingMutation,
+    add,
+    updateRole,
+    remove,
+  } = useShares(treeId)
   const toast = useToast()
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<"viewer" | "editor">("viewer")
@@ -59,17 +77,16 @@ export function SharePanel({
   return (
     <div className="space-y-5">
       <p className="text-xs leading-relaxed text-slate-500">
-        <span className="font-medium text-slate-700">{treeName}</span> — anyone
-        you add can open it from any device after signing in with the email
-        below.
+        <span className="font-medium text-slate-700">{treeName}</span> is only
+        available to people you add below.
       </p>
 
-      <div className="space-y-2">
+      <div className="space-y-2 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
         <label
           htmlFor="share-link-input"
           className={labelCls}
         >
-          Share link
+          Copy tree link
         </label>
         <div className="flex items-center gap-2">
           <input
@@ -86,15 +103,11 @@ export function SharePanel({
             type="button"
             onClick={onCopyLink}
             disabled={!shareUrl}
-            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-cobalt-600 px-3 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+            className={`${primaryBtn} shrink-0 px-3`}
           >
-            <Copy className="h-4 w-4" />
-            Copy
+            <Copy className="h-4 w-4" /> Copy
           </button>
         </div>
-        <p className="text-[11px] leading-relaxed text-slate-500">
-          Anyone you've shared with can use this link after signing in.
-        </p>
       </div>
 
       <form
@@ -117,27 +130,42 @@ export function SharePanel({
           required
         />
         <div className="flex items-center gap-2">
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as "viewer" | "editor")}
-            className={selectCls}
-          >
-            <option value="viewer">Viewer (read-only)</option>
-            <option value="editor">Editor (can add/edit people)</option>
-          </select>
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-white px-2 py-1.5 ring-1 ring-slate-200">
+            <RoleSelect
+              value={role}
+              disabled={adding}
+              loading={false}
+              label="Invitation access"
+              allowNone={false}
+              onChange={(next) => {
+                if (next) setRole(next)
+              }}
+            />
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${roleTextClass(role)}`}>
+                {role === "editor" ? "Editor" : "Viewer"}
+              </p>
+              <p className="truncate text-[11px] text-slate-500">
+                {role === "editor"
+                  ? "Can add and edit people"
+                  : "Read-only access"}
+              </p>
+            </div>
+          </div>
           <button
             type="submit"
-            disabled={submitting || !email.trim()}
-            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-cobalt-600 px-3 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+            disabled={adding || !email.trim()}
+            className={`${primaryBtn} shrink-0 px-3`}
           >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Add
+            {adding ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <>
+                <UserPlus className="h-4 w-4" /> Add
+              </>
+            )}
           </button>
         </div>
-        <p className="text-[11px] leading-relaxed text-slate-500">
-          Editors can change this tree's people (and those changes flow back to
-          the owner). Server enforces permissions regardless of UI state.
-        </p>
       </form>
 
       <div>
@@ -145,36 +173,76 @@ export function SharePanel({
           People with access
         </h3>
         {loading ? (
-          <div className="flex justify-center py-6 text-slate-400">
-            <Loader2 className="h-5 w-5 animate-spin" />
+          <div
+            className="space-y-2"
+            aria-busy="true"
+            aria-live="polite"
+          >
+            {[0, 1, 2].map((index) => (
+              <div
+                key={index}
+                className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200"
+              >
+                <div className="h-9 w-9 shrink-0 tree-skeleton animate-shimmer rounded-full" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3 w-3/4 tree-skeleton animate-shimmer rounded" />
+                  <div className="h-2.5 w-1/4 tree-skeleton animate-shimmer rounded" />
+                </div>
+                <div className="h-8 w-8 tree-skeleton animate-shimmer rounded-full" />
+                <div className="h-9 w-9 tree-skeleton animate-shimmer rounded-lg" />
+              </div>
+            ))}
           </div>
         ) : shares.length === 0 ? (
           <p className="rounded-lg bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
             Not shared with anyone yet.
           </p>
         ) : (
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {shares.map((share) => (
               <li
                 key={share.email}
-                className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"
+                className="flex items-center gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200"
               >
-                <div className="min-w-0">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-cobalt-50 text-xs font-semibold text-cobalt-700">
+                  {initialFor(share.email)}
+                </span>
+                <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-slate-700">
                     {share.email}
                   </p>
-                  <p className="text-[11px] uppercase tracking-wide text-slate-400">
-                    {share.role}
+                  <p
+                    className={`text-[11px] font-semibold ${roleTextClass(share.role)}`}
+                  >
+                    {share.role === "editor" ? "Editor" : "Viewer"}
                   </p>
                 </div>
+                <RoleSelect
+                  value={share.role}
+                  disabled={submittingEmail !== null}
+                  loading={
+                    submittingEmail === share.email
+                    && submittingMutation === "update"
+                  }
+                  label={`Access for ${share.email}`}
+                  allowNone={false}
+                  onChange={(next) => {
+                    if (next) void updateRole(share.email, next)
+                  }}
+                />
                 <button
                   type="button"
                   onClick={() => remove(share.email)}
-                  disabled={submitting}
+                  disabled={submittingEmail !== null}
                   title="Revoke access"
                   className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  {submittingEmail === share.email
+                  && submittingMutation === "remove" ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
                 </button>
               </li>
             ))}

@@ -111,8 +111,24 @@ export function ShareDialog({
         </form>
 
         {loading || requestsLoading ? (
-          <div className="mt-5 flex justify-center py-2 text-slate-400">
-            <Loader2 className="h-5 w-5 animate-spin" />
+          <div className="mt-5 space-y-5" aria-busy="true">
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                People with access
+              </h3>
+              <div className="space-y-1.5">
+                <ShareSkeleton />
+                <ShareSkeleton />
+              </div>
+            </div>
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Access requests
+              </h3>
+              <div className="space-y-2">
+                <AccessRequestSkeleton />
+              </div>
+            </div>
           </div>
         ) : (
           <>
@@ -239,5 +255,32 @@ export function ShareDialog({
         </button>
       </div>
     </Modal>
+  )
+}
+
+function ShareSkeleton() {
+  return (
+    <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2">
+      <div className="h-9 w-24 shrink-0 tree-skeleton animate-shimmer rounded-lg" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="h-3 w-2/3 tree-skeleton animate-shimmer rounded" />
+        <div className="h-2.5 w-10 tree-skeleton animate-shimmer rounded" />
+      </div>
+      <div className="h-9 w-9 shrink-0 tree-skeleton animate-shimmer rounded-lg" />
+    </div>
+  )
+}
+
+function AccessRequestSkeleton() {
+  return (
+    <div className="space-y-2 rounded-lg bg-slate-50 px-3 py-2">
+      <div className="h-3 w-1/2 tree-skeleton animate-shimmer rounded" />
+      <div className="h-3 w-full tree-skeleton animate-shimmer rounded" />
+      <div className="h-3 w-3/4 tree-skeleton animate-shimmer rounded" />
+      <div className="flex gap-2">
+        <div className="h-7 flex-1 tree-skeleton animate-shimmer rounded-lg" />
+        <div className="h-7 flex-1 tree-skeleton animate-shimmer rounded-lg" />
+      </div>
+    </div>
   )
 }

@@ -92,6 +92,11 @@ export type OwnerAccessRequest = {
   createdAt: string
 }
 
+export type OwnedAccessRequest = OwnerAccessRequest & {
+  treeId: string
+  treeName: string
+}
+
 /**
  * Owner-side list of pending access requests for a tree, with approve/deny.
  * Used by the ShareDialog's "Access requests" section.
@@ -177,4 +182,126 @@ export function useOwnerAccessRequests(treeId: string) {
   )
 
   return { requests, loading, submitting, resolve, refresh }
+}
+
+/** Pending access requests across every tree owned by the signed-in user. */
+export function useOwnedAccessRequests() {
+  const toast = useToast()
+  const [requests, setRequests] = useState<OwnedAccessRequest[]>([])
+  const [pendingCount, setPendingCount] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const loaded: OwnedAccessRequest[] = []
+      let cursor: string | undefined
+      let count = 0
+      do {
+        const parameters = new URLSearchParams({ limit: "100" })
+        if (cursor) parameters.set("cursor", cursor)
+        const res = await fetch(`/api/access-requests?${parameters}`, {
+          credentials: "include",
+        })
+        if (!res.ok) throw new Error(`load failed: ${res.status}`)
+        const data = (await res.json()) as {
+          requests: OwnedAccessRequest[]
+          pendingCount: number
+          nextCursor?: string
+        }
+        loaded.push(...data.requests)
+        count = data.pendingCount
+        cursor = data.nextCursor
+      } while (cursor)
+      setRequests(loaded)
+      setPendingCount(count)
+    } catch (err) {
+      console.error(err)
+      toast("Couldn't load access requests.", "error")
+    } finally {
+      setLoading(false)
+    }
+  }, [toast])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const resolve = useCallback(
+    async (
+      treeId: string,
+      userId: string,
+      action: "approve" | "deny",
+    ): Promise<void> => {
+      setSubmitting(true)
+      try {
+        const res = await fetch(
+          `/api/trees/${encodeURIComponent(treeId)}/access-requests`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, action }),
+          },
+        )
+        if (!res.ok) {
+          const err = (await res.json().catch(() => ({}))) as {
+            error?: string
+          }
+          throw new Error(err.error ?? `resolve failed: ${res.status}`)
+        }
+        toast(
+          action === "approve"
+            ? "Access approved — viewer access granted."
+            : "Request declined.",
+          "success",
+        )
+        await refresh()
+      } catch (err) {
+        console.error(err)
+        toast(
+          err instanceof Error && err.message
+            ? err.message
+            : "Couldn't resolve request.",
+          "error",
+        )
+      } finally {
+        setSubmitting(false)
+      }
+    },
+    [refresh, toast],
+  )
+
+  return { requests, pendingCount, loading, submitting, resolve, refresh }
+}
+
+/** Lightweight pending-request total for the Sharing navigation badge. */
+export function useOwnedAccessRequestCount(enabled: boolean) {
+  const [pendingCount, setPendingCount] = useState(0)
+
+  useEffect(() => {
+    if (!enabled) {
+      setPendingCount(0)
+      return
+    }
+
+    const controller = new AbortController()
+    void fetch("/api/access-requests?limit=1", {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`load failed: ${res.status}`)
+        return (await res.json()) as { pendingCount: number }
+      })
+      .then((data) => setPendingCount(data.pendingCount))
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return
+        console.error(err)
+      })
+    return () => controller.abort()
+  }, [enabled])
+
+  return pendingCount
 }
