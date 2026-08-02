@@ -141,7 +141,7 @@ export function useOwnerAccessRequests(treeId: string) {
   }, [refresh])
 
   const resolve = useCallback(
-    async (userId: string, action: "approve" | "deny"): Promise<void> => {
+    async (userId: string, action: "approve" | "deny"): Promise<boolean> => {
       setSubmitting(true)
       try {
         const res = await fetch(
@@ -166,6 +166,7 @@ export function useOwnerAccessRequests(treeId: string) {
           "success",
         )
         await refresh()
+        return true
       } catch (err) {
         console.error(err)
         toast(
@@ -174,6 +175,7 @@ export function useOwnerAccessRequests(treeId: string) {
             : "Couldn't resolve request.",
           "error",
         )
+        return false
       } finally {
         setSubmitting(false)
       }
@@ -233,7 +235,7 @@ export function useOwnedAccessRequests() {
       treeId: string,
       userId: string,
       action: "approve" | "deny",
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       setSubmitting(true)
       try {
         const res = await fetch(
@@ -258,6 +260,7 @@ export function useOwnedAccessRequests() {
           "success",
         )
         await refresh()
+        return true
       } catch (err) {
         console.error(err)
         toast(
@@ -266,6 +269,7 @@ export function useOwnedAccessRequests() {
             : "Couldn't resolve request.",
           "error",
         )
+        return false
       } finally {
         setSubmitting(false)
       }

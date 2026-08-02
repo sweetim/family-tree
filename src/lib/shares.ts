@@ -261,6 +261,7 @@ export function useShares(treeId: string) {
     add,
     updateRole,
     remove,
+    refresh,
   }
 }
 

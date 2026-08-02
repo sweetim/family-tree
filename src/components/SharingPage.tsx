@@ -158,8 +158,13 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
   const { data: session, isPending } = useSession()
   const hydrated = useHydrated()
   const { trees } = index
-  const { entries, loading, setRole, removePerson: removeOwnerPerson } =
-    useOwnerShares()
+  const {
+    entries,
+    loading,
+    setRole,
+    removePerson: removeOwnerPerson,
+    refresh: refreshOwnerShares,
+  } = useOwnerShares()
   const {
     requests,
     pendingCount,
@@ -373,13 +378,14 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
                   <div className="mt-3 flex gap-2">
                     <button
                       type="button"
-                      onClick={() =>
-                        void resolveRequest(
+                      onClick={async () => {
+                        const ok = await resolveRequest(
                           request.treeId,
                           request.userId,
                           "approve",
                         )
-                      }
+                        if (ok) await refreshOwnerShares()
+                      }}
                       disabled={requestsSubmitting}
                       className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95 disabled:opacity-50"
                     >

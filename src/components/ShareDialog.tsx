@@ -26,6 +26,7 @@ export function ShareDialog({
     add,
     updateRole,
     remove,
+    refresh: refreshShares,
   } = useShares(treeId)
   const {
     requests,
@@ -223,7 +224,13 @@ export function ShareDialog({
                       <div className="mt-2 flex gap-2">
                         <button
                           type="button"
-                          onClick={() => resolve(request.userId, "approve")}
+                          onClick={async () => {
+                            const ok = await resolve(
+                              request.userId,
+                              "approve",
+                            )
+                            if (ok) await refreshShares()
+                          }}
                           disabled={requestsSubmitting}
                           className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95 disabled:opacity-50"
                         >
