@@ -7,7 +7,6 @@ import {
   chooseFromRel,
   type Fields,
   fieldsFrom,
-  ghostBtn,
   labelCls,
   primaryBtn,
   selectCls,
@@ -18,12 +17,10 @@ export function AddForm({
   family,
   rel,
   onDone,
-  onClose,
 }: {
   family: FamilyStore
   rel: Relationship
   onDone: (id: string) => void
-  onClose: () => void
 }) {
   const { people } = family
   // A child is a descendant of the family, so prefill their family name from
@@ -147,14 +144,7 @@ export function AddForm({
         </label>
       )}
 
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className={ghostBtn}
-        >
-          Cancel
-        </button>
+      <div className="flex justify-end pt-2">
         <button
           type="submit"
           className={primaryBtn}

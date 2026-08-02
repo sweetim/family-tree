@@ -1,4 +1,3 @@
-import { X } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { type FormEvent, useState } from "react"
 import { createTreeWithRootMember, type FamilyStore } from "@/store"
@@ -49,7 +48,7 @@ export function CreateFamilyPanel({
       onSubmit={handleSubmit}
       className="animate-slide-up space-y-4"
     >
-      <div className="flex items-start justify-between gap-2">
+      <div>
         <div>
           <h2 className="text-base font-semibold tracking-tight text-slate-800">
             Create new family
@@ -58,14 +57,6 @@ export function CreateFamilyPanel({
             Create a separate family tree for {person.name}'s parents.
           </p>
         </div>
-        <button
-          type="button"
-          title="Close"
-          className={ghostBtn}
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-        </button>
       </div>
 
       <div>

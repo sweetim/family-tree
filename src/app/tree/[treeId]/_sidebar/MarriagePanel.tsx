@@ -1,5 +1,7 @@
+import { CalendarDays, Heart, HeartCrack } from "lucide-react"
 import { useState } from "react"
 import type { FamilyStore } from "@/store"
+import { GenderIcon } from "./GenderIcon"
 import { inputCls, labelCls, primaryBtn } from "./shared"
 
 /**
@@ -13,40 +15,67 @@ export function MarriagePanel({
   a,
   b,
   editable,
-  onClose,
 }: {
   family: FamilyStore
   a: string
   b: string
   editable: boolean
-  onClose: () => void
 }) {
-  const nameA = family.people[a]?.name ?? "—"
-  const nameB = family.people[b]?.name ?? "—"
   const personA = family.people[a]
+  const personB = family.people[b]
+  const nameA = personA?.name ?? "Unknown person"
+  const nameB = personB?.name ?? "Unknown person"
   const date = personA?.marriageDates[b] ?? ""
   const status = personA?.unionStatus?.[b]
   const isDivorced = status?.type === "divorced"
   const [divorceDate, setDivorceDate] = useState(status?.date ?? "")
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-800">Marriage</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-sm font-medium text-cobalt-600 transition-colors hover:text-cobalt-700"
-        >
-          Done
-        </button>
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-medium text-slate-700">
-        {nameA} &amp; {nameB}
-      </div>
-
+    <div className="animate-slide-up space-y-4">
       <div>
+        <div>
+          <h2 className="text-base font-semibold tracking-tight text-slate-800">
+            Marriage
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Record this couple&apos;s relationship details.
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft">
+        <div className="flex items-center justify-between gap-3">
+          <PersonSummary
+            name={nameA}
+            gender={personA?.gender}
+            align="end"
+          />
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+              isDivorced
+                ? "bg-rose-50 text-rose-500"
+                : "bg-cobalt-50 text-cobalt-600"
+            }`}
+            aria-label={isDivorced ? "Divorced" : "Married"}
+          >
+            {isDivorced ? (
+              <HeartCrack className="h-5 w-5" />
+            ) : (
+              <Heart className="h-5 w-5" />
+            )}
+          </div>
+          <PersonSummary
+            name={nameB}
+            gender={personB?.gender}
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <CalendarDays className="h-4 w-4 text-slate-400" />
+          Marriage details
+        </div>
         <label
           className={labelCls}
           htmlFor="marriage-date"
@@ -58,15 +87,16 @@ export function MarriagePanel({
           type="date"
           disabled={!editable}
           value={date}
-          onChange={(e) => family.updateSpouseDate(a, b, e.target.value)}
+          onChange={(event) => family.updateSpouseDate(a, b, event.target.value)}
           className={`${inputCls} disabled:opacity-60`}
         />
       </div>
 
       {isDivorced ? (
-        <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50/60 p-3">
+        <div className="space-y-4 rounded-xl border border-rose-200 bg-rose-50/60 p-4">
           <div className="flex items-center justify-between">
-            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700">
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-rose-800">
+              <HeartCrack className="h-4 w-4" />
               Divorced
             </span>
             <button
@@ -76,7 +106,7 @@ export function MarriagePanel({
                 family.setDivorced(a, b, false)
                 setDivorceDate("")
               }}
-              className="text-sm font-medium text-cobalt-600 transition-colors hover:text-cobalt-700 disabled:opacity-50"
+              className="text-sm font-semibold text-cobalt-600 transition-colors hover:text-cobalt-700 disabled:opacity-50"
             >
               Reconcile
             </button>
@@ -93,16 +123,16 @@ export function MarriagePanel({
               type="date"
               disabled={!editable}
               value={divorceDate}
-              onChange={(e) => {
-                setDivorceDate(e.target.value)
-                family.setDivorced(a, b, true, e.target.value)
+              onChange={(event) => {
+                setDivorceDate(event.target.value)
+                family.setDivorced(a, b, true, event.target.value)
               }}
-              className={`${inputCls} disabled:opacity-60`}
+              className={`${inputCls} border-rose-200 bg-white disabled:opacity-60`}
             />
           </div>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
           <div>
             <label
               className={labelCls}
@@ -115,7 +145,7 @@ export function MarriagePanel({
               type="date"
               disabled={!editable}
               value={divorceDate}
-              onChange={(e) => setDivorceDate(e.target.value)}
+              onChange={(event) => setDivorceDate(event.target.value)}
               className={`${inputCls} disabled:opacity-60`}
             />
           </div>
@@ -130,5 +160,58 @@ export function MarriagePanel({
         </div>
       )}
     </div>
+  )
+}
+
+function PersonSummary({
+  name,
+  gender,
+  align,
+}: {
+  name: string
+  gender?: "male" | "female" | "other"
+  align?: "end"
+}) {
+  const initials =
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((word) => word[0])
+      .join("")
+      .toUpperCase() || "?"
+
+  return (
+    <div className={`min-w-0 flex-1 ${align ? "text-right" : "text-left"}`}>
+      <div
+        className={`flex items-center gap-2 ${
+          align ? "justify-end" : "justify-start"
+        }`}
+      >
+        {align && <PersonAvatar initials={initials} />}
+        <span className="min-w-0 truncate text-sm font-semibold text-slate-800">
+          {name}
+        </span>
+        {!align && <PersonAvatar initials={initials} />}
+      </div>
+      {gender && (
+        <span
+          className={`mt-1 inline-flex items-center gap-1 text-xs capitalize text-slate-400 ${
+            align ? "justify-end" : "justify-start"
+          }`}
+        >
+          <GenderIcon gender={gender} />
+          {gender}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function PersonAvatar({ initials }: { initials: string }) {
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">
+      {initials}
+    </span>
   )
 }

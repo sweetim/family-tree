@@ -1,7 +1,6 @@
-import { Link2, UserPlus, X } from "lucide-react"
+import { Link2, UserPlus } from "lucide-react"
 import { type LinkKind, useTreeActions } from "@/lib/tree-actions"
 import type { Relationship } from "@/types"
-import { ghostBtn } from "./shared"
 
 const ROLE_LABEL: Record<LinkKind, string> = {
   parent: "parent",
@@ -16,7 +15,6 @@ export function ChoosePanel({
   rel,
   createFamily,
   alsoCreateFamily,
-  onClose,
 }: {
   kind: LinkKind
   sourceId: string
@@ -24,28 +22,19 @@ export function ChoosePanel({
   rel: Relationship
   createFamily?: boolean
   alsoCreateFamily?: boolean
-  onClose: () => void
 }) {
   const { openAdd, openCreateFamily, startLink } = useTreeActions()
   const role = ROLE_LABEL[kind]
 
   return (
     <div className="animate-slide-up space-y-4">
-      <div className="flex items-start justify-between gap-2">
+      <div>
         <div>
           <h2 className="text-base font-semibold text-slate-800 capitalize">
             Add {role}
           </h2>
           <p className="text-xs text-slate-500">For {sourceName}</p>
         </div>
-        <button
-          type="button"
-          title="Close"
-          className={ghostBtn}
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-        </button>
       </div>
 
       <div className="space-y-2.5">

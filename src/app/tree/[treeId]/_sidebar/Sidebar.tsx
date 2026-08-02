@@ -1,7 +1,10 @@
 import {
   ArrowLeft,
+  Baby,
   Check,
   ChevronLeft,
+  Heart,
+  Link2,
   LoaderCircle,
   MousePointerClick,
   Pencil,
@@ -102,6 +105,17 @@ export function Sidebar({
     state.mode === "createFamily" ? family.people[state.personId] : undefined
   const choosePerson =
     state.mode === "choose" ? family.people[state.sourceId] : undefined
+  const hasFooterClose =
+    state.mode === "settings"
+    || state.mode === "reviewChanges"
+    || state.mode === "share"
+    || state.mode === "marriage"
+    || state.mode === "linkParent"
+    || state.mode === "linkSpouse"
+    || state.mode === "linkChild"
+    || state.mode === "createFamily"
+    || state.mode === "choose"
+    || state.mode === "add"
 
   return (
     <aside
@@ -192,7 +206,6 @@ export function Sidebar({
             a={state.a}
             b={state.b}
             editable={editable}
-            onClose={onClose}
           />
         ) : state.mode === "add" && editable ? (
           <AddForm
@@ -200,7 +213,6 @@ export function Sidebar({
             family={family}
             rel={state.rel}
             onDone={onClose}
-            onClose={onClose}
           />
         ) : state.mode === "choose" && choosePerson && editable ? (
           <ChoosePanel
@@ -210,7 +222,6 @@ export function Sidebar({
             rel={state.rel}
             createFamily={state.createFamily}
             alsoCreateFamily={state.alsoCreateFamily}
-            onClose={onClose}
           />
         ) : state.mode === "linkParent" && linkParentPerson && editable ? (
           <LinkParentPanel
@@ -219,7 +230,6 @@ export function Sidebar({
             allTrees={allTrees}
             person={linkParentPerson}
             onSelect={onSelect}
-            onClose={onClose}
           />
         ) : state.mode === "linkSpouse" && linkSpousePerson && editable ? (
           <LinkSpousePanel
@@ -272,19 +282,65 @@ export function Sidebar({
             owner for editor access to add or edit people.
           </div>
         ) : editable ? (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
-              <p className="text-sm leading-relaxed text-slate-500">
-                Click a card to edit it, or hover a card and tap a{" "}
-                <b className="font-semibold text-slate-700">+</b> button to add
-                a new parent, spouse or child — or connect a person already in
-                the tree.
-              </p>
+          <div className="animate-slide-up space-y-5">
+            <div className="overflow-hidden rounded-2xl border border-cobalt-100 bg-linear-to-br from-cobalt-50 via-white to-sky-50/70 shadow-soft">
+              <div className="border-b border-cobalt-100/80 px-4 py-4">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cobalt-600 text-white shadow-sm">
+                    <MousePointerClick className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <h2 className="text-sm font-semibold tracking-tight text-slate-800">
+                      Build this tree
+                    </h2>
+                    <p className="mt-0.5 text-sm leading-relaxed text-slate-500">
+                      Select any person to edit their details or grow their
+                      family.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 p-3">
+                <div className="rounded-xl border border-white bg-white/85 p-2.5 text-center shadow-sm">
+                  <span className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
+                    <Users className="h-4 w-4" />
+                  </span>
+                  <p className="mt-1.5 text-xs font-semibold text-slate-700">
+                    Parent
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white bg-white/85 p-2.5 text-center shadow-sm">
+                  <span className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
+                    <Heart className="h-4 w-4" />
+                  </span>
+                  <p className="mt-1.5 text-xs font-semibold text-slate-700">
+                    Spouse
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white bg-white/85 p-2.5 text-center shadow-sm">
+                  <span className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-700">
+                    <Baby className="h-4 w-4" />
+                  </span>
+                  <p className="mt-1.5 text-xs font-semibold text-slate-700">
+                    Child
+                  </p>
+                </div>
+              </div>
+
+              <div className="mx-3 mb-3 flex items-start gap-2 rounded-xl bg-white/75 px-3 py-2.5 text-xs leading-relaxed text-slate-500">
+                <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cobalt-600" />
+                <p>
+                  Use a card&apos;s{" "}
+                  <b className="font-semibold text-slate-700">+</b> controls to
+                  add someone new or connect a person already in a family.
+                </p>
+              </div>
             </div>
             <button
               type="button"
               onClick={onAddRoot}
-              className={`${primaryBtn} w-full`}
+              className={`${primaryBtn} w-full shadow-soft hover:shadow-lift`}
             >
               <Plus className="h-4 w-4" /> Add unconnected member
             </button>
@@ -347,7 +403,7 @@ export function Sidebar({
       </div>
 
       <div
-        className={`space-y-2 border-t border-slate-200 px-5 py-4 ${
+        className={`space-y-2 px-5 py-4 ${
           loading ? "pointer-events-none opacity-60" : ""
         }`}
       >
@@ -363,9 +419,7 @@ export function Sidebar({
             </span>
           </button>
         )}
-        {(state.mode === "settings"
-          || state.mode === "reviewChanges"
-          || state.mode === "share") && (
+        {hasFooterClose && (
           <button
             type="button"
             onClick={onClose}
@@ -374,7 +428,13 @@ export function Sidebar({
             Close
           </button>
         )}
-        <div className="flex items-stretch">
+        <div
+          className={`flex items-stretch ${
+            hasFooterClose
+              ? "border-t-2 border-slate-300 pt-2"
+              : "border-t border-slate-200 pt-2"
+          }`}
+        >
           {!readOnly && (
             <>
               <button

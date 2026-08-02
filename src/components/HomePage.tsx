@@ -579,10 +579,10 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
   }
 
   let body: ReactNode
-  if (isPending || !hydrated) {
-    body = <HomeSkeleton />
-  } else if (!session?.user) {
+  if (!session?.user) {
     return <LandingPage />
+  } else if (isPending || !hydrated) {
+    body = <HomeSkeleton />
   } else {
     body = (
       <>

@@ -1,10 +1,10 @@
-import { Heart, X } from "lucide-react"
+import { Heart } from "lucide-react"
 import { useMemo, useState } from "react"
 import { Section } from "@/components/Section"
 import { type FamilyStore, type TreeMeta, useMembersOf } from "@/store"
 import type { Person } from "@/types"
 import { BackToChoose } from "./BackToChoose"
-import { ghostBtn, selectCls, relFromLink } from "./shared"
+import { selectCls, relFromLink } from "./shared"
 
 export function LinkSpousePanel({
   family,
@@ -38,7 +38,7 @@ export function LinkSpousePanel({
 
   return (
     <div className="animate-slide-up space-y-4">
-      <div className="flex items-start justify-between gap-2">
+      <div>
         <div>
           <BackToChoose
             kind="spouse"
@@ -52,14 +52,6 @@ export function LinkSpousePanel({
             Link a spouse for {person.name}
           </p>
         </div>
-        <button
-          type="button"
-          title="Close"
-          className={ghostBtn}
-          onClick={onClose}
-        >
-          <X className="h-4 w-4" />
-        </button>
       </div>
 
       <Section
