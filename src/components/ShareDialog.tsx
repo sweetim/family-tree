@@ -1,8 +1,9 @@
-import { Check, Loader2, Trash2, XCircle } from "lucide-react"
+import { Check, Loader2, Trash2, UserPlus, XCircle } from "lucide-react"
 import { type FormEvent, useState } from "react"
 import { useOwnerAccessRequests } from "@/lib/access-requests"
 import { useShares } from "@/lib/shares"
 import { Modal } from "./Modal"
+import { RoleSelect } from "./RoleSelect"
 
 /**
  * Modal for a tree owner to manage shares and access requests.
@@ -16,7 +17,16 @@ export function ShareDialog({
   treeName: string
   onClose: () => void
 }) {
-  const { shares, loading, submitting, add, remove } = useShares(treeId)
+  const {
+    shares,
+    loading,
+    adding,
+    submittingEmail,
+    submittingMutation,
+    add,
+    updateRole,
+    remove,
+  } = useShares(treeId)
   const {
     requests,
     loading: requestsLoading,
@@ -39,7 +49,7 @@ export function ShareDialog({
       onClose={onClose}
       backdropClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
     >
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-lift">
+      <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-lift">
         <div className="mb-1">
           <h2 className="text-lg font-bold tracking-tight text-slate-800">
             Share tree
@@ -61,30 +71,36 @@ export function ShareDialog({
           >
             Invite by email
           </label>
-          <input
-            id="share-email-input"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="relative@example.com"
-            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-cobalt-500 focus:outline-none focus:ring-2 focus:ring-cobalt-200"
-            required
-          />
-          <div className="flex items-center gap-2">
-            <select
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
+            <input
+              id="share-email-input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="relative@example.com"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-cobalt-500 focus:outline-none focus:ring-2 focus:ring-cobalt-200"
+              required
+            />
+            <RoleSelect
               value={role}
-              onChange={(e) => setRole(e.target.value as "viewer" | "editor")}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-cobalt-500 focus:outline-none focus:ring-2 focus:ring-cobalt-200"
-            >
-              <option value="viewer">Viewer (read-only)</option>
-              <option value="editor">Editor (can add/edit people)</option>
-            </select>
+              disabled={adding}
+              loading={false}
+              label="Invite role"
+              allowNone={false}
+              onChange={(next) => {
+                if (next) setRole(next)
+              }}
+            />
             <button
               type="submit"
-              disabled={submitting || !email.trim()}
-              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-cobalt-600 px-3 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+              disabled={adding || !email.trim()}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-cobalt-600 px-3 py-2 text-sm font-semibold text-white shadow-soft transition-all hover:bg-cobalt-700 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
             >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {adding ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="h-4 w-4" />
+              )}
               Add
             </button>
           </div>
@@ -94,99 +110,125 @@ export function ShareDialog({
           </p>
         </form>
 
-        <div className="mt-5">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            People with access
-          </h3>
-          {loading ? (
-            <div className="flex justify-center py-6 text-slate-400">
-              <Loader2 className="h-5 w-5 animate-spin" />
-            </div>
-          ) : shares.length === 0 ? (
-            <p className="rounded-lg bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
-              Not shared with anyone yet.
-            </p>
-          ) : (
-            <ul className="space-y-1.5">
-              {shares.map((share) => (
-                <li
-                  key={share.email}
-                  className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-700">
-                      {share.email}
-                    </p>
-                    <p className="text-[11px] uppercase tracking-wide text-slate-400">
-                      {share.role}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => remove(share.email)}
-                    disabled={submitting}
-                    title="Revoke access"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {requestsLoading ? (
+        {loading || requestsLoading ? (
           <div className="mt-5 flex justify-center py-2 text-slate-400">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
-        ) : requests.length > 0 ? (
-          <div className="mt-5">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Access requests
-            </h3>
-            <ul className="space-y-2">
-              {requests.map((request) => (
-                <li
-                  key={request.userId}
-                  className="rounded-lg bg-slate-50 px-3 py-2"
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="truncate text-sm font-medium text-slate-700">
-                      {request.name || request.email}
-                    </p>
-                    {request.name && request.name !== request.email ? (
-                      <span className="shrink-0 text-[11px] text-slate-400">
-                        {request.email}
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                    “{request.comment}”
-                  </p>
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => resolve(request.userId, "approve")}
-                      disabled={requestsSubmitting}
-                      className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95 disabled:opacity-50"
+        ) : (
+          <>
+            <div className="mt-5">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                People with access
+              </h3>
+              {shares.length === 0 ? (
+                <p className="rounded-lg bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
+                  Not shared with anyone yet.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {shares.map((share) => {
+                    return (
+                      <li
+                        key={share.email}
+                        className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-3 py-2"
+                      >
+                        <RoleSelect
+                          value={share.role}
+                          disabled={submittingEmail !== null}
+                          loading={
+                            submittingMutation === "update"
+                            && submittingEmail === share.email
+                          }
+                          label={`Access for ${share.email}`}
+                          allowNone={false}
+                          onChange={(next) => {
+                            if (next) void updateRole(share.email, next)
+                          }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-slate-700">
+                            {share.email}
+                          </p>
+                          <p
+                            className={`text-[11px] uppercase tracking-wide ${
+                              share.role === "editor"
+                                ? "text-emerald-600"
+                                : "text-cobalt-600"
+                            }`}
+                          >
+                            {share.role}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => remove(share.email)}
+                          disabled={submittingEmail !== null}
+                          title="Revoke access"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {submittingMutation === "remove"
+                          && submittingEmail === share.email ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+
+            {requests.length > 0 ? (
+              <div className="mt-5">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Access requests
+                </h3>
+                <ul className="space-y-2">
+                  {requests.map((request) => (
+                    <li
+                      key={request.userId}
+                      className="rounded-lg bg-slate-50 px-3 py-2"
                     >
-                      <Check className="h-3.5 w-3.5" /> Approve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => resolve(request.userId, "deny")}
-                      disabled={requestsSubmitting}
-                      className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-red-600 ring-1 ring-red-200 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50"
-                    >
-                      <XCircle className="h-3.5 w-3.5" /> Decline
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+                      <div className="flex items-baseline justify-between gap-2">
+                        <p className="truncate text-sm font-medium text-slate-700">
+                          {request.name || request.email}
+                        </p>
+                        {request.name && request.name !== request.email ? (
+                          <span className="shrink-0 text-[11px] text-slate-400">
+                            {request.email}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        “{request.comment}”
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => resolve(request.userId, "approve")}
+                          disabled={requestsSubmitting}
+                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95 disabled:opacity-50"
+                        >
+                          <Check className="h-3.5 w-3.5" /> Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => resolve(request.userId, "deny")}
+                          disabled={requestsSubmitting}
+                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-red-600 ring-1 ring-red-200 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50"
+                        >
+                          <XCircle className="h-3.5 w-3.5" /> Decline
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </>
+        )}
 
         <button
           type="button"

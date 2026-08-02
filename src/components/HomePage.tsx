@@ -1,5 +1,7 @@
 import {
   ArrowRight,
+  Check,
+  CloudOff,
   Loader2,
   Network,
   Pencil,
@@ -7,6 +9,7 @@ import {
   Search,
   Share2,
   Sparkles,
+  TriangleAlert,
   Trash2,
   Users,
   X,
@@ -25,9 +28,11 @@ import { authClient, useSession } from "../lib/auth-client"
 import {
   countMembers,
   seedData,
+  type SyncStatus,
   type TreeIndexStore,
   type TreeMeta,
   useHydrated,
+  useSyncStatus,
 } from "../store"
 import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
@@ -62,6 +67,10 @@ function TreeCard({
   const [renaming, setRenaming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [name, setName] = useState(tree.name)
+  const [renameStatus, setRenameStatus] = useState<SyncStatus | null>(null)
+  const renameFormRef = useRef<HTMLFormElement>(null)
+  const nameInputRef = useRef<HTMLInputElement>(null)
+  const syncStatus = useSyncStatus()
   const members = countMembers(tree.id)
   const created = new Date(tree.createdAt).toLocaleDateString(undefined, {
     year: "numeric",
@@ -71,10 +80,61 @@ function TreeCard({
 
   function submitRename(e: FormEvent) {
     e.preventDefault()
+    if (renameStatus === "saving") return
     const trimmed = name.trim()
-    if (trimmed && trimmed !== tree.name) onRename(trimmed)
-    setRenaming(false)
+    if (!trimmed || trimmed === tree.name) {
+      setRenaming(false)
+      setRenameStatus(null)
+      return
+    }
+    onRename(trimmed)
+    setRenameStatus("saving")
   }
+
+  useEffect(() => {
+    if (!renameStatus || renameStatus === "saved") return
+    setRenameStatus(syncStatus)
+  }, [renameStatus, syncStatus])
+
+  useEffect(() => {
+    if (renameStatus !== "saved") return
+    const timeout = window.setTimeout(() => {
+      setRenaming(false)
+      setRenameStatus(null)
+    }, 1200)
+    return () => window.clearTimeout(timeout)
+  }, [renameStatus])
+
+  useEffect(() => {
+    if (!renaming || renameStatus === "saving") return
+    const closeWhenUnfocused = (event: MouseEvent) => {
+      if (
+        renameFormRef.current?.contains(event.target as Node)
+        || document.activeElement === nameInputRef.current
+      ) {
+        return
+      }
+      setRenaming(false)
+      setRenameStatus(null)
+    }
+    document.addEventListener("mousedown", closeWhenUnfocused)
+    return () => document.removeEventListener("mousedown", closeWhenUnfocused)
+  }, [renaming, renameStatus])
+
+  const renameIndicator =
+    renameStatus === "saving"
+      ? { icon: Loader2, label: "Saving", className: "text-slate-400" }
+      : renameStatus === "saved"
+        ? { icon: Check, label: "Saved", className: "text-emerald-600" }
+        : renameStatus === "offline"
+          ? { icon: CloudOff, label: "Offline", className: "text-amber-600" }
+          : renameStatus === "conflict"
+            ? {
+                icon: TriangleAlert,
+                label: "Sync conflict",
+                className: "text-red-600",
+              }
+            : null
 
   return (
     <div className="group flex flex-col rounded-xl border border-slate-200 bg-white p-4 transition-all hover:border-cobalt-300 hover:shadow-soft sm:p-5">
@@ -85,15 +145,33 @@ function TreeCard({
         <div className="min-w-0 flex-1">
           {renaming ? (
             <form
+              ref={renameFormRef}
               onSubmit={submitRename}
-              className="flex gap-2"
+              className="relative"
             >
               <input
+                ref={nameInputRef}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  if (renameStatus !== "saving") setRenameStatus(null)
+                }}
                 onBlur={submitRename}
-                className={inputCls}
+                aria-label="Tree name"
+                disabled={renameStatus === "saving"}
+                className={`${inputCls} pr-32`}
               />
+              {renameIndicator && (
+                <span
+                  aria-live="polite"
+                  className={`pointer-events-none absolute inset-y-0 right-3 inline-flex items-center gap-1 text-xs font-medium ${renameIndicator.className}`}
+                >
+                  <renameIndicator.icon
+                    className={`h-3.5 w-3.5 ${renameStatus === "saving" ? "animate-spin" : ""}`}
+                  />
+                  {renameIndicator.label}
+                </span>
+              )}
             </form>
           ) : (
             <button
@@ -132,6 +210,7 @@ function TreeCard({
           title="Rename tree"
           onClick={() => {
             setName(tree.name)
+            setRenameStatus(null)
             setRenaming(true)
           }}
           className={ghostBtn}

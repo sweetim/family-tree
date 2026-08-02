@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useToast } from "@/components/Toast"
 
 export type Share = {
   email: string
   role: "viewer" | "editor"
 }
+
+type ShareMutation = "update" | "remove"
 
 export type OwnerShareEntry = {
   email: string
@@ -50,10 +52,15 @@ export function useShares(treeId: string) {
   const toast = useToast()
   const [shares, setShares] = useState<Share[]>([])
   const [loading, setLoading] = useState(true)
-  const [submitting, setSubmitting] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [submittingEmail, setSubmittingEmail] = useState<string | null>(null)
+  const [submittingMutation, setSubmittingMutation] =
+    useState<ShareMutation | null>(null)
+  const refreshVersion = useRef(0)
+  const submitting = adding || submittingEmail !== null
 
   async function refresh() {
-    setLoading(true)
+    const currentRefresh = ++refreshVersion.current
     try {
       const loaded: Share[] = []
       let cursor: string | undefined
@@ -72,24 +79,37 @@ export function useShares(treeId: string) {
         loaded.push(...data.shares)
         cursor = data.nextCursor
       } while (cursor)
-      setShares(loaded)
+      if (currentRefresh === refreshVersion.current) setShares(loaded)
     } catch (err) {
       console.error(err)
-      toast("Couldn't load shares.", "error")
-    } finally {
-      setLoading(false)
+      if (currentRefresh === refreshVersion.current)
+        toast("Couldn't load shares.", "error")
     }
   }
 
   useEffect(() => {
-    void refresh()
+    let current = true
+    setLoading(true)
+    void refresh().finally(() => {
+      if (current) setLoading(false)
+    })
+    return () => {
+      current = false
+    }
   }, [treeId])
 
-  async function add(
+  async function saveShare(
     email: string,
     role: "viewer" | "editor",
+    fallbackError: string,
+    mutation: "add" | "update",
   ): Promise<boolean> {
-    setSubmitting(true)
+    if (mutation === "add") {
+      setAdding(true)
+    } else {
+      setSubmittingEmail(email)
+      setSubmittingMutation(mutation)
+    }
     try {
       const res = await fetch(
         `/api/trees/${encodeURIComponent(treeId)}/shares`,
@@ -109,19 +129,31 @@ export function useShares(treeId: string) {
     } catch (err) {
       console.error(err)
       toast(
-        err instanceof Error && err.message
-          ? err.message
-          : "Couldn't add share.",
+        err instanceof Error && err.message ? err.message : fallbackError,
         "error",
       )
       return false
     } finally {
-      setSubmitting(false)
+      if (mutation === "add") {
+        setAdding(false)
+      } else {
+        setSubmittingEmail(null)
+        setSubmittingMutation(null)
+      }
     }
   }
 
+  function add(email: string, role: "viewer" | "editor") {
+    return saveShare(email, role, "Couldn't add share.", "add")
+  }
+
+  function updateRole(email: string, role: "viewer" | "editor") {
+    return saveShare(email, role, "Couldn't update access.", "update")
+  }
+
   async function remove(targetEmail: string) {
-    setSubmitting(true)
+    setSubmittingEmail(targetEmail)
+    setSubmittingMutation("remove")
     try {
       const res = await fetch(
         `/api/trees/${encodeURIComponent(treeId)}/shares?email=${encodeURIComponent(targetEmail)}`,
@@ -133,11 +165,22 @@ export function useShares(treeId: string) {
       console.error(err)
       toast("Couldn't remove share.", "error")
     } finally {
-      setSubmitting(false)
+      setSubmittingEmail(null)
+      setSubmittingMutation(null)
     }
   }
 
-  return { shares, loading, submitting, add, remove }
+  return {
+    shares,
+    loading,
+    submitting,
+    adding,
+    submittingEmail,
+    submittingMutation,
+    add,
+    updateRole,
+    remove,
+  }
 }
 
 /**

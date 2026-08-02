@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  Database,
   Download,
   FileDown,
   GitBranch,
@@ -7,6 +8,7 @@ import {
   Layers,
   Map as MapIcon,
   Printer,
+  SlidersHorizontal,
   Trees,
   Upload,
   User,
@@ -79,6 +81,44 @@ function SettingToggle({
         <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
       </span>
     </label>
+  )
+}
+
+function DataAction({
+  icon,
+  title,
+  description,
+  onClick,
+  disabled,
+  disabledTitle,
+}: {
+  icon: ReactNode
+  title: string
+  description: string
+  onClick: () => void
+  disabled?: boolean
+  disabledTitle?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={disabled ? disabledTitle : undefined}
+      className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-colors group-hover:bg-slate-200">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-slate-700">
+          {title}
+        </span>
+        <span className="block text-xs leading-relaxed text-slate-500">
+          {description}
+        </span>
+      </span>
+    </button>
   )
 }
 
@@ -160,117 +200,134 @@ export function SettingsPanel({
 
   return (
     <div className="space-y-5">
-      <h2 className="text-sm font-semibold text-slate-800">Display</h2>
-
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
-        <SettingToggle
-          icon={<MapIcon className="h-4 w-4" />}
-          title="Minimap"
-          description="Show the canvas overview (desktop only)"
-          checked={settings.minimap}
-          onChange={(checked) => update({ minimap: checked })}
-        />
-        <SettingToggle
-          icon={<Heart className="h-4 w-4" />}
-          title="Marriage years"
-          description="Show each marriage's year on the canvas. Hover a union dot for the full date."
-          checked={settings.marriageYears}
-          onChange={(checked) => update({ marriageYears: checked })}
-        />
-        <SettingToggle
-          icon={<CalendarDays className="h-4 w-4" />}
-          title="Age"
-          description="Show each living person's age on their card."
-          checked={settings.showAge}
-          onChange={(checked) => update({ showAge: checked })}
-        />
-        <SettingToggle
-          icon={<User className="h-4 w-4" />}
-          title="Family name"
-          description="Show each person's family name before their name on their card."
-          checked={settings.showFamilyName}
-          onChange={(checked) => update({ showFamilyName: checked })}
-        />
-        <SettingToggle
-          icon={<Layers className="h-4 w-4" />}
-          title="Show all families"
-          description="Render this family and all related families on this canvas. Off: show only this family."
-          checked={settings.showAllFamilies}
-          onChange={(checked) => update({ showAllFamilies: checked })}
-        />
-        <SettingToggle
-          icon={<GitBranch className="h-4 w-4" />}
-          title="Highlight bloodline"
-          description="Outline the founding roots and their descendants, and dim married-in spouses so the bloodline stands out."
-          checked={settings.highlightBloodline}
-          onChange={(checked) => update({ highlightBloodline: checked })}
-        />
-        <SettingToggle
-          icon={<Trees className="h-4 w-4" />}
-          title="Other family trees"
-          description="Show a badge on each person card for every other tree they belong to."
-          checked={settings.showOtherTrees}
-          onChange={(checked) => update({ showOtherTrees: checked })}
-        />
-      </div>
-
-      <div className="space-y-3">
-        <h2 className="text-sm font-semibold text-slate-800">Data</h2>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={exportJson}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
+      <section
+        aria-labelledby="canvas-appearance-heading"
+        className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+      >
+        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600">
+            <SlidersHorizontal className="h-4 w-4" />
+          </span>
+          <h3
+            id="canvas-appearance-heading"
+            className="text-sm font-semibold text-slate-800"
           >
-            <Download className="h-4 w-4" /> Export
-          </button>
-          <button
-            type="button"
+            Appearance
+          </h3>
+        </div>
+        <div>
+          <div className="divide-y divide-slate-100">
+            <SettingToggle
+              icon={<MapIcon className="h-4 w-4" />}
+              title="Minimap"
+              description="Show the canvas overview (desktop only)"
+              checked={settings.minimap}
+              onChange={(checked) => update({ minimap: checked })}
+            />
+            <SettingToggle
+              icon={<Heart className="h-4 w-4" />}
+              title="Marriage years"
+              description="Show each marriage's year on the canvas. Hover a union dot for the full date."
+              checked={settings.marriageYears}
+              onChange={(checked) => update({ marriageYears: checked })}
+            />
+            <SettingToggle
+              icon={<Layers className="h-4 w-4" />}
+              title="Show all families"
+              description="Render this family and all related families on this canvas. Off: show only this family."
+              checked={settings.showAllFamilies}
+              onChange={(checked) => update({ showAllFamilies: checked })}
+            />
+            <SettingToggle
+              icon={<GitBranch className="h-4 w-4" />}
+              title="Highlight bloodline"
+              description="Outline the founding roots and their descendants, and dim married-in spouses so the bloodline stands out."
+              checked={settings.highlightBloodline}
+              onChange={(checked) => update({ highlightBloodline: checked })}
+            />
+          </div>
+        </div>
+        <div className="border-t border-slate-100">
+          <div className="divide-y divide-slate-100">
+            <SettingToggle
+              icon={<CalendarDays className="h-4 w-4" />}
+              title="Age"
+              description="Show each living person's age on their card."
+              checked={settings.showAge}
+              onChange={(checked) => update({ showAge: checked })}
+            />
+            <SettingToggle
+              icon={<User className="h-4 w-4" />}
+              title="Family name"
+              description="Show each person's family name before their name on their card."
+              checked={settings.showFamilyName}
+              onChange={(checked) => update({ showFamilyName: checked })}
+            />
+            <SettingToggle
+              icon={<Trees className="h-4 w-4" />}
+              title="Other family trees"
+              description="Show a badge on each person card for every other tree they belong to."
+              checked={settings.showOtherTrees}
+              onChange={(checked) => update({ showOtherTrees: checked })}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="import-export-heading"
+        className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+      >
+        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600">
+            <Database className="h-4 w-4" />
+          </span>
+          <h3
+            id="import-export-heading"
+            className="text-sm font-semibold text-slate-800"
+          >
+            Data
+          </h3>
+        </div>
+        <div className="divide-y divide-slate-100">
+          <DataAction
+            icon={<Download className="h-4 w-4" />}
+            title="Export JSON"
+            description="Save an offline copy of this tree as JSON."
+            onClick={exportJson}
+          />
+          <DataAction
+            icon={<Upload className="h-4 w-4" />}
+            title="Import JSON"
+            description="Replace this tree from a previously exported file."
             onClick={() => importRef.current?.click()}
             disabled={!editable}
-            title={editable ? undefined : "Switch to Edit mode to import"}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
-          >
-            <Upload className="h-4 w-4" /> Import
-          </button>
+            disabledTitle="Switch to Edit mode to import"
+          />
+          <DataAction
+            icon={<FileDown className="h-4 w-4" />}
+            title="Export GEDCOM"
+            description="Download a .ged file for other genealogy apps."
+            onClick={exportGedcom}
+          />
+          <DataAction
+            icon={<Printer className="h-4 w-4" />}
+            title="Export PDF"
+            description="Print the whole tree to one landscape page."
+            onClick={exportPdf}
+          />
         </div>
-        <p className="text-xs leading-relaxed text-slate-500">
-          Export an offline copy as JSON, or import a previously exported tree.
-          {!editable && " Import is only available while editing."}
-        </p>
-        <button
-          type="button"
-          onClick={exportGedcom}
-          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
-        >
-          <FileDown className="h-4 w-4" /> Export to GEDCOM
-        </button>
-        <p className="text-xs leading-relaxed text-slate-500">
-          Download a <code>.ged</code> file you can open in other genealogy
-          apps.
-        </p>
-        <button
-          type="button"
-          onClick={exportPdf}
-          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
-        >
-          <Printer className="h-4 w-4" /> Export to PDF
-        </button>
-        <p className="text-xs leading-relaxed text-slate-500">
-          Print the whole tree to a single landscape page — choose “Save as PDF”
-          in the dialog.
-        </p>
-        <input
-          ref={importRef}
-          type="file"
-          accept="application/json"
-          className="hidden"
-          onChange={(e) => {
-            importJson(e.target.files?.[0])
-            e.target.value = ""
-          }}
-        />
-      </div>
+      </section>
+      <input
+        ref={importRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={(e) => {
+          importJson(e.target.files?.[0])
+          e.target.value = ""
+        }}
+      />
     </div>
   )
 }
