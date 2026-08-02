@@ -5,6 +5,7 @@ import {
   type ReactNode,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
@@ -36,6 +37,16 @@ function ServerDataBootstrap() {
   const pathname = usePathname()
   const previousUserId = useRef<string | null | undefined>(undefined)
 
+  const treeId = useMemo(() => {
+    const match = pathname.match(/^\/tree\/([^/]+)/)
+    if (!match?.[1]) return undefined
+    try {
+      return decodeURIComponent(match[1])
+    } catch {
+      return undefined
+    }
+  }, [pathname])
+
   useLayoutEffect(() => {
     if (previousUserId.current !== userId) {
       resetStore()
@@ -47,13 +58,6 @@ function ServerDataBootstrap() {
     }
 
     let cancelled = false
-    const treeMatch = pathname.match(/^\/tree\/([^/]+)/)
-    let treeId: string | undefined
-    try {
-      treeId = treeMatch?.[1] ? decodeURIComponent(treeMatch[1]) : undefined
-    } catch {
-      treeId = undefined
-    }
     void (async () => {
       let retryDelay = 500
       while (!cancelled) {
@@ -92,18 +96,11 @@ function ServerDataBootstrap() {
     return () => {
       cancelled = true
     }
-  }, [pathname, userId])
+  }, [treeId, userId])
 
   useEffect(() => {
     if (!userId) return
     let cancelled = false
-    const treeMatch = pathname.match(/^\/tree\/([^/]+)/)
-    let treeId: string | undefined
-    try {
-      treeId = treeMatch?.[1] ? decodeURIComponent(treeMatch[1]) : undefined
-    } catch {
-      treeId = undefined
-    }
     const synchronize = () => {
       void synchronizePending()
       if (!treeId || editingTreeId !== treeId) return
@@ -123,7 +120,7 @@ function ServerDataBootstrap() {
       window.removeEventListener("online", synchronize)
       window.removeEventListener("focus", synchronize)
     }
-  }, [editingTreeId, pathname, userId])
+  }, [editingTreeId, treeId, userId])
 
   return null
 }

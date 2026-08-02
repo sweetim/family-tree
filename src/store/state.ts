@@ -1518,18 +1518,15 @@ export function applyTreeManifest(manifest: TreeManifestItem[]): void {
 
 export async function fetchTreeSnapshot(
   treeId: string,
-  focusPersonId?: string,
 ): Promise<TreeSnapshotResponse> {
-  const basePath = focusPersonId
-    ? `/api/trees/${encodeURIComponent(treeId)}/graph?focusPersonId=${encodeURIComponent(focusPersonId)}&radius=3`
-    : `/api/trees/${encodeURIComponent(treeId)}/snapshot`
+  const basePath = `/api/trees/${encodeURIComponent(treeId)}/snapshot`
   let restartCount = 0
   while (true) {
     let nextCursor: string | undefined
     let aggregate: TreeSnapshotResponse | undefined
     do {
       const path = nextCursor
-        ? `${basePath}${basePath.includes("?") ? "&" : "?"}pageCursor=${encodeURIComponent(nextCursor)}`
+        ? `${basePath}?pageCursor=${encodeURIComponent(nextCursor)}`
         : basePath
       const response = await fetch(path, { credentials: "include" })
       if (response.status === 409 && restartCount === 0) {
