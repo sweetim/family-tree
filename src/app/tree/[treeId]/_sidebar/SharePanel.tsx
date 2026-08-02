@@ -12,11 +12,9 @@ import { inputCls, labelCls, selectCls } from "./shared"
 export function SharePanel({
   treeId,
   treeName,
-  onClose,
 }: {
   treeId: string
   treeName: string
-  onClose: () => void
 }) {
   const { shares, loading, submitting, add, remove } = useShares(treeId)
   const toast = useToast()
@@ -60,17 +58,6 @@ export function SharePanel({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-800">Share tree</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-sm font-medium text-cobalt-600 transition-colors hover:text-cobalt-700"
-        >
-          Close
-        </button>
-      </div>
-
       <p className="text-xs leading-relaxed text-slate-500">
         <span className="font-medium text-slate-700">{treeName}</span> — anyone
         you add can open it from any device after signing in with the email

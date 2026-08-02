@@ -171,7 +171,6 @@ export function Sidebar({
           <SharePanel
             treeId={treeId}
             treeName={treeName}
-            onClose={onClose}
           />
         ) : state.mode === "reviewChanges" ? (
           <ReviewChangesPanel
@@ -317,7 +316,9 @@ export function Sidebar({
             </span>
           </button>
         )}
-        {(state.mode === "settings" || state.mode === "reviewChanges") && (
+        {(state.mode === "settings"
+          || state.mode === "reviewChanges"
+          || state.mode === "share") && (
           <button
             type="button"
             onClick={onClose}
