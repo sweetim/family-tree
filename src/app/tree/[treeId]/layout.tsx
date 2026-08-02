@@ -12,14 +12,17 @@ export async function generateMetadata({
   const { treeId } = await params
   const treeName = await getPublicTreeName(treeId)
 
-  if (!treeName) return {}
+  if (!treeName) {
+    return { robots: { index: false, follow: false } }
+  }
 
   const title = `${treeName} | FamiKi`
   const description = `View the ${treeName} family tree on FamiKi.`
 
   return {
-    title,
+    title: treeName,
     description,
+    robots: { index: false, follow: false },
     openGraph: {
       title,
       description,

@@ -21,8 +21,12 @@ const siteUrl = process.env.BETTER_AUTH_URL
 
 export const metadata: Metadata = {
   metadataBase: siteUrl ? new URL(siteUrl) : undefined,
-  title,
+  title: {
+    default: title,
+    template: "%s | FamiKi",
+  },
   description,
+  alternates: { canonical: "/" },
   icons: { icon: "/logo.webp" },
   openGraph: {
     title,
