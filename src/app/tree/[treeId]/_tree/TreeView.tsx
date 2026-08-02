@@ -104,10 +104,10 @@ export function TreeView({
 
 function SkeletonCard() {
   return (
-    <div className="flex w-44 flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 pb-4 pt-4 shadow-soft">
-      <div className="tree-skeleton animate-shimmer h-[104px] w-[104px] rounded-full" />
-      <div className="tree-skeleton animate-shimmer h-3.5 w-28 rounded" />
-      <div className="tree-skeleton animate-shimmer h-3 w-20 rounded-full" />
+    <div className="flex aspect-[176/186] w-full flex-col items-center gap-[6.8%] rounded-2xl border border-slate-200 bg-white px-[9.1%] py-[9.1%] shadow-soft">
+      <div className="tree-skeleton animate-shimmer aspect-square w-[59.1%] rounded-full" />
+      <div className="tree-skeleton animate-shimmer h-[7.5%] w-[63.6%] rounded" />
+      <div className="tree-skeleton animate-shimmer h-[6.5%] w-[45.5%] rounded-full" />
     </div>
   )
 }
@@ -120,7 +120,7 @@ function TreeSkeleton() {
   // are one continuous SVG so the dot-to-bus connector stays unbroken; cards
   // are placed over it.
   return (
-    <div className="relative h-[500px] w-[624px] origin-center scale-75 overflow-hidden md:scale-100">
+    <div className="relative aspect-[624/500] w-full max-w-[624px] overflow-hidden">
       <svg
         className="absolute inset-0 h-full w-full"
         viewBox="0 0 624 500"
@@ -147,19 +147,19 @@ function TreeSkeleton() {
           className="stroke-slate-200"
         />
       </svg>
-      <div className="absolute left-[112px] top-0">
+      <div className="absolute left-[17.95%] top-0 w-[28.21%]">
         <SkeletonCard />
       </div>
-      <div className="absolute left-[336px] top-0">
+      <div className="absolute left-[53.85%] top-0 w-[28.21%]">
         <SkeletonCard />
       </div>
-      <div className="absolute left-0 top-[300px]">
+      <div className="absolute left-0 top-[60%] w-[28.21%]">
         <SkeletonCard />
       </div>
-      <div className="absolute left-[224px] top-[300px]">
+      <div className="absolute left-[35.9%] top-[60%] w-[28.21%]">
         <SkeletonCard />
       </div>
-      <div className="absolute left-[448px] top-[300px]">
+      <div className="absolute left-[71.79%] top-[60%] w-[28.21%]">
         <SkeletonCard />
       </div>
     </div>

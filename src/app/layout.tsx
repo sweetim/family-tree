@@ -1,13 +1,22 @@
 import type { Metadata } from "next"
-import { Inter } from "next/font/google"
+import { Bricolage_Grotesque, IBM_Plex_Mono, Inter } from "next/font/google"
 import "./globals.css"
 import { Providers } from "./providers"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
+const bricolage = Bricolage_Grotesque({
+  subsets: ["latin"],
+  variable: "--font-bricolage",
+})
+const ibmPlexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  variable: "--font-ibm-plex-mono",
+  weight: ["400", "600"],
+})
 
-const title = "FamiKi | Your family story, beautifully connected"
+const title = "FamiKi | Every branch, in its place"
 const description =
-  "Build a private, collaborative family tree that organizes every generation, memory, and relationship beautifully."
+  "Build a private family tree that automatically arranges partners, parents, and children as your family fills in the details."
 const siteUrl = process.env.BETTER_AUTH_URL
 
 export const metadata: Metadata = {
@@ -45,7 +54,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={inter.variable}
+      className={`${inter.variable} ${bricolage.variable} ${ibmPlexMono.variable}`}
     >
       <body className={inter.className}>
         <Providers>{children}</Providers>
