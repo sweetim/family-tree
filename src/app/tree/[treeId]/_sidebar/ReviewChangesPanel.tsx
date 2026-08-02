@@ -1,4 +1,11 @@
-import { Check, ChevronDown, LoaderCircle, TriangleAlert } from "lucide-react"
+import {
+  Check,
+  ChevronDown,
+  LoaderCircle,
+  Monitor,
+  Server,
+  TriangleAlert,
+} from "lucide-react"
 import { useState } from "react"
 import { type BlockedChange, resolveBlockedOperation } from "@/store"
 
@@ -155,7 +162,12 @@ export function ReviewChangesPanel({
                                 onClick={() => void resolve(change, side)}
                                 className="rounded-xl bg-white p-3 text-left ring-1 ring-slate-200 transition-colors hover:bg-cobalt-50 hover:ring-cobalt-400 disabled:cursor-wait disabled:opacity-50"
                               >
-                                <span className="text-xs font-semibold text-slate-700">
+                                <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                                  {side === "device" ? (
+                                    <Monitor className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <Server className="h-3.5 w-3.5" />
+                                  )}
                                   {side === "device" ? "Your device" : "Server"}
                                 </span>
                                 {(side === "device"

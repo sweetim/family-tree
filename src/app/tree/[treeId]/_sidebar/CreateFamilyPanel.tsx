@@ -6,21 +6,18 @@ import { PersonFields } from "./PersonFields"
 import {
   type Fields,
   fieldsFrom,
-  ghostBtn,
   inputCls,
   labelCls,
-  primaryBtn,
+  sidebarFormIds,
   toInput,
 } from "./shared"
 
 export function CreateFamilyPanel({
   family,
   person,
-  onClose,
 }: {
   family: FamilyStore
   person: Person
-  onClose: () => void
 }) {
   const router = useRouter()
   const [familyName, setFamilyName] = useState("")
@@ -45,6 +42,7 @@ export function CreateFamilyPanel({
 
   return (
     <form
+      id={sidebarFormIds.createFamily}
       onSubmit={handleSubmit}
       className="animate-slide-up space-y-4"
     >
@@ -84,23 +82,6 @@ export function CreateFamilyPanel({
           fields={fields}
           onChange={setFields}
         />
-      </div>
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className={ghostBtn}
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={!canSave}
-          className={primaryBtn}
-        >
-          Save &amp; open
-        </button>
       </div>
     </form>
   )

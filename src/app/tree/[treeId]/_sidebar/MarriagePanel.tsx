@@ -1,8 +1,8 @@
 import { CalendarDays, Heart, HeartCrack } from "lucide-react"
-import { useState } from "react"
+import { type FormEvent, useState } from "react"
 import type { FamilyStore } from "@/store"
 import { GenderIcon } from "./GenderIcon"
-import { inputCls, labelCls, primaryBtn } from "./shared"
+import { inputCls, labelCls, sidebarFormIds } from "./shared"
 
 /**
  * Focused editor for a single couple's marriage. Opened by clicking a
@@ -30,8 +30,18 @@ export function MarriagePanel({
   const isDivorced = status?.type === "divorced"
   const [divorceDate, setDivorceDate] = useState(status?.date ?? "")
 
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault()
+    if (!editable || isDivorced) return
+    family.setDivorced(a, b, true, divorceDate)
+  }
+
   return (
-    <div className="animate-slide-up space-y-4">
+    <form
+      id={sidebarFormIds.marriage}
+      onSubmit={handleSubmit}
+      className="animate-slide-up space-y-4"
+    >
       <div>
         <div>
           <h2 className="text-base font-semibold tracking-tight text-slate-800">
@@ -56,6 +66,7 @@ export function MarriagePanel({
                 ? "bg-rose-50 text-rose-500"
                 : "bg-cobalt-50 text-cobalt-600"
             }`}
+            role="img"
             aria-label={isDivorced ? "Divorced" : "Married"}
           >
             {isDivorced ? (
@@ -87,7 +98,9 @@ export function MarriagePanel({
           type="date"
           disabled={!editable}
           value={date}
-          onChange={(event) => family.updateSpouseDate(a, b, event.target.value)}
+          onChange={(event) =>
+            family.updateSpouseDate(a, b, event.target.value)
+          }
           className={`${inputCls} disabled:opacity-60`}
         />
       </div>
@@ -106,9 +119,9 @@ export function MarriagePanel({
                 family.setDivorced(a, b, false)
                 setDivorceDate("")
               }}
-              className="text-sm font-semibold text-cobalt-600 transition-colors hover:text-cobalt-700 disabled:opacity-50"
+              className="inline-flex items-center gap-1 text-sm font-semibold text-cobalt-600 transition-colors hover:text-cobalt-700 disabled:opacity-50"
             >
-              Reconcile
+              <Heart className="h-4 w-4" /> Reconcile
             </button>
           </div>
           <div>
@@ -149,17 +162,9 @@ export function MarriagePanel({
               className={`${inputCls} disabled:opacity-60`}
             />
           </div>
-          <button
-            type="button"
-            disabled={!editable}
-            onClick={() => family.setDivorced(a, b, true, divorceDate)}
-            className={`${primaryBtn} w-full bg-rose-600 hover:bg-rose-700`}
-          >
-            Mark as divorced
-          </button>
         </div>
       )}
-    </div>
+    </form>
   )
 }
 

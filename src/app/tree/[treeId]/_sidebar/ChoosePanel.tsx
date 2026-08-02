@@ -41,7 +41,12 @@ export function ChoosePanel({
         <button
           type="button"
           onClick={() =>
-            createFamily ? openCreateFamily(sourceId) : openAdd(rel)
+            createFamily
+              ? openCreateFamily(sourceId, kind, rel, {
+                  createFamily,
+                  alsoCreateFamily,
+                })
+              : openAdd(rel)
           }
           className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:border-cobalt-300 hover:bg-cobalt-50/40 active:scale-[0.98]"
         >
@@ -63,7 +68,12 @@ export function ChoosePanel({
         {alsoCreateFamily && !createFamily && (
           <button
             type="button"
-            onClick={() => openCreateFamily(sourceId)}
+            onClick={() =>
+              openCreateFamily(sourceId, kind, rel, {
+                createFamily,
+                alsoCreateFamily,
+              })
+            }
             className="group flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left shadow-soft transition-all hover:-translate-y-0.5 hover:border-cobalt-300 hover:bg-cobalt-50/40 active:scale-[0.98]"
           >
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cobalt-600 text-white transition-colors group-hover:bg-cobalt-700">

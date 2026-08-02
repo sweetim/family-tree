@@ -3,21 +3,31 @@ import {
   Baby,
   Check,
   ChevronLeft,
+  FolderOpen,
   Heart,
+  HeartCrack,
   Link2,
   LoaderCircle,
+  type LucideIcon,
+  MailPlus,
   MousePointerClick,
   Pencil,
-  Plus,
+  Save,
   Search,
   Settings,
   Share2,
+  Trash2,
   TriangleAlert,
+  UserPlus,
   Users,
+  X,
 } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 import { AccountMenu } from "@/components/AccountMenu"
+import { useConfirm } from "@/components/Confirm"
+import { useTreeActions } from "@/lib/tree-actions"
+import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import {
   type FamilyStore,
   type TreeMeta,
@@ -37,7 +47,14 @@ import { ReadonlyDetails } from "./ReadonlyDetails"
 import { ReviewChangesPanel } from "./ReviewChangesPanel"
 import { SettingsPanel } from "./SettingsPanel"
 import { SharePanel } from "./SharePanel"
-import { inputCls, primaryBtn, type SidebarState } from "./shared"
+import {
+  chooseFromRel,
+  inputCls,
+  primaryBtn,
+  relFromLink,
+  type SidebarState,
+  sidebarFormIds,
+} from "./shared"
 
 export type { SidebarState }
 
@@ -86,6 +103,8 @@ export function Sidebar({
 }: Props) {
   const count = Object.keys(family.people).length
   const readOnly = family.readOnly
+  const confirm = useConfirm()
+  const { getEditingSession } = useTreeEditMode()
   const blockedChanges = useBlockedChanges(treeId)
   const editingPerson =
     state.mode === "edit" ? family.people[state.personId] : undefined
@@ -105,17 +124,40 @@ export function Sidebar({
     state.mode === "createFamily" ? family.people[state.personId] : undefined
   const choosePerson =
     state.mode === "choose" ? family.people[state.sourceId] : undefined
-  const hasFooterClose =
-    state.mode === "settings"
-    || state.mode === "reviewChanges"
-    || state.mode === "share"
-    || state.mode === "marriage"
-    || state.mode === "linkParent"
-    || state.mode === "linkSpouse"
-    || state.mode === "linkChild"
-    || state.mode === "createFamily"
-    || state.mode === "choose"
-    || state.mode === "add"
+  const { backToChoose } = useTreeActions()
+  const footerAction = getFooterAction({
+    state,
+    editable,
+    editingPerson,
+    editingIdentity,
+    onAddRoot,
+    isMarriageActive:
+      state.mode === "marriage"
+      && family.people[state.a]?.unionStatus?.[state.b]?.type !== "divorced",
+  })
+  const FooterActionIcon = footerAction?.icon
+  const selectionAction = getSelectionAction(state)
+  const hasSidebarAction =
+    blockedChanges.length > 0
+    || !!footerAction
+    || !!selectionAction
+    || state.mode !== "idle"
+
+  async function removeFromTree() {
+    if (!editingPerson) return
+    const editingSession = getEditingSession(treeId)
+    if (editingSession === null) return
+    const confirmed = await confirm({
+      title: "Remove from tree",
+      message: `Remove ${editingPerson.name} from this tree?`,
+      confirmText: "Remove",
+      tone: "danger",
+    })
+    if (confirmed && getEditingSession(treeId) === editingSession) {
+      family.removeFromTree(editingPerson.id, treeId)
+      onClose()
+    }
+  }
 
   return (
     <aside
@@ -251,7 +293,6 @@ export function Sidebar({
           <CreateFamilyPanel
             family={family}
             person={createFamilyPerson}
-            onClose={onClose}
           />
         ) : editingPerson && editable ? (
           <EditForm
@@ -267,7 +308,6 @@ export function Sidebar({
           <EditPersonDetails
             family={family}
             person={editingIdentity}
-            onClose={onClose}
           />
         ) : editingPerson ? (
           <ReadonlyDetails
@@ -337,13 +377,6 @@ export function Sidebar({
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={onAddRoot}
-              className={`${primaryBtn} w-full shadow-soft hover:shadow-lift`}
-            >
-              <Plus className="h-4 w-4" /> Add unconnected member
-            </button>
           </div>
         ) : (
           <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -419,18 +452,54 @@ export function Sidebar({
             </span>
           </button>
         )}
-        {hasFooterClose && (
+        {footerAction && (
+          <button
+            type={footerAction.formId ? "submit" : "button"}
+            form={footerAction.formId}
+            onClick={footerAction.onClick}
+            className={`${primaryBtn} w-full ${footerAction.className ?? ""}`}
+          >
+            {FooterActionIcon && <FooterActionIcon className="h-4 w-4" />}
+            {footerAction.label}
+          </button>
+        )}
+        {state.mode === "edit" && editable && editingPerson && (
+          <button
+            type="button"
+            onClick={() => void removeFromTree()}
+            className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-600 transition-all hover:bg-red-50 active:scale-95"
+          >
+            <Trash2 className="h-4 w-4" /> Remove from tree
+          </button>
+        )}
+        {selectionAction && (
+          <button
+            type="button"
+            onClick={() =>
+              backToChoose(
+                selectionAction.kind,
+                selectionAction.sourceId,
+                selectionAction.rel,
+                selectionAction.options,
+              )
+            }
+            className="inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-xl bg-cobalt-50 px-3 py-2 text-sm font-medium text-cobalt-700 ring-1 ring-cobalt-200 transition-colors hover:bg-cobalt-100 active:scale-95"
+          >
+            <ChevronLeft className="h-4 w-4" /> Selection
+          </button>
+        )}
+        {state.mode !== "idle" && (
           <button
             type="button"
             onClick={onClose}
-            className={`${primaryBtn} w-full`}
+            className="inline-flex min-h-[40px] w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-50 active:scale-95"
           >
-            Close
+            <X className="h-4 w-4" /> Close
           </button>
         )}
         <div
           className={`flex items-stretch ${
-            hasFooterClose
+            hasSidebarAction
               ? "border-t-2 border-slate-300 pt-2"
               : "border-t border-slate-200 pt-2"
           }`}
@@ -449,7 +518,7 @@ export function Sidebar({
                 type="button"
                 disabled={startingEditMode}
                 onClick={onToggleEditMode}
-                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium shadow-soft ring-1 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-70 ${
+                className={`inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium shadow-soft ring-1 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-70 ${
                   editable
                     ? "bg-cobalt-600 text-white ring-cobalt-600 hover:bg-cobalt-700"
                     : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
@@ -475,10 +544,10 @@ export function Sidebar({
               <button
                 type="button"
                 onClick={onOpenShare}
-                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors active:scale-95 ${
+                className={`inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors active:scale-95 ${
                   state.mode === "share"
-                    ? "bg-cobalt-50 text-cobalt-700"
-                    : "text-slate-500 hover:bg-slate-100"
+                    ? "bg-cobalt-50 text-cobalt-700 ring-1 ring-cobalt-200"
+                    : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
                 }`}
               >
                 <Share2 className="h-4 w-4" /> Share
@@ -492,10 +561,10 @@ export function Sidebar({
           <button
             type="button"
             onClick={onOpenSettings}
-            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors active:scale-95 ${
+            className={`inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors active:scale-95 ${
               state.mode === "settings"
-                ? "bg-cobalt-50 text-cobalt-700"
-                : "text-slate-500 hover:bg-slate-100"
+                ? "bg-cobalt-50 text-cobalt-700 ring-1 ring-cobalt-200"
+                : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
             }`}
           >
             <Settings className="h-4 w-4" /> Settings
@@ -504,6 +573,106 @@ export function Sidebar({
       </div>
     </aside>
   )
+}
+
+type FooterAction = {
+  label: string
+  icon: LucideIcon
+  formId?: string
+  onClick?: () => void
+  className?: string
+}
+
+function getFooterAction({
+  state,
+  editable,
+  editingPerson,
+  editingIdentity,
+  onAddRoot,
+  isMarriageActive,
+}: {
+  state: SidebarState
+  editable: boolean
+  editingPerson: unknown
+  editingIdentity: unknown
+  onAddRoot: () => void
+  isMarriageActive: boolean
+}): FooterAction | undefined {
+  if (state.mode === "idle" && editable)
+    return { label: "Add person", icon: UserPlus, onClick: onAddRoot }
+  if (state.mode === "add" && editable)
+    return {
+      label: "Save",
+      icon: Save,
+      formId: sidebarFormIds.addPerson,
+    }
+  if (state.mode === "edit" && editable && (editingPerson || editingIdentity))
+    return {
+      label: "Save",
+      icon: Save,
+      formId: sidebarFormIds.editPerson,
+    }
+  if (state.mode === "createFamily" && editable)
+    return {
+      label: "Save & open",
+      icon: FolderOpen,
+      formId: sidebarFormIds.createFamily,
+    }
+  if (state.mode === "share")
+    return {
+      label: "Add invite",
+      icon: MailPlus,
+      formId: sidebarFormIds.shareInvite,
+    }
+  if (state.mode === "marriage" && editable && isMarriageActive)
+    return {
+      label: "Mark as divorced",
+      icon: HeartCrack,
+      formId: sidebarFormIds.marriage,
+      className: "bg-rose-600 hover:bg-rose-700",
+    }
+}
+
+function getSelectionAction(state: SidebarState): SelectionAction | undefined {
+  if (state.mode === "add") {
+    const target = chooseFromRel(state.rel)
+    return target ? { ...target, rel: state.rel } : undefined
+  }
+  if (state.mode === "linkParent")
+    return {
+      kind: "parent" as const,
+      sourceId: state.personId,
+      rel: relFromLink("parent", state.personId),
+    }
+  if (state.mode === "linkSpouse")
+    return {
+      kind: "spouse" as const,
+      sourceId: state.personId,
+      rel: relFromLink("spouse", state.personId),
+    }
+  if (state.mode === "linkChild")
+    return {
+      kind: "child" as const,
+      sourceId: state.personId,
+      rel: relFromLink("child", state.personId),
+    }
+  if (state.mode === "createFamily")
+    return {
+      kind: state.kind,
+      sourceId: state.personId,
+      rel: state.rel,
+      options: {
+        createFamily: state.createFamily,
+        alsoCreateFamily: state.alsoCreateFamily,
+      },
+    }
+}
+
+type SelectionAction = {
+  kind: import("@/lib/tree-actions").LinkKind
+  sourceId: string
+  rel: import("@/types").Relationship
+  options?: { createFamily?: boolean; alsoCreateFamily?: boolean }
 }
 
 function MemberSearch({

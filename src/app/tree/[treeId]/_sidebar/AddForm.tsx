@@ -1,15 +1,13 @@
 import { type FormEvent, useState } from "react"
 import type { FamilyStore } from "@/store"
 import type { Relationship } from "@/types"
-import { BackToChoose } from "./BackToChoose"
 import { PersonFields } from "./PersonFields"
 import {
-  chooseFromRel,
   type Fields,
   fieldsFrom,
   labelCls,
-  primaryBtn,
   selectCls,
+  sidebarFormIds,
   toInput,
 } from "./shared"
 
@@ -48,8 +46,6 @@ export function AddForm({
   const existingParent = child?.parents[0]
     ? people[child.parents[0].id]
     : undefined
-  const backTarget = chooseFromRel(rel)
-
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const input = toInput(fields)
@@ -70,17 +66,11 @@ export function AddForm({
 
   return (
     <form
+      id={sidebarFormIds.addPerson}
       onSubmit={handleSubmit}
       className="animate-slide-up space-y-4"
     >
       <div>
-        {backTarget && (
-          <BackToChoose
-            kind={backTarget.kind}
-            sourceId={backTarget.sourceId}
-            rel={rel}
-          />
-        )}
         <h2 className="text-base font-semibold tracking-tight text-slate-800">
           Add member
         </h2>
@@ -143,15 +133,6 @@ export function AddForm({
           Married to {existingParent.name}
         </label>
       )}
-
-      <div className="flex justify-end pt-2">
-        <button
-          type="submit"
-          className={primaryBtn}
-        >
-          Save
-        </button>
-      </div>
     </form>
   )
 }

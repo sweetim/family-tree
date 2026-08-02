@@ -1,11 +1,11 @@
 import {
   Baby,
   Calendar,
+  ExternalLink,
   GitMerge,
   Heart,
   Network,
   Plus,
-  Trash2,
   X,
 } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -42,6 +42,7 @@ import {
   inputCls,
   primaryBtn,
   selectCls,
+  sidebarFormIds,
   toInput,
 } from "./shared"
 
@@ -177,6 +178,7 @@ export function EditForm({
   return (
     <div className="animate-slide-up space-y-5">
       <form
+        id={sidebarFormIds.editPerson}
         onSubmit={handleSubmit}
         className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-soft"
       >
@@ -196,22 +198,6 @@ export function EditForm({
               : undefined
           }
         />
-
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className={ghostBtn}
-          >
-            Close
-          </button>
-          <button
-            type="submit"
-            className={primaryBtn}
-          >
-            Save
-          </button>
-        </div>
       </form>
 
       <div className="space-y-3">
@@ -390,7 +376,7 @@ export function EditForm({
                   className="inline-flex items-center self-stretch font-medium hover:text-cobalt-700 hover:underline"
                   onClick={() => navigate(`/tree/${t.id}/p/${person.id}`)}
                 >
-                  {t.name}
+                  {t.name} <ExternalLink className="ml-1 h-3.5 w-3.5" />
                 </button>
                 <button
                   type="button"
@@ -531,27 +517,6 @@ export function EditForm({
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={async () => {
-          const editingSession = getEditingSession(treeId)
-          if (editingSession === null) return
-          const confirmed = await confirm({
-            title: "Remove from tree",
-            message: `Remove ${person.name} from this tree?`,
-            confirmText: "Remove",
-            tone: "danger",
-          })
-          if (confirmed && getEditingSession(treeId) === editingSession) {
-            family.removeFromTree(person.id, treeId)
-            onClose()
-          }
-        }}
-        className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-600 transition-all hover:bg-red-50 active:scale-95"
-      >
-        <Trash2 className="h-4 w-4" /> Remove from tree
-      </button>
-
       {creating && (
         // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a convenience; Escape (handled on the input) is the keyboard equivalent
         // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard close is via the Escape handler on the input below
@@ -594,14 +559,14 @@ export function EditForm({
                 onClick={() => setCreating(false)}
                 className={ghostBtn}
               >
-                Cancel
+                <X className="h-4 w-4" /> Cancel
               </button>
               <button
                 type="submit"
                 disabled={!newName.trim()}
                 className={primaryBtn}
               >
-                Create
+                <Plus className="h-4 w-4" /> Create
               </button>
             </div>
           </form>

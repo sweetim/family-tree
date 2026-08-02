@@ -1,9 +1,9 @@
-import { Copy, Loader2, Trash2, UserPlus } from "lucide-react"
+import { Copy, Loader2, Trash2 } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 import { RoleSelect } from "@/components/RoleSelect"
 import { useToast } from "@/components/Toast"
 import { useShares } from "@/lib/shares"
-import { inputCls, labelCls, primaryBtn } from "./shared"
+import { inputCls, labelCls, primaryBtn, sidebarFormIds } from "./shared"
 
 function initialFor(value: string): string {
   return value.trim().charAt(0).toUpperCase() || "?"
@@ -111,6 +111,7 @@ export function SharePanel({
       </div>
 
       <form
+        id={sidebarFormIds.shareInvite}
         onSubmit={onSubmit}
         className="space-y-2 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200"
       >
@@ -152,19 +153,6 @@ export function SharePanel({
               </p>
             </div>
           </div>
-          <button
-            type="submit"
-            disabled={adding || !email.trim()}
-            className={`${primaryBtn} shrink-0 px-3`}
-          >
-            {adding ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                <UserPlus className="h-4 w-4" /> Add
-              </>
-            )}
-          </button>
         </div>
       </form>
 

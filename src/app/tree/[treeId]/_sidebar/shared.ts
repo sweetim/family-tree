@@ -15,6 +15,14 @@ export const chipX =
   "flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-red-100 hover:text-red-600"
 export const selectCls = `${inputCls} pr-9 select-chevron`
 
+export const sidebarFormIds = {
+  addPerson: "sidebar-add-person-form",
+  editPerson: "sidebar-edit-person-form",
+  createFamily: "sidebar-create-family-form",
+  shareInvite: "sidebar-share-invite-form",
+  marriage: "sidebar-marriage-form",
+} as const
+
 export type SidebarState =
   | { mode: "idle" }
   | { mode: "add"; rel: Relationship }
@@ -36,7 +44,14 @@ export type SidebarState =
   | { mode: "linkParent"; personId: string }
   | { mode: "linkSpouse"; personId: string }
   | { mode: "linkChild"; personId: string }
-  | { mode: "createFamily"; personId: string }
+  | {
+      mode: "createFamily"
+      personId: string
+      kind: LinkKind
+      rel: Relationship
+      createFamily?: boolean
+      alsoCreateFamily?: boolean
+    }
   | { mode: "settings" }
   | { mode: "share" }
   | { mode: "reviewChanges" }

@@ -519,16 +519,30 @@ function TreeCanvas({
         setDrawerOpen(true)
         setSidebarHidden(false)
       },
-      openCreateFamily: (personId) => {
+      openCreateFamily: (personId, kind, rel, options) => {
         if (!canEdit) return
-        setSidebar({ mode: "createFamily", personId })
+        setSidebar({
+          mode: "createFamily",
+          personId,
+          kind,
+          rel,
+          createFamily: options?.createFamily,
+          alsoCreateFamily: options?.alsoCreateFamily,
+        })
         setDrawerOpen(true)
         setSidebarHidden(false)
       },
-      backToChoose: (kind, sourceId, rel) => {
+      backToChoose: (kind, sourceId, rel, options) => {
         if (!canEdit) return
         setLink(undefined)
-        setSidebar({ mode: "choose", kind, sourceId, rel })
+        setSidebar({
+          mode: "choose",
+          kind,
+          sourceId,
+          rel,
+          createFamily: options?.createFamily,
+          alsoCreateFamily: options?.alsoCreateFamily,
+        })
         setDrawerOpen(true)
         setSidebarHidden(false)
       },
@@ -724,6 +738,7 @@ function TreeCanvas({
           }}
           canShare={tree.role === "owner"}
           onClose={() => {
+            setLink(undefined)
             setSidebar({ mode: "idle" })
             setDrawerOpen(false)
           }}

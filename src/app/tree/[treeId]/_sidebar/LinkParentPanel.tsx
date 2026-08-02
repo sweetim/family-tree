@@ -1,8 +1,6 @@
 import type { FamilyStore, TreeMeta } from "@/store"
 import type { Person } from "@/types"
-import { BackToChoose } from "./BackToChoose"
 import { ParentsSection } from "./ParentsSection"
-import { relFromLink } from "./shared"
 
 export function LinkParentPanel({
   family,
@@ -21,11 +19,6 @@ export function LinkParentPanel({
     <div className="animate-slide-up space-y-4">
       <div>
         <div>
-          <BackToChoose
-            kind="parent"
-            sourceId={person.id}
-            rel={relFromLink("parent", person.id)}
-          />
           <h2 className="text-base font-semibold text-slate-800">
             Connect parents
           </h2>
