@@ -151,6 +151,7 @@ function isValidPersonWire(value: unknown, now: Date): boolean {
         "dob",
         "dod",
         "gender",
+        "familyName",
         "birthplace",
         "photo",
         "ownerId",
@@ -163,6 +164,7 @@ function isValidPersonWire(value: unknown, now: Date): boolean {
     && (value.dob === undefined || isValidPartialDate(value.dob))
     && (value.dod === undefined || isValidPartialDate(value.dod))
     && (value.gender === undefined || GENDERS.has(value.gender as string))
+    && isOptionalString(value.familyName)
     && isOptionalString(value.birthplace)
     && isOptionalPhoto(value.photo)
     && (value.ownerId === undefined || isValidSyncId(value.ownerId))

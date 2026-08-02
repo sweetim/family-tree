@@ -26,7 +26,14 @@ export function AddForm({
   onClose: () => void
 }) {
   const { people } = family
-  const [fields, setFields] = useState<Fields>(fieldsFrom())
+  // A child is a descendant of the family, so prefill their family name from
+  // the parent they're being added under (when the parent has one set).
+  const seedFamilyName =
+    rel.kind === "child" ? (people[rel.parentId]?.familyName ?? "") : ""
+  const [fields, setFields] = useState<Fields>(() => ({
+    ...fieldsFrom(),
+    familyName: seedFamilyName,
+  }))
   const [adopted, setAdopted] = useState(false)
   const [marryExisting, setMarryExisting] = useState(true)
 

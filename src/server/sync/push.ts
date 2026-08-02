@@ -1509,6 +1509,7 @@ export async function postSync(request: Request): Promise<Response> {
           || !isOptionalString(wire.dob)
           || !isOptionalString(wire.dod)
           || (wire.gender !== undefined && !GENDERS.has(wire.gender))
+          || !isOptionalString(wire.familyName)
           || !isOptionalString(wire.birthplace)
           || !isOptionalPhoto(wire.photo)
           || !updatedAt
@@ -1540,6 +1541,7 @@ export async function postSync(request: Request): Promise<Response> {
               dob: wire.dob ?? null,
               dod: wire.dod ?? null,
               gender: wire.gender ?? null,
+              familyName: wire.familyName ?? "",
               birthplace: wire.birthplace ?? null,
               photo,
               updatedAt: serverTime,
@@ -1594,6 +1596,7 @@ export async function postSync(request: Request): Promise<Response> {
               "dob" = ${wire.dob ?? null},
               "dod" = ${wire.dod ?? null},
               "gender" = ${wire.gender ?? null},
+              "family_name" = ${wire.familyName ?? ""},
               "birthplace" = ${wire.birthplace ?? null},
               "photo" = ${photo},
               "updated_at" = ${serverTime},

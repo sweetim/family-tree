@@ -43,6 +43,7 @@ export type SidebarState =
 
 export type Fields = {
   name: string
+  familyName: string
   gender: Gender | ""
   dob: string
   dod: string
@@ -53,6 +54,7 @@ export type Fields = {
 export function fieldsFrom(p?: PersonIdentity): Fields {
   return {
     name: p?.name ?? "",
+    familyName: p?.familyName ?? "",
     gender: p?.gender ?? "",
     dob: p?.dob ?? "",
     dod: p?.dod ?? "",
@@ -64,6 +66,7 @@ export function fieldsFrom(p?: PersonIdentity): Fields {
 export function toInput(f: Fields): PersonInput {
   return {
     name: f.name.trim(),
+    familyName: f.familyName.trim(),
     gender: f.gender || undefined,
     dob: f.dob || undefined,
     dod: f.dod || undefined,

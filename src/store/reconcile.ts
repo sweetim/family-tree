@@ -133,6 +133,7 @@ export function mergePersonRecords(
   draft.persons[keepId] = {
     id: keepId,
     name: keep.name || drop.name,
+    familyName: keep.familyName || drop.familyName,
     dob: keep.dob ?? drop.dob,
     dod: keep.dod ?? drop.dod,
     gender: keep.gender ?? drop.gender,

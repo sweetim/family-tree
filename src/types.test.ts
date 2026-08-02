@@ -82,13 +82,13 @@ function relationships(): NormalizedRelationships {
 }
 
 const identities: Record<string, PersonIdentity> = {
-  tim: { id: "tim", name: "Tim" },
-  yumi: { id: "yumi", name: "Yumi" },
-  kid: { id: "kid", name: "Kid" },
-  parent: { id: "parent", name: "Foreign Parent" },
-  partner: { id: "partner", name: "Foreign Partner" },
-  child: { id: "child", name: "Foreign Child" },
-  relative: { id: "relative", name: "Foreign Relative" },
+  tim: { id: "tim", name: "Tim", familyName: "" },
+  yumi: { id: "yumi", name: "Yumi", familyName: "" },
+  kid: { id: "kid", name: "Kid", familyName: "" },
+  parent: { id: "parent", name: "Foreign Parent", familyName: "" },
+  partner: { id: "partner", name: "Foreign Partner", familyName: "" },
+  child: { id: "child", name: "Foreign Child", familyName: "" },
+  relative: { id: "relative", name: "Foreign Relative", familyName: "" },
 }
 
 describe("normalized projection", () => {

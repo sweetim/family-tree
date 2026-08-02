@@ -86,13 +86,11 @@ export function TreeView({
   /** Person to open on arrival, from a #/tree/{id}/p/{personId} link. */
   openPersonId?: string
 }) {
-  // Hold a loading state until the tree's authoritative server snapshot has
-  // been applied this session. Without this, the canvas first paints from
-  // stale persisted data (and, for deep links, a bounded radius-3 partial
-  // graph) and then visibly settles — cards reshape and the ancestor-family
-  // badge relabels — once the fresh data lands.
-  const ready = useTreeFreshlyLoaded(tree.id)
-  if (!ready) return <TreeLoading />
+  // The real sidebar chrome renders immediately; only its still-loading bits
+  // (member count, body) and the canvas shimmer until the tree's authoritative
+  // server snapshot has been applied this session — see `freshlyLoaded` in
+  // TreeCanvas. That keeps the first real canvas frame on the fresh snapshot
+  // (no reshape, no ancestor-badge relabel) while the sidebar is usable now.
   return (
     <ReactFlowProvider>
       <TreeCanvas
@@ -104,10 +102,24 @@ export function TreeView({
   )
 }
 
-function TreeLoading() {
+function SkeletonCard() {
   return (
-    <div className="app-bg flex h-dvh w-full items-center justify-center">
-      <p className="text-sm text-slate-500">Loading…</p>
+    <div className="flex w-44 flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 pb-4 pt-4 shadow-soft">
+      <div className="tree-skeleton animate-shimmer h-[104px] w-[104px] rounded-full" />
+      <div className="tree-skeleton animate-shimmer h-3.5 w-28 rounded" />
+      <div className="tree-skeleton animate-shimmer h-3 w-20 rounded-full" />
+    </div>
+  )
+}
+
+function CanvasSkeleton() {
+  return (
+    <div className="flex h-full w-full items-center justify-center p-6">
+      <div className="flex flex-wrap items-start justify-center gap-8">
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
     </div>
   )
 }
@@ -123,9 +135,13 @@ function TreeCanvas({
   openPersonId?: string
 }) {
   const family = useFamily(tree.id)
-  const loadedMemberCount = Object.keys(family.people).length
-  const sidebarLoading =
-    !tree.loaded && (tree.memberCount ?? 0) > 0 && loadedMemberCount === 0
+  // The sidebar's still-loading bits (member count, body) and the canvas
+  // shimmer until the fresh server snapshot is applied this session. Unlike
+  // `tree.loaded` (which is persisted and so can already be true on reload),
+  // this is only set once `applyTreeSnapshot` runs, so it is not fooled by
+  // stale persisted data.
+  const freshlyLoaded = useTreeFreshlyLoaded(tree.id)
+  const sidebarLoading = !freshlyLoaded
   const { data: session } = useSession()
   const { editingTreeId, getEditingSession, isTreeEditing, setEditingTreeId } =
     useTreeEditMode()
@@ -148,6 +164,18 @@ function TreeCanvas({
   const editMode = editingTreeId === tree.id
   const { fitView, getNodes, getViewport, setViewport } = useReactFlow()
   const [printing, setPrinting] = useState(false)
+  // Crossfade the canvas skeleton into the real tree. The tree mounts as soon
+  // as the fresh snapshot is ready (opacity 0, so it can measure/fitView
+  // first), then `revealed` flips on the next frame to drive both opacities.
+  const [revealed, setRevealed] = useState(false)
+  useEffect(() => {
+    if (!freshlyLoaded) {
+      setRevealed(false)
+      return
+    }
+    const frame = requestAnimationFrame(() => setRevealed(true))
+    return () => cancelAnimationFrame(frame)
+  }, [freshlyLoaded])
 
   // Follow cross-tree jumps that land on this already-mounted tree.
   useEffect(() => {
@@ -635,80 +663,93 @@ function TreeCanvas({
               <Menu className="h-5 w-5" />
             </button>
           </div>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodeClick={onNodeClick}
-            onEdgeClick={onEdgeClick}
-            onPaneClick={() => {
-              if (!canEdit) return
-              if (sidebar.mode === "settings") return
-              setLink(undefined)
-              setSidebar({ mode: "idle" })
-              setDrawerOpen(false)
-            }}
-            deleteKeyCode={canEdit ? ["Delete", "Backspace"] : []}
-            onBeforeDelete={onBeforeDelete}
-            onNodesDelete={onNodesDelete}
-            fitView
-            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
-            minZoom={0.1}
-            onlyRenderVisibleElements={!printing}
-            nodesConnectable={false}
-            nodesDraggable={false}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={20}
-              color="#cbd5e1"
-            />
-            <Controls showInteractive={false} />
-            {settings.minimap && (
-              <MiniMap
-                pannable
-                zoomable
-                className="!bg-slate-100 hidden md:block"
+          {freshlyLoaded && (
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              onNodeClick={onNodeClick}
+              onEdgeClick={onEdgeClick}
+              onPaneClick={() => {
+                if (!canEdit) return
+                if (sidebar.mode === "settings") return
+                setLink(undefined)
+                setSidebar({ mode: "idle" })
+                setDrawerOpen(false)
+              }}
+              deleteKeyCode={canEdit ? ["Delete", "Backspace"] : []}
+              onBeforeDelete={onBeforeDelete}
+              onNodesDelete={onNodesDelete}
+              fitView
+              fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+              minZoom={0.1}
+              onlyRenderVisibleElements={!printing}
+              nodesConnectable={false}
+              nodesDraggable={false}
+              proOptions={{ hideAttribution: true }}
+              className={`transition-opacity duration-300 ease-out ${
+                revealed ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                color="#cbd5e1"
               />
-            )}
+              <Controls showInteractive={false} />
+              {settings.minimap && (
+                <MiniMap
+                  pannable
+                  zoomable
+                  className="!bg-slate-100 hidden md:block"
+                />
+              )}
 
-            {targetKind && targetSource && (
-              <Panel position="top-center">
-                <div className="flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-2xl bg-emerald-600/85 py-1.5 pl-4 pr-1.5 text-xs text-white shadow-glass ring-1 ring-white/25 backdrop-blur-md sm:flex-nowrap sm:rounded-full sm:text-sm">
-                  <Link2 className="h-4 w-4 shrink-0" />
-                  <span>
-                    {linkEligible && linkEligible.size === 0 ? (
-                      <>
-                        No one can be connected as <b>{targetSource.name}</b>
-                        &rsquo;s {targetKind}
-                      </>
-                    ) : (
-                      <>
-                        Click a highlighted card to connect as{" "}
-                        <b>{targetSource.name}</b>&rsquo;s {targetKind}
-                        {targetKind !== "spouse"
-                          && " · married couples connect together"}
-                      </>
-                    )}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (link) setLink(undefined)
-                      else {
-                        setSidebar({ mode: "idle" })
-                        setDrawerOpen(false)
-                      }
-                    }}
-                    className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
-                  >
-                    <X className="h-3.5 w-3.5" /> Cancel (Esc)
-                  </button>
-                </div>
-              </Panel>
-            )}
-          </ReactFlow>
+              {targetKind && targetSource && (
+                <Panel position="top-center">
+                  <div className="flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-2xl bg-emerald-600/85 py-1.5 pl-4 pr-1.5 text-xs text-white shadow-glass ring-1 ring-white/25 backdrop-blur-md sm:flex-nowrap sm:rounded-full sm:text-sm">
+                    <Link2 className="h-4 w-4 shrink-0" />
+                    <span>
+                      {linkEligible && linkEligible.size === 0 ? (
+                        <>
+                          No one can be connected as <b>{targetSource.name}</b>
+                          &rsquo;s {targetKind}
+                        </>
+                      ) : (
+                        <>
+                          Click a highlighted card to connect as{" "}
+                          <b>{targetSource.name}</b>&rsquo;s {targetKind}
+                          {targetKind !== "spouse"
+                            && " · married couples connect together"}
+                        </>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (link) setLink(undefined)
+                        else {
+                          setSidebar({ mode: "idle" })
+                          setDrawerOpen(false)
+                        }
+                      }}
+                      className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
+                    >
+                      <X className="h-3.5 w-3.5" /> Cancel (Esc)
+                    </button>
+                  </div>
+                </Panel>
+              )}
+            </ReactFlow>
+          )}
+          <div
+            aria-hidden
+            className={`pointer-events-none absolute inset-0 transition-opacity duration-300 ease-out ${
+              revealed ? "opacity-0" : "opacity-100"
+            }`}
+          >
+            <CanvasSkeleton />
+          </div>
         </div>
       </div>
     </TreeActionsContext.Provider>

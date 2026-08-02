@@ -1166,6 +1166,7 @@ export function buildPushWires(
       persons.push({
         id,
         name: person.name,
+        familyName: person.familyName,
         dob: person.dob,
         dod: person.dod,
         gender: person.gender,
@@ -2030,6 +2031,7 @@ export function applyRemote(remote: RemoteRecords): void {
             persons[wire.id] = {
               id: wire.id,
               name: wire.name,
+              familyName: wire.familyName ?? "",
               dob: wire.dob,
               dod: wire.dod,
               gender: wire.gender,
@@ -2948,6 +2950,7 @@ export async function resolveBlockedOperation(
           : localPerson.photo === serverPerson.photo
         if (
           localPerson.name === serverPerson.name
+          && localPerson.familyName === (serverPerson.familyName ?? "")
           && localPerson.dob === serverPerson.dob
           && localPerson.dod === serverPerson.dod
           && localPerson.gender === serverPerson.gender
@@ -2985,6 +2988,7 @@ export async function resolveBlockedOperation(
               persons[serverPerson.id] = {
                 id: serverPerson.id,
                 name: serverPerson.name,
+                familyName: serverPerson.familyName ?? "",
                 dob: serverPerson.dob,
                 dod: serverPerson.dod,
                 gender: serverPerson.gender,

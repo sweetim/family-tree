@@ -5,6 +5,7 @@ import { buildFlow, computeTreeLayout } from "./layout"
 const PERSON = (id: string, gender: Person["gender"]): Person => ({
   id,
   name: id,
+  familyName: "",
   gender,
   parents: [],
   spouseIds: [],

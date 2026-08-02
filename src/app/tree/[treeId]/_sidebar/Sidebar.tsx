@@ -139,7 +139,7 @@ export function Sidebar({
           </h1>
           {loading ? (
             <span
-              className="ml-auto inline-block h-6 w-28 shrink-0 animate-pulse rounded-full bg-slate-200"
+              className="ml-auto inline-block h-6 w-28 shrink-0 tree-skeleton animate-shimmer rounded-full"
               aria-busy="true"
             >
               <span className="sr-only">Loading member count</span>
@@ -457,12 +457,12 @@ function SidebarSkeleton() {
     >
       <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-4">
         <div className="space-y-2">
-          <div className="h-3 w-3/4 animate-pulse rounded bg-slate-200" />
-          <div className="h-3 w-full animate-pulse rounded bg-slate-200" />
-          <div className="h-3 w-2/3 animate-pulse rounded bg-slate-200" />
+          <div className="h-3 w-3/4 tree-skeleton animate-shimmer rounded" />
+          <div className="h-3 w-full tree-skeleton animate-shimmer rounded" />
+          <div className="h-3 w-2/3 tree-skeleton animate-shimmer rounded" />
         </div>
       </div>
-      <div className="h-10 w-full animate-pulse rounded-xl bg-slate-200" />
+      <div className="h-10 w-full tree-skeleton animate-shimmer rounded-xl" />
     </div>
   )
 }

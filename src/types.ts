@@ -9,6 +9,9 @@ export type ParentLink = {
 export type PersonIdentity = {
   id: string
   name: string
+  /** Surname / family name. Empty string when unknown; never undefined, so
+   *  descendants can inherit it without null-checks. */
+  familyName: string
   /** ISO date string, e.g. "1985-04-12". May be partial ("1985" or "1985-04") when the exact day/month is unknown. */
   dob?: string
   /** Date of death - set when the person is deceased. May be partial ("1985" or "1985-04"). */
@@ -386,6 +389,7 @@ export type Relationship =
 
 export type PersonInput = {
   name: string
+  familyName: string
   dob?: string
   dod?: string
   gender?: Gender

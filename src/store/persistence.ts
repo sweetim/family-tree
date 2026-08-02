@@ -231,6 +231,20 @@ function openDatabase(): Promise<IDBDatabase | null> {
   })
 }
 
+/** Backfill `familyName` on person records from older persisted snapshots
+ *  that predate the column. The domain type treats it as a required string, so
+ *  any record missing it is coerced to "" to keep the runtime invariant honest
+ *  without discarding otherwise-valid local data. */
+function normalizePersistedState(state: GlobalState): GlobalState {
+  for (const id in state.persons) {
+    const person = state.persons[id]
+    if (person && person.familyName === undefined) {
+      person.familyName = ""
+    }
+  }
+  return state
+}
+
 export async function loadPersistedStore(
   userId: string,
 ): Promise<PersistedStore | null> {
@@ -239,8 +253,11 @@ export async function loadPersistedStore(
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, "readonly")
     const request = transaction.objectStore(STORE_NAME).get(userId)
-    request.onsuccess = () =>
-      resolve((request.result as PersistedStore | undefined) ?? null)
+    request.onsuccess = () => {
+      const result = request.result as PersistedStore | undefined
+      if (result) normalizePersistedState(result.state)
+      resolve(result ?? null)
+    }
     request.onerror = () => reject(request.error)
     transaction.oncomplete = () => database.close()
   })

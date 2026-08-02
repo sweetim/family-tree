@@ -28,6 +28,7 @@ const EXPECTED_COLUMNS_BY_TABLE = {
     "id",
     "owner_id",
     "name",
+    "family_name",
     "dob",
     "dod",
     "gender",

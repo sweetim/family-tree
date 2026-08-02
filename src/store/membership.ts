@@ -208,6 +208,7 @@ export function identityFromPerson(person: Person): PersonIdentity {
   return {
     id: person.id,
     name: person.name,
+    familyName: person.familyName,
     dob: person.dob,
     dod: person.dod,
     gender: person.gender,

@@ -127,6 +127,22 @@ export function PersonFields({
 
       <div>
         <label
+          htmlFor="field-family-name"
+          className={labelCls}
+        >
+          Family name
+        </label>
+        <input
+          id="field-family-name"
+          value={fields.familyName}
+          onChange={(e) => onChange({ ...fields, familyName: e.target.value })}
+          placeholder="e.g. Tan"
+          className={inputCls}
+        />
+      </div>
+
+      <div>
+        <label
           htmlFor="field-name"
           className={labelCls}
         >

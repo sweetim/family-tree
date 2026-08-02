@@ -17,6 +17,7 @@ export type TombstoneWire = {
 export type PersonRecordWire = {
   id: string
   name: string
+  familyName?: string
   dob?: string
   dod?: string
   gender?: Gender

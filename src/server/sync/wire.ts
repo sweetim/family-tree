@@ -46,6 +46,7 @@ export function personToWire(row: typeof persons.$inferSelect): PersonWire {
   return {
     id: row.id,
     name: row.name,
+    familyName: row.familyName,
     dob: row.dob ?? undefined,
     dod: row.dod ?? undefined,
     gender: (row.gender as Gender | null) ?? undefined,

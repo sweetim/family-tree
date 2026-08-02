@@ -35,7 +35,9 @@ export function AccountMenu() {
   }, [open])
 
   if (isPending) {
-    return <div className="h-9 w-9 animate-pulse rounded-full bg-slate-200" />
+    return (
+      <div className="h-9 w-9 tree-skeleton animate-shimmer rounded-full" />
+    )
   }
 
   // A malformed session payload (e.g. an HTML body served where JSON was

@@ -109,6 +109,7 @@ export const persons = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
+    familyName: text("family_name").notNull().default(""),
     dob: text("dob"),
     dod: text("dod"),
     gender: text("gender"),

@@ -5,9 +5,11 @@ The domain types and projection functions live in `src/types.ts`.
 
 ## Canonical shared facts
 
-- `PersonIdentity` stores one person's name, birth/death dates, gender,
-  birthplace, photo, owner, and sync timestamp. A photo is compressed in the
-  browser, then synced and stored as text.
+- `PersonIdentity` stores one person's name, family name, birth/death dates,
+  gender, birthplace, photo, owner, and sync timestamp. A photo is compressed
+  in the browser, then synced and stored as text. `familyName` is a required
+  string (empty when unknown) so descendants can inherit it; the column is
+  `NOT NULL DEFAULT ''` and older records are coerced to `""` on load.
 - `Union` stores an immutable canonical pair of people. A pair is ordered by
   person id and may have many `UnionEvent` history records.
 - `UnionEvent` stores a typed event and optional ISO calendar date. Terminal
@@ -53,7 +55,7 @@ identity or create a separate link entity.
 | `Person` | `PersonIdentity` plus projected `parents`, `spouseIds`, and `marriageDates`. |
 | `FamilyData` | `Record<string, Person>`, the UI view for one tree. |
 | `Relationship` | Placement for a new person: root, child, spouse, or parent. |
-| `PersonInput` | Writable identity fields without id or sync metadata. |
+| `PersonInput` | Writable identity fields (incl. `familyName`) without id or sync metadata. |
 
 ## Projection
 

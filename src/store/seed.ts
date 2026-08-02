@@ -14,6 +14,7 @@ export function seedData(): TreeSeed {
       [grandpa]: {
         id: grandpa,
         name: "Henry Tan",
+        familyName: "Tan",
         gender: "male",
         dob: "1948-03-02",
         dod: "2019-05-20",
@@ -25,6 +26,7 @@ export function seedData(): TreeSeed {
       [grandma]: {
         id: grandma,
         name: "Mei Ling",
+        familyName: "Ling",
         gender: "female",
         dob: "1952-11-19",
         birthplace: "Penang",
@@ -35,6 +37,7 @@ export function seedData(): TreeSeed {
       [dad]: {
         id: dad,
         name: "David Tan",
+        familyName: "Tan",
         gender: "male",
         dob: "1976-06-30",
         birthplace: "Kuala Lumpur",
@@ -45,6 +48,7 @@ export function seedData(): TreeSeed {
       [mom]: {
         id: mom,
         name: "Sarah Lim",
+        familyName: "Lim",
         gender: "female",
         dob: "1979-01-15",
         birthplace: "Kuala Lumpur",
@@ -55,6 +59,7 @@ export function seedData(): TreeSeed {
       [kid]: {
         id: kid,
         name: "Alex Tan",
+        familyName: "Tan",
         dob: "2008-09-05",
         birthplace: "Singapore",
         parents: [{ id: dad }, { id: mom }],

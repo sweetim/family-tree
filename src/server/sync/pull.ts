@@ -215,6 +215,7 @@ const personSyncSelection = {
   id: persons.id,
   ownerId: persons.ownerId,
   name: persons.name,
+  familyName: persons.familyName,
   dob: persons.dob,
   dod: persons.dod,
   gender: persons.gender,

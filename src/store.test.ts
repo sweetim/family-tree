@@ -27,9 +27,9 @@ function emptyState(): GlobalState {
 function relationshipState(): GlobalState {
   return {
     persons: {
-      tim: { id: "tim", name: "Tim", updatedAt: timestamp },
-      yumi: { id: "yumi", name: "Yumi", updatedAt: timestamp },
-      kid: { id: "kid", name: "Kid", updatedAt: timestamp },
+      tim: { id: "tim", name: "Tim", familyName: "", updatedAt: timestamp },
+      yumi: { id: "yumi", name: "Yumi", familyName: "", updatedAt: timestamp },
+      kid: { id: "kid", name: "Kid", familyName: "", updatedAt: timestamp },
     },
     index: [
       { id: "a", name: "A", createdAt: timestamp, updatedAt: timestamp },
@@ -127,8 +127,8 @@ describe("findAncestorTree", () => {
   function stateWithAncestor(): GlobalState {
     return {
       persons: {
-        c: { id: "c", name: "Child", updatedAt: timestamp },
-        p: { id: "p", name: "Parent", updatedAt: timestamp },
+        c: { id: "c", name: "Child", familyName: "", updatedAt: timestamp },
+        p: { id: "p", name: "Parent", familyName: "", updatedAt: timestamp },
       },
       index: [
         {
@@ -255,6 +255,7 @@ describe("projected JSON compatibility", () => {
       a: {
         id: "a",
         name: "A",
+        familyName: "",
         parents: [{ id: "p", type: "foster" as const }],
         spouseIds: ["b"],
         marriageDates: { b: "2020-01-01" },
@@ -262,6 +263,7 @@ describe("projected JSON compatibility", () => {
       b: {
         id: "b",
         name: "B",
+        familyName: "",
         parents: [],
         spouseIds: [],
         marriageDates: {},
@@ -269,6 +271,7 @@ describe("projected JSON compatibility", () => {
       p: {
         id: "p",
         name: "P",
+        familyName: "",
         parents: [],
         spouseIds: [],
         marriageDates: {},
@@ -567,8 +570,8 @@ describe("normalized relationship mutations", () => {
   test("merge replaces writable associations without mutating canonical endpoints", async () => {
     const store = await freshStore()
     const previous = relationshipState()
-    previous.persons.alias = { id: "alias", name: "Alias" }
-    previous.persons.other = { id: "other", name: "Other" }
+    previous.persons.alias = { id: "alias", name: "Alias", familyName: "" }
+    previous.persons.other = { id: "other", name: "Other", familyName: "" }
     previous.treeMembers['["b","alias"]'] = {
       treeId: "b",
       personId: "alias",
@@ -713,7 +716,7 @@ describe("normalized relationship mutations", () => {
   test("global parent facts enforce cycle and two-parent limits", async () => {
     const store = await freshStore()
     const graph = relationshipState()
-    graph.persons.third = { id: "third", name: "Third" }
+    graph.persons.third = { id: "third", name: "Third", familyName: "" }
     graph.parentChildRelationships.second = {
       id: "second",
       parentPersonId: "yumi",
@@ -745,7 +748,12 @@ describe("normalized relationship mutations", () => {
   test("orphaned parent facts do not count toward the two-parent limit", async () => {
     const store = await freshStore()
     const graph = relationshipState()
-    graph.persons.fifth = { id: "fifth", name: "Fifth", updatedAt: timestamp }
+    graph.persons.fifth = {
+      id: "fifth",
+      name: "Fifth",
+      familyName: "",
+      updatedAt: timestamp,
+    }
     graph.parentChildRelationships.orphan = {
       id: "orphan",
       parentPersonId: "yumi",
@@ -760,7 +768,7 @@ describe("normalized relationship mutations", () => {
   test("merge rejects a keep person visible only through viewer trees", async () => {
     const store = await freshStore()
     const previous = relationshipState()
-    previous.persons.alias = { id: "alias", name: "Alias" }
+    previous.persons.alias = { id: "alias", name: "Alias", familyName: "" }
     for (const [key, membership] of Object.entries(previous.treeMembers)) {
       if (membership.personId === "tim" && membership.treeId !== "viewer") {
         delete previous.treeMembers[key]
@@ -1259,6 +1267,7 @@ describe("remote merge", () => {
           tim: {
             id: "tim",
             name: "Local",
+            familyName: "",
             revision: previous.persons.tim?.revision,
             updatedAt: previous.persons.tim?.updatedAt,
           },
@@ -1321,7 +1330,12 @@ describe("dirty tracking and push wires", () => {
     const created = store.stampAndEnqueue(previous, {
       ...previous,
       persons: {
-        person: { id: "person", name: "Person", updatedAt: timestamp },
+        person: {
+          id: "person",
+          name: "Person",
+          familyName: "",
+          updatedAt: timestamp,
+        },
       },
     })
     expect(store.snapshotDirty().persons.get("person")).toMatchObject({
@@ -1867,6 +1881,7 @@ describe("dirty tracking and push wires", () => {
           tim: {
             id: "tim",
             name: "Local",
+            familyName: "",
             revision: previous.persons.tim?.revision,
             updatedAt: previous.persons.tim?.updatedAt,
           },
