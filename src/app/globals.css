@@ -110,6 +110,29 @@
   background: #101d46;
 }
 
+.landing-scrim {
+  background: linear-gradient(
+    90deg,
+    rgb(13 27 63 / 0.96) 0%,
+    rgb(13 27 63 / 0.88) 34%,
+    rgb(13 27 63 / 0.48) 52%,
+    rgb(13 27 63 / 0.08) 68%,
+    transparent 82%
+  );
+}
+
+@media (max-width: 1023px) {
+  .landing-scrim {
+    background: linear-gradient(
+      180deg,
+      rgb(13 27 63 / 0.96) 0%,
+      rgb(13 27 63 / 0.88) 44%,
+      rgb(13 27 63 / 0.56) 70%,
+      rgb(13 27 63 / 0.18) 100%
+    );
+  }
+}
+
 /* Slimmer, modern scrollbars for the sidebar. */
 .scroll-area {
   scrollbar-width: thin;
