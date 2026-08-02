@@ -575,6 +575,28 @@ export function isMarriedInSpouse(people: FamilyData, id: string): boolean {
   })
 }
 
+export type BloodlineDisplayFilter = {
+  hideNonDescendants: boolean
+  hideAmberBloodline: boolean
+}
+
+/** Return people after applying the enabled bloodline display filters. */
+export function filterBloodlinePeople(
+  people: FamilyData,
+  filter: BloodlineDisplayFilter,
+): FamilyData {
+  const maleLine = filter.hideAmberBloodline ? maleLineIds(people) : undefined
+  return Object.fromEntries(
+    Object.entries(people).filter(([id]) => {
+      const marriedIn = isMarriedInSpouse(people, id)
+      return (
+        (!filter.hideNonDescendants || !marriedIn)
+        && (!filter.hideAmberBloodline || maleLine?.has(id))
+      )
+    }),
+  )
+}
+
 /**
  * A root founder: a person with no parents of their own in this tree who is
  * not a married-in spouse — i.e. the top of a bloodline (the founding couple,

@@ -45,7 +45,7 @@ import {
   useFamilyAll,
   useTreeFreshlyLoaded,
 } from "@/store"
-import { ancestorsOf, descendantsOf } from "@/types"
+import { ancestorsOf, descendantsOf, filterBloodlinePeople } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
 
 const nodeTypes = { person: PersonNode, union: UnionNode }
@@ -202,7 +202,23 @@ function TreeCanvas({
   // shares at least one member with this one onto the canvas; otherwise this
   // reuses `useFamily`'s projection (avoiding a second projectTree pass).
   const allFamilies = useFamilyAll(tree.id, settings.showAllFamilies)
-  const renderPeople = settings.showAllFamilies ? allFamilies : family.people
+  const renderPeople = useMemo(() => {
+    const people = settings.showAllFamilies ? allFamilies : family.people
+    return settings.highlightBloodline
+      && (settings.hideNonDescendants || settings.hideAmberBloodline)
+      ? filterBloodlinePeople(people, {
+          hideNonDescendants: settings.hideNonDescendants,
+          hideAmberBloodline: settings.hideAmberBloodline,
+        })
+      : people
+  }, [
+    allFamilies,
+    family.people,
+    settings.hideAmberBloodline,
+    settings.hideNonDescendants,
+    settings.highlightBloodline,
+    settings.showAllFamilies,
+  ])
   const [sidebar, setSidebar] = useState<SidebarState>(() =>
     openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },
   )
@@ -751,11 +767,11 @@ function TreeCanvas({
               onNodeClick={onNodeClick}
               onEdgeClick={onEdgeClick}
               onPaneClick={() => {
-                if (!canEdit) return
                 if (sidebar.mode === "settings") return
-                setLink(undefined)
                 setSidebar({ mode: "idle" })
                 setDrawerOpen(false)
+                if (!canEdit) return
+                setLink(undefined)
               }}
               deleteKeyCode={canEdit ? ["Delete", "Backspace"] : []}
               onBeforeDelete={onBeforeDelete}

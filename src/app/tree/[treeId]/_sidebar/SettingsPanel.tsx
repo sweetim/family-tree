@@ -2,6 +2,7 @@ import {
   CalendarDays,
   Database,
   Download,
+  EyeOff,
   FileDown,
   GitBranch,
   Heart,
@@ -243,8 +244,40 @@ export function SettingsPanel({
               title="Highlight bloodline"
               description="Red marks the male line. Amber marks other descendants. Married-in spouses are muted."
               checked={settings.highlightBloodline}
-              onChange={(checked) => update({ highlightBloodline: checked })}
+              onChange={(checked) =>
+                update({
+                  highlightBloodline: checked,
+                  hideNonDescendants: checked
+                    ? settings.hideNonDescendants
+                    : false,
+                  hideAmberBloodline: checked
+                    ? settings.hideAmberBloodline
+                    : false,
+                })
+              }
             />
+            {settings.highlightBloodline && (
+              <div className="border-t border-slate-100 bg-amber-50/40 pl-5">
+                <SettingToggle
+                  icon={<EyeOff className="h-4 w-4" />}
+                  title="Hide non-descendants"
+                  description="Remove married-in spouses from the tree."
+                  checked={settings.hideNonDescendants}
+                  onChange={(checked) =>
+                    update({ hideNonDescendants: checked })
+                  }
+                />
+                <SettingToggle
+                  icon={<EyeOff className="h-4 w-4" />}
+                  title="Hide female descendants"
+                  description="Show only the direct male bloodline in the tree."
+                  checked={settings.hideAmberBloodline}
+                  onChange={(checked) =>
+                    update({ hideAmberBloodline: checked })
+                  }
+                />
+              </div>
+            )}
           </div>
         </div>
         <div className="border-t border-slate-100">

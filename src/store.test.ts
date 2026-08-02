@@ -2856,7 +2856,7 @@ describe("dirty tracking and push wires", () => {
     const observedFreshStates: Array<string | undefined> = []
     const unsubscribe = subscribe(() => {
       if (!isTreeFreshlyLoaded("tree")) return
-      observedFreshStates.push(getAncestorTreeLinks().get("wai-keen"))
+      observedFreshStates.push(getAncestorTreeLinks("tree").get("wai-keen"))
     })
 
     store.applyTreeSnapshot({
@@ -2900,6 +2900,57 @@ describe("dirty tracking and push wires", () => {
     unsubscribe()
 
     expect(observedFreshStates).toEqual(["loh"])
+  })
+
+  test("keeps ancestor tree links scoped to their snapshot tree", async () => {
+    const store = await freshStore()
+    const snapshot = (
+      treeId: string,
+      ancestorTreeId: string,
+    ): TreeSnapshotResponse => ({
+      tree: {
+        id: treeId,
+        name: treeId,
+        ownerId: "owner",
+        role: "owner",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        revision: 1,
+      },
+      records: {
+        persons: [
+          {
+            id: "wai-keen",
+            name: "Wai Keen",
+            revision: 1,
+            updatedAt: timestamp,
+          },
+        ],
+        treeMembers: [
+          {
+            treeId,
+            personId: "wai-keen",
+            revision: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+        unions: [],
+        unionEvents: [],
+        treeUnions: [],
+        parentChildRelationships: [],
+        treeParentChildRelationships: [],
+      },
+      ancestorTrees: [{ personId: "wai-keen", treeId: ancestorTreeId }],
+      syncVersion: 1,
+      cursor: "cursor",
+    })
+
+    store.applyTreeSnapshot(snapshot("ho", "yong"))
+    store.applyTreeSnapshot(snapshot("other-family", "loh"))
+
+    expect(getAncestorTreeLinks("ho").get("wai-keen")).toBe("yong")
+    expect(getAncestorTreeLinks("other-family").get("wai-keen")).toBe("loh")
   })
 
   test("fresh tree synchronization replaces cursor sync with a snapshot", async () => {

@@ -219,13 +219,14 @@ let persistenceRestoreUserId: string | null = null
 let persistenceRestoreToken = 0
 
 /**
- * Display-only hint mapping a person to the id of their earliest ancestor-family
- * tree. Populated from tree snapshots so the "ancestor family" card label can
- * render before every related tree is loaded. Not synced and not part of the
- * normalized graph — `projectTree` never reads it, so it cannot leak partial
- * membership into a tree's projection.
+ * Display-only hints mapping each source tree's people to their earliest
+ * ancestor-family tree. Populated from tree snapshots so the "ancestor family"
+ * card label can render before every related tree is loaded. Not synced and not
+ * part of the normalized graph — `projectTree` never reads it, so it cannot
+ * leak partial membership into a tree's projection.
  */
-let ancestorTreeLinks = new Map<string, string>()
+const emptyAncestorTreeLinks = new Map<string, string>()
+let ancestorTreeLinks = new Map<string, Map<string, string>>()
 
 /**
  * Tree ids that have received a fresh server snapshot during the current store
@@ -1654,13 +1655,20 @@ export function applyTreeSnapshot(snapshot: TreeSnapshotResponse): void {
     )
   }
   applyRemote({ ...snapshot.records, trees: [snapshot.tree] })
-  if (snapshot.ancestorTrees?.length) {
-    const nextLinks = new Map(ancestorTreeLinks)
-    for (const link of snapshot.ancestorTrees) {
-      nextLinks.set(link.personId, link.treeId)
+  const nextLinks = new Map(ancestorTreeLinks)
+  const linksForTree = snapshot.partial
+    ? new Map(nextLinks.get(snapshot.tree.id))
+    : new Map<string, string>()
+  if (snapshot.partial) {
+    for (const person of snapshot.records.persons) {
+      linksForTree.delete(person.id)
     }
-    ancestorTreeLinks = nextLinks
   }
+  for (const link of snapshot.ancestorTrees ?? []) {
+    linksForTree.set(link.personId, link.treeId)
+  }
+  nextLinks.set(snapshot.tree.id, linksForTree)
+  ancestorTreeLinks = nextLinks
   update(
     (previous) => ({
       ...previous,
@@ -2433,8 +2441,8 @@ export function getGraph(): GlobalState {
   return state
 }
 
-export function getAncestorTreeLinks(): Map<string, string> {
-  return ancestorTreeLinks
+export function getAncestorTreeLinks(treeId: string): Map<string, string> {
+  return ancestorTreeLinks.get(treeId) ?? emptyAncestorTreeLinks
 }
 
 function getHydrated(): boolean {

@@ -177,8 +177,8 @@ export function useAncestorTree(
   const graph = useSyncExternalStore(subscribe, getGraph, getGraph)
   const links = useSyncExternalStore(
     subscribe,
-    getAncestorTreeLinks,
-    getAncestorTreeLinks,
+    () => getAncestorTreeLinks(currentTreeId),
+    () => getAncestorTreeLinks(currentTreeId),
   )
   return useMemo(() => {
     const linkedTreeId = links.get(personId)

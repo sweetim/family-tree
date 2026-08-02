@@ -33,6 +33,10 @@ export type ViewSettings = {
    * bloodline members in amber, and married-in spouses dimmed.
    */
   highlightBloodline: boolean
+  /** Hide married-in spouses while bloodline highlighting is enabled. */
+  hideNonDescendants: boolean
+  /** Show only the direct male line while bloodline highlighting is enabled. */
+  hideAmberBloodline: boolean
   /**
    * Show a badge on each person card for every other family tree they
    * belong to. Off (default): the badges are hidden on the canvas.
@@ -48,11 +52,14 @@ const DEFAULTS: ViewSettings = {
   showFamilyName: true,
   showAllFamilies: false,
   highlightBloodline: false,
+  hideNonDescendants: false,
+  hideAmberBloodline: false,
   showOtherTrees: false,
 }
 
 type StoredViewSettings = Partial<ViewSettings> & {
   highlightMaleLine?: boolean
+  hideFemaleDescendants?: boolean
 }
 
 function load(): ViewSettings {
@@ -60,7 +67,7 @@ function load(): ViewSettings {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) return DEFAULTS
-    const { highlightMaleLine, ...stored } = JSON.parse(
+    const { highlightMaleLine, hideFemaleDescendants, ...stored } = JSON.parse(
       raw,
     ) as StoredViewSettings
     return {
@@ -68,6 +75,8 @@ function load(): ViewSettings {
       ...stored,
       highlightBloodline:
         stored.highlightBloodline || highlightMaleLine || false,
+      hideAmberBloodline:
+        stored.hideAmberBloodline || hideFemaleDescendants || false,
     }
   } catch {
     return DEFAULTS

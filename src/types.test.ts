@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   ancestorsOf,
   childrenOf,
+  filterBloodlinePeople,
   type FamilyData,
   maleLineIds,
   type NormalizedRelationships,
@@ -317,6 +318,82 @@ describe("relationship traversal", () => {
     }
 
     expect(maleLineIds(family)).toEqual(new Set(["founder", "son", "grandson"]))
+  })
+
+  test("keeps founders and descendants while removing married-in spouses", () => {
+    const person = (
+      id: string,
+      parents: string[] = [],
+      spouseIds: string[] = [],
+    ) => ({
+      id,
+      name: id,
+      familyName: "",
+      parents: parents.map((parentId) => ({ id: parentId })),
+      spouseIds,
+      marriageDates: {},
+    })
+    const family: FamilyData = {
+      founder: person("founder", [], ["founder-wife"]),
+      "founder-wife": person("founder-wife", [], ["founder"]),
+      child: person("child", ["founder", "founder-wife"], ["child-spouse"]),
+      "child-spouse": person("child-spouse", [], ["child"]),
+      grandchild: person("grandchild", ["child", "child-spouse"]),
+    }
+
+    expect(
+      Object.keys(
+        filterBloodlinePeople(family, {
+          hideNonDescendants: true,
+          hideAmberBloodline: false,
+        }),
+      ),
+    ).toEqual([
+      "founder",
+      "founder-wife",
+      "child",
+      "grandchild",
+    ])
+  })
+
+  test("hides everyone outside the direct male line", () => {
+    const person = (
+      id: string,
+      gender: "male" | "female",
+      parents: string[] = [],
+      spouseIds: string[] = [],
+    ) => ({
+      id,
+      name: id,
+      familyName: "",
+      gender,
+      parents: parents.map((parentId) => ({ id: parentId })),
+      spouseIds,
+      marriageDates: {},
+    })
+    const family: FamilyData = {
+      founder: person("founder", "male", [], ["founder-wife"]),
+      "founder-wife": person("founder-wife", "female", [], ["founder"]),
+      son: person(
+        "son",
+        "male",
+        ["founder", "founder-wife"],
+        ["son-wife"],
+      ),
+      "son-wife": person("son-wife", "female", [], ["son"]),
+      grandson: person("grandson", "male", ["son", "son-wife"]),
+      daughter: person("daughter", "female", ["founder", "founder-wife"]),
+      "daughter-son": person("daughter-son", "male", ["daughter"]),
+    }
+
+    expect(
+      Object.keys(
+        filterBloodlinePeople(family, {
+          hideNonDescendants: false,
+          hideAmberBloodline: true,
+        }),
+      ),
+    ).toEqual(["founder", "son", "grandson"])
   })
 })
 
