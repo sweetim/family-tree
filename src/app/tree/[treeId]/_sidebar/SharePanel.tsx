@@ -67,7 +67,7 @@ export function SharePanel({
           onClick={onClose}
           className="text-sm font-medium text-cobalt-600 transition-colors hover:text-cobalt-700"
         >
-          Done
+          Close
         </button>
       </div>
 

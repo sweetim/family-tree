@@ -154,14 +154,17 @@ export function Sidebar({
       </div>
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
-        {!loading && !editable && state.mode !== "settings" && (
-          <div className="mb-4">
-            <MemberSearch
-              family={family}
-              onSelect={onSelect}
-            />
-          </div>
-        )}
+        {!loading
+          && !editable
+          && state.mode !== "settings"
+          && state.mode !== "share" && (
+            <div className="mb-4">
+              <MemberSearch
+                family={family}
+                onSelect={onSelect}
+              />
+            </div>
+          )}
         {loading ? (
           <SidebarSkeleton />
         ) : state.mode === "share" ? (
@@ -179,6 +182,7 @@ export function Sidebar({
           <SettingsPanel
             family={family}
             treeId={treeId}
+            treeName={treeName}
             editable={editable}
             onClose={onClose}
           />
@@ -319,7 +323,7 @@ export function Sidebar({
             onClick={onClose}
             className={`${primaryBtn} w-full`}
           >
-            Done
+            Close
           </button>
         )}
         <div className="flex items-stretch">
@@ -363,7 +367,11 @@ export function Sidebar({
               <button
                 type="button"
                 onClick={onOpenShare}
-                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 active:scale-95"
+                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors active:scale-95 ${
+                  state.mode === "share"
+                    ? "bg-cobalt-50 text-cobalt-700"
+                    : "text-slate-500 hover:bg-slate-100"
+                }`}
               >
                 <Share2 className="h-4 w-4" /> Share
               </button>
@@ -376,7 +384,11 @@ export function Sidebar({
           <button
             type="button"
             onClick={onOpenSettings}
-            className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 active:scale-95"
+            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors active:scale-95 ${
+              state.mode === "settings"
+                ? "bg-cobalt-50 text-cobalt-700"
+                : "text-slate-500 hover:bg-slate-100"
+            }`}
           >
             <Settings className="h-4 w-4" /> Settings
           </button>

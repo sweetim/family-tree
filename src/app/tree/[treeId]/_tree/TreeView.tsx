@@ -228,6 +228,22 @@ function TreeCanvas({
     return () => cancelAnimationFrame(frame)
   }, [freshlyLoaded])
 
+  // When "show all families" is toggled off, the canvas collapses to just this
+  // family. Refit so the smaller layout centers instead of leaving the viewport
+  // pinned where the larger merged graph was. One frame lets the reflowed nodes
+  // measure before fitView computes bounds.
+  const prevShowAllFamilies = useRef(settings.showAllFamilies)
+  useEffect(() => {
+    const wasAll = prevShowAllFamilies.current
+    prevShowAllFamilies.current = settings.showAllFamilies
+    if (wasAll && !settings.showAllFamilies) {
+      const frame = requestAnimationFrame(() => {
+        void fitView({ padding: 0.2, maxZoom: 1, duration: 0 })
+      })
+      return () => cancelAnimationFrame(frame)
+    }
+  }, [settings.showAllFamilies, fitView])
+
   // Follow cross-tree jumps that land on this already-mounted tree.
   useEffect(() => {
     if (openPersonId) {

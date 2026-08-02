@@ -1,6 +1,7 @@
 import {
   CalendarDays,
   Download,
+  FileDown,
   GitBranch,
   Heart,
   Layers,
@@ -12,10 +13,34 @@ import {
 } from "lucide-react"
 import { type ReactNode, useRef } from "react"
 import { useToast } from "@/components/Toast"
+import { familyToGedcom } from "@/lib/gedcom"
 import { useTreeActions } from "@/lib/tree-actions"
 import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import { useViewSettings } from "@/lib/view-settings"
 import { type FamilyStore, isStoredPhotoMarker, normalizeImport } from "@/store"
+
+/** Lowercase, kebab-case form of a tree name for use in a download filename,
+ *  falling back to "family-tree" when the name has no usable characters. */
+function kebabName(name: string): string {
+  const kebab = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+  return kebab || "family-tree"
+}
+
+/** Local date-and-time stamp, kebab-joined as YYYY-MM-DD-HH-MM-SS. */
+function fileStamp(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return [
+    String(date.getFullYear()),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
+  ].join("-")
+}
 
 function SettingToggle({
   icon,
@@ -60,11 +85,13 @@ function SettingToggle({
 export function SettingsPanel({
   family,
   treeId,
+  treeName,
   editable,
   onClose,
 }: {
   family: FamilyStore
   treeId: string
+  treeName: string
   editable: boolean
   onClose: () => void
 }) {
@@ -90,6 +117,18 @@ export function SettingsPanel({
     const a = document.createElement("a")
     a.href = url
     a.download = "family-tree.json"
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function exportGedcom() {
+    const blob = new Blob([familyToGedcom(family.people)], {
+      type: "text/plain;charset=utf-8",
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${kebabName(treeName)}-${fileStamp(new Date())}.ged`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -198,6 +237,17 @@ export function SettingsPanel({
         <p className="text-xs leading-relaxed text-slate-500">
           Export an offline copy as JSON, or import a previously exported tree.
           {!editable && " Import is only available while editing."}
+        </p>
+        <button
+          type="button"
+          onClick={exportGedcom}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
+        >
+          <FileDown className="h-4 w-4" /> Export to GEDCOM
+        </button>
+        <p className="text-xs leading-relaxed text-slate-500">
+          Download a <code>.ged</code> file you can open in other genealogy
+          apps.
         </p>
         <button
           type="button"
