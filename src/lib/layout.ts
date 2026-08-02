@@ -72,6 +72,8 @@ export interface RelEdgeData extends Record<string, unknown> {
   /** child: who hangs from this line and from whom */
   childId?: string
   parentIds?: string[]
+  /** A connection between two members of the father-to-son male line. */
+  maleLineConnection?: boolean
 }
 export type FlowEdge =
   | Edge<RelEdgeData, "straight">
@@ -426,6 +428,7 @@ export function buildFlow(
   layout: TreeLayout,
   selectedId?: string,
   linking?: { sourceId: string; eligible: Set<string> },
+  highlightBloodline = false,
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
   const { couples } = layout
   const pos = layout.positions
@@ -490,6 +493,7 @@ export function buildFlow(
 
   const edges: FlowEdge[] = []
   const coupleStroke = { stroke: "#94a3b8", strokeWidth: 2 }
+  const maleLineStroke = { stroke: "#2563eb", strokeWidth: 4 }
   const selectedStroke = { stroke: "#3258f5", strokeWidth: 3 }
   const touchesSelected = (ids: (string | undefined)[]) =>
     selectedId !== undefined && ids.includes(selectedId)
@@ -541,6 +545,13 @@ export function buildFlow(
       child.id,
       ...parents.map((l) => l.id),
     ])
+    const maleLineConnection =
+      maleLine.has(child.id)
+      && parents.some(
+        (parent) =>
+          people[parent.id]?.gender === "male" && maleLine.has(parent.id),
+      )
+    const highlightMaleLineConnection = highlightBloodline && maleLineConnection
     edges.push({
       id: `pc:${source}:${child.id}`,
       source,
@@ -549,9 +560,17 @@ export function buildFlow(
       targetHandle: "t",
       type: "smoothstep",
       pathOptions: { borderRadius: 0, stepPosition: CHILD_BUS_POSITION },
-      animated: highlightChild,
-      zIndex: highlightChild ? Z_INDEX.edgeSelected : undefined,
-      style: highlightChild ? { ...childBase, ...selectedStroke } : childBase,
+      animated: highlightChild || highlightMaleLineConnection,
+      zIndex: highlightChild
+        ? Z_INDEX.edgeSelected
+        : highlightMaleLineConnection
+          ? Z_INDEX.edgeMaleLine
+          : undefined,
+      style: highlightChild
+        ? { ...childBase, ...selectedStroke }
+        : highlightMaleLineConnection
+          ? { ...childBase, ...maleLineStroke }
+          : childBase,
       ...(adopted && {
         label: "adopted",
         labelStyle: { fill: "#64748b", fontSize: 10 },
@@ -561,6 +580,7 @@ export function buildFlow(
         kind: "child",
         childId: child.id,
         parentIds: parents.map((l) => l.id),
+        maleLineConnection,
       },
     })
   }

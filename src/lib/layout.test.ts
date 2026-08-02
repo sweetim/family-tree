@@ -177,3 +177,62 @@ describe("layout rank spacing", () => {
     expect(ranks.get("Pf")).toBe((ranks.get("S") ?? 0) - 1)
   })
 })
+
+describe("male-line connections", () => {
+  test("animates only father-to-son edges while bloodline highlighting is on", () => {
+    const people: FamilyData = {
+      founder: { ...PERSON("founder", "male"), spouseIds: ["founder-wife"] },
+      "founder-wife": {
+        ...PERSON("founder-wife", "female"),
+        spouseIds: ["founder"],
+      },
+      son: {
+        ...PERSON("son", "male"),
+        spouseIds: ["son-wife"],
+        parents: [{ id: "founder" }, { id: "founder-wife" }],
+      },
+      "son-wife": { ...PERSON("son-wife", "female"), spouseIds: ["son"] },
+      grandson: {
+        ...PERSON("grandson", "male"),
+        parents: [{ id: "son" }, { id: "son-wife" }],
+      },
+      daughter: {
+        ...PERSON("daughter", "female"),
+        spouseIds: ["daughter-husband"],
+        parents: [{ id: "founder" }, { id: "founder-wife" }],
+      },
+      "daughter-husband": {
+        ...PERSON("daughter-husband", "male"),
+        spouseIds: ["daughter"],
+      },
+      "daughter-son": {
+        ...PERSON("daughter-son", "male"),
+        parents: [{ id: "daughter" }, { id: "daughter-husband" }],
+      },
+    }
+    const { edges } = buildFlow(
+      people,
+      computeTreeLayout(people),
+      undefined,
+      undefined,
+      true,
+    )
+    const edgeForChild = (childId: string) =>
+      edges.find((edge) => edge.data?.childId === childId)
+
+    for (const childId of ["son", "grandson"]) {
+      expect(edgeForChild(childId)).toMatchObject({
+        animated: true,
+        zIndex: 500,
+        style: { stroke: "#2563eb", strokeWidth: 4 },
+        data: { maleLineConnection: true },
+      })
+    }
+    for (const childId of ["daughter", "daughter-son"]) {
+      expect(edgeForChild(childId)).toMatchObject({
+        animated: false,
+        data: { maleLineConnection: false },
+      })
+    }
+  })
+})

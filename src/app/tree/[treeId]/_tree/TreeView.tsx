@@ -416,8 +416,21 @@ function TreeCanvas({
       targetSourceId && linkEligible
         ? { sourceId: targetSourceId, eligible: linkEligible }
         : undefined
-    return buildFlow(renderPeople, layout, selectedId, linking)
-  }, [renderPeople, layout, selectedId, targetSourceId, linkEligible])
+    return buildFlow(
+      renderPeople,
+      layout,
+      selectedId,
+      linking,
+      settings.highlightBloodline,
+    )
+  }, [
+    renderPeople,
+    layout,
+    selectedId,
+    targetSourceId,
+    linkEligible,
+    settings.highlightBloodline,
+  ])
 
   // Print the whole tree to a PDF. Fits every node into a fixed page-sized box
   // (independent of the on-screen canvas, so nothing gets clipped by a narrower

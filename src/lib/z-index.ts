@@ -14,6 +14,8 @@
 export const Z_INDEX = {
   /** Default relationship lines (marriage, parent→child). */
   edgeBase: 0,
+  /** Animated father-to-son male-line connection. */
+  edgeMaleLine: 500,
   /** Edge touching the currently selected person. */
   edgeSelected: 1000,
   /** Edge currently being hovered (for click-to-remove). */
