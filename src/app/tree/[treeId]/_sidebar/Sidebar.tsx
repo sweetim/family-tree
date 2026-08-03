@@ -488,7 +488,7 @@ export function Sidebar({
             <ChevronLeft className="h-4 w-4" /> Back
           </button>
         )}
-        {state.mode !== "idle" && !selectionAction && (
+        {state.mode !== "idle" && !selectionAction && !loading && (
           <button
             type="button"
             onClick={onClose}
