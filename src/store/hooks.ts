@@ -11,8 +11,9 @@ import {
   type PersonInput,
   projectTree,
   projectTreeStable,
-  projectTrees,
+  projectTreesStable,
   type Relationship,
+  relationshipsSame,
 } from "../types"
 import {
   addMember,
@@ -46,6 +47,9 @@ import {
   update,
   useAncestorTreeLinks,
   useGraph,
+  useParentChildRelationships,
+  useTreeMembers,
+  useTrees,
 } from "./state"
 import {
   ensureUnion,
@@ -149,10 +153,11 @@ export function countMembers(treeId: string): number {
 }
 
 export function useMemberTrees(personId: string): TreeMeta[] {
-  const graph = useGraph()
+  const treeMembers = useTreeMembers()
+  const index = useTrees()
   return useMemo(
-    () => graph.index.filter((tree) => hasMember(graph, tree.id, personId)),
-    [graph, personId],
+    () => index.filter((tree) => hasMember(treeMembers, tree.id, personId)),
+    [index, treeMembers, personId],
   )
 }
 
@@ -167,16 +172,29 @@ export function useAncestorTree(
   personId: string,
   currentTreeId: string,
 ): TreeMeta | undefined {
-  const graph = useGraph()
+  const index = useTrees()
+  const treeMembers = useTreeMembers()
+  const parentChildRelationships = useParentChildRelationships()
   const links = useAncestorTreeLinks(currentTreeId)
   return useMemo(() => {
     const linkedTreeId = links.get(personId)
     if (linkedTreeId && linkedTreeId !== currentTreeId) {
-      const linked = graph.index.find((tree) => tree.id === linkedTreeId)
+      const linked = index.find((tree) => tree.id === linkedTreeId)
       if (linked) return linked
     }
-    return findAncestorTree(graph, personId, currentTreeId)
-  }, [graph, links, personId, currentTreeId])
+    return findAncestorTree(
+      { index, treeMembers, parentChildRelationships },
+      personId,
+      currentTreeId,
+    )
+  }, [
+    index,
+    treeMembers,
+    parentChildRelationships,
+    links,
+    personId,
+    currentTreeId,
+  ])
 }
 
 const NO_PARENT_LINKS: { link: ParentLink; person: Person }[] = []
@@ -281,13 +299,46 @@ export function useMembersOf(
   }, [graph, treeId])
 }
 
+const NO_PEOPLE: Person[] = []
+
 export function useTreePeople(treeId: string | undefined): Person[] {
   const graph = useGraph()
-  return useMemo(
-    () =>
-      treeId ? Object.values(projectTree(graph.persons, graph, treeId)) : [],
-    [graph, treeId],
-  )
+  // Structural-sharing projection (mirrors useFamily): skip the full
+  // projectTree pass whenever this tree's records are unchanged, and reuse the
+  // previous Person[] when the projected FamilyData is referentially stable.
+  const projectionRef = useRef<
+    | {
+        treeId: string
+        identities: Record<string, PersonIdentity>
+        relationships: NormalizedRelationships
+        family: FamilyData
+        people: Person[]
+      }
+    | undefined
+  >(undefined)
+  return useMemo(() => {
+    if (!treeId) return NO_PEOPLE
+    const prev = projectionRef.current
+    const sameTree = prev?.treeId === treeId
+    const family = projectTreeStable(
+      sameTree ? prev?.family : undefined,
+      sameTree ? prev?.identities : undefined,
+      sameTree ? prev?.relationships : undefined,
+      graph.persons,
+      graph,
+      treeId,
+    )
+    const people =
+      prev && family === prev.family ? prev.people : Object.values(family)
+    projectionRef.current = {
+      treeId,
+      identities: graph.persons,
+      relationships: graph,
+      family,
+      people,
+    }
+    return people
+  }, [graph, treeId])
 }
 
 export type PersonSearchResult = {
@@ -328,10 +379,35 @@ export function usePersonSearch(): PersonSearchResult[] {
 
 export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
   const graph = useGraph()
+  // Structural-sharing projection (mirrors useFamily): short-circuit before
+  // recomputing the related-tree set when this view's inputs are unchanged, so
+  // "show all families" does no per-keystroke work while editing unrelated
+  // state. projectTreesStable then reuses unchanged Person objects on change.
+  const projectionRef = useRef<
+    | {
+        treeId: string
+        identities: Record<string, PersonIdentity>
+        relationships: NormalizedRelationships
+        index: TreeMeta[]
+        family: FamilyData
+      }
+    | undefined
+  >(undefined)
   return useMemo(() => {
     // When "show all families" is off, the caller reuses `useFamily`'s tree
     // projection as `renderPeople`, so this hook skips projecting a second time.
     if (!enabled) return NO_FAMILY
+    const prev = projectionRef.current
+    const sameTree = prev?.treeId === treeId
+    if (
+      sameTree
+      && prev
+      && prev.identities === graph.persons
+      && prev.index === graph.index
+      && relationshipsSame(prev.relationships, graph)
+    ) {
+      return prev.family
+    }
     // Only render trees that share at least one member with the current tree:
     // those are the families connected/related to this one. Trees with no
     // overlapping members stay off the canvas.
@@ -350,7 +426,22 @@ export function useFamilyAll(treeId: string, enabled: boolean): FamilyData {
           ),
       )
       .map((tree) => tree.id)
-    return projectTrees(graph.persons, graph, relatedTreeIds)
+    const family = projectTreesStable(
+      sameTree ? prev?.family : undefined,
+      sameTree ? prev?.identities : undefined,
+      sameTree ? prev?.relationships : undefined,
+      graph.persons,
+      graph,
+      relatedTreeIds,
+    )
+    projectionRef.current = {
+      treeId,
+      identities: graph.persons,
+      relationships: graph,
+      index: graph.index,
+      family,
+    }
+    return family
   }, [graph, treeId, enabled])
 }
 

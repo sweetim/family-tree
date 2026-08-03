@@ -115,6 +115,9 @@ cleanup.
 ## Photos
 
 Stored photos remain represented by a marker in client state. Pulls expose only
-`hasPhoto`. New Blob uploads are tracked during mutation execution: rollback
-deletes newly uploaded blobs, while replaced blobs are deleted only after the
-database transaction commits.
+`hasPhoto`. New Blob uploads are staged **before** the mutation transaction
+opens, so the bounded Neon pool and the mutation-id advisory lock are never held
+across a Vercel Blob round-trip. On rollback every staged upload is deleted;
+on commit, uploads for records that were skipped, conflicted, or never reached
+(because the mutation was `alreadyApplied`) are deleted as orphans, while
+replaced blobs are deleted only after the transaction commits.

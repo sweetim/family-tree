@@ -2,14 +2,15 @@ import { describe, expect, test } from "bun:test"
 import {
   ancestorsOf,
   childrenOf,
-  filterBloodlinePeople,
   type FamilyData,
+  filterBloodlinePeople,
   maleLineIds,
   type NormalizedRelationships,
   type PersonIdentity,
   projectTree,
   projectTreeStable,
   projectTrees,
+  projectTreesStable,
   unionIsCurrent,
 } from "./types"
 
@@ -348,12 +349,7 @@ describe("relationship traversal", () => {
           hideAmberBloodline: false,
         }),
       ),
-    ).toEqual([
-      "founder",
-      "founder-wife",
-      "child",
-      "grandchild",
-    ])
+    ).toEqual(["founder", "founder-wife", "child", "grandchild"])
   })
 
   test("hides everyone outside the direct male line", () => {
@@ -374,12 +370,7 @@ describe("relationship traversal", () => {
     const family: FamilyData = {
       founder: person("founder", "male", [], ["founder-wife"]),
       "founder-wife": person("founder-wife", "female", [], ["founder"]),
-      son: person(
-        "son",
-        "male",
-        ["founder", "founder-wife"],
-        ["son-wife"],
-      ),
+      son: person("son", "male", ["founder", "founder-wife"], ["son-wife"]),
       "son-wife": person("son-wife", "female", [], ["son"]),
       grandson: person("grandson", "male", ["son", "son-wife"]),
       daughter: person("daughter", "female", ["founder", "founder-wife"]),
@@ -481,6 +472,89 @@ describe("projectTreeStable", () => {
       identities,
       relationships(),
       "a",
+    )
+    expect(family.tim?.spouseIds).toEqual(["yumi"])
+  })
+})
+
+describe("projectTreesStable", () => {
+  test("returns the previous reference when nothing changed", () => {
+    const rel = relationships()
+    const first = projectTreesStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      rel,
+      ["a"],
+    )
+    const second = projectTreesStable(first, identities, rel, identities, rel, [
+      "a",
+    ])
+    expect(second).toBe(first)
+  })
+
+  test("reuses unchanged Person objects when one identity changes", () => {
+    const rel = relationships()
+    const first = projectTreesStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      rel,
+      ["a"],
+    )
+    const nextIdentities: Record<string, PersonIdentity> = {
+      ...identities,
+      tim: { id: "tim", name: "Timothy", familyName: "" },
+    }
+    const second = projectTreesStable(
+      first,
+      identities,
+      rel,
+      nextIdentities,
+      rel,
+      ["a"],
+    )
+    expect(second).not.toBe(first)
+    expect(second.tim).not.toBe(first.tim)
+    expect(second.tim?.name).toBe("Timothy")
+    expect(second.yumi).toBe(first.yumi)
+  })
+
+  test("recomputes everyone when a relationship collection changes", () => {
+    const rel = relationships()
+    const first = projectTreesStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      rel,
+      ["a"],
+    )
+    const nextRel: NormalizedRelationships = {
+      ...rel,
+      unions: { ...rel.unions },
+    }
+    const second = projectTreesStable(
+      first,
+      identities,
+      rel,
+      identities,
+      nextRel,
+      ["a"],
+    )
+    expect(second.tim).not.toBe(first.tim)
+  })
+
+  test("first call with no previous projects normally", () => {
+    const family = projectTreesStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      relationships(),
+      ["a"],
     )
     expect(family.tim?.spouseIds).toEqual(["yumi"])
   })

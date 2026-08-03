@@ -32,7 +32,7 @@ export async function getPersonPhoto(
   }
   if (
     person.ownerId !== me.id
-    && !canRead(await personRole(db, me.id, personId))
+    && !canRead(await personRole(db, me.id, personId, person))
   ) {
     return new Response(null, { status: 404 })
   }

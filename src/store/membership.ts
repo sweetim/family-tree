@@ -1,4 +1,10 @@
-import { type Person, type PersonIdentity, unionIsCurrent } from "../types"
+import {
+  type ParentChildRelationship,
+  type Person,
+  type PersonIdentity,
+  type TreeMember,
+  unionIsCurrent,
+} from "../types"
 import {
   type GlobalState,
   makeDraft,
@@ -25,11 +31,11 @@ export function personHasWritableTree(
 }
 
 export function hasMember(
-  graph: GlobalState,
+  treeMembers: Record<string, TreeMember>,
   treeId: string,
   personId: string,
 ): boolean {
-  return !!graph.treeMembers[treeMemberKey(treeId, personId)]
+  return !!treeMembers[treeMemberKey(treeId, personId)]
 }
 
 export function addMember(
@@ -118,7 +124,7 @@ export function treesWithMember(
       (tree) =>
         tree.id !== excludeTreeId
         && treeIsWritable(graph, tree.id)
-        && hasMember(graph, tree.id, personId),
+        && hasMember(graph.treeMembers, tree.id, personId),
     )
     .map((tree) => tree.id)
 }
@@ -133,7 +139,9 @@ export function treesContainingAll(
       (tree) =>
         tree.id !== excludeTreeId
         && treeIsWritable(graph, tree.id)
-        && personIds.every((personId) => hasMember(graph, tree.id, personId)),
+        && personIds.every((personId) =>
+          hasMember(graph.treeMembers, tree.id, personId),
+        ),
     )
     .map((tree) => tree.id)
 }
@@ -145,7 +153,11 @@ export function treesContainingAll(
  * when none exists (including when the person has no parents at all).
  */
 export function findAncestorTree(
-  graph: GlobalState,
+  graph: {
+    index: TreeMeta[]
+    treeMembers: Record<string, TreeMember>
+    parentChildRelationships: Record<string, ParentChildRelationship>
+  },
   personId: string,
   currentTreeId: string,
 ): TreeMeta | undefined {
@@ -156,8 +168,10 @@ export function findAncestorTree(
   const candidates = graph.index.filter(
     (tree) =>
       tree.id !== currentTreeId
-      && hasMember(graph, tree.id, personId)
-      && parentIds.some((parentId) => hasMember(graph, tree.id, parentId)),
+      && hasMember(graph.treeMembers, tree.id, personId)
+      && parentIds.some((parentId) =>
+        hasMember(graph.treeMembers, tree.id, parentId),
+      ),
   )
   if (candidates.length === 0) return undefined
   candidates.sort((a, b) =>
@@ -224,7 +238,7 @@ export function removeFromTreeRecords(
 ): GlobalState {
   if (
     !treeIsWritable(previous, treeId)
-    || !hasMember(previous, treeId, personId)
+    || !hasMember(previous.treeMembers, treeId, personId)
   ) {
     return previous
   }
@@ -241,7 +255,7 @@ export function addMemberWithSpousesRecords(
   if (
     !treeIsWritable(previous, treeId)
     || !previous.persons[personId]
-    || hasMember(previous, treeId, personId)
+    || hasMember(previous.treeMembers, treeId, personId)
   ) {
     return previous
   }

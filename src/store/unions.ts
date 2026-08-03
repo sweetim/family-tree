@@ -199,8 +199,8 @@ export function linkSpouseRecords(
   const eligibleTreeIds = [...treeIds].filter(
     (treeId) =>
       treeIsWritable(previous, treeId)
-      && hasMember(previous, treeId, firstPersonId)
-      && hasMember(previous, treeId, secondPersonId),
+      && hasMember(previous.treeMembers, treeId, firstPersonId)
+      && hasMember(previous.treeMembers, treeId, secondPersonId),
   )
   if (eligibleTreeIds.length === 0) return previous
   const draft = makeDraft(previous)

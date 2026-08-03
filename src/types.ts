@@ -209,16 +209,6 @@ export function unionIsCurrent(
   return !latest || !TERMINAL_UNION_EVENTS.has(latest.type)
 }
 
-function marriageDateForUnion(
-  unionId: string,
-  unionEvents: Record<string, UnionEvent>,
-): string | undefined {
-  return Object.values(unionEvents)
-    .filter((event) => event.unionId === unionId && event.type === "married")
-    .sort(byCreatedAt)
-    .at(-1)?.eventDate
-}
-
 /** Derive one tree's existing UI view from normalized relationship records. */
 export function projectTree(
   identities: Record<string, PersonIdentity>,
@@ -241,6 +231,31 @@ export function projectTree(
     }
   }
 
+  // Index union events by union once. The per-union lookups below previously
+  // each scanned (and sorted) every event, making projection O(unions x events);
+  // a single pass groups them so each lookup is O(this union's events).
+  const eventsByUnion = new Map<string, UnionEvent[]>()
+  for (const event of Object.values(relationships.unionEvents)) {
+    const events = eventsByUnion.get(event.unionId)
+    if (events) {
+      events.push(event)
+    } else {
+      eventsByUnion.set(event.unionId, [event])
+    }
+  }
+  const latestEventByUnion = new Map<string, UnionEvent | undefined>()
+  const marriageDateByUnion = new Map<string, string | undefined>()
+  for (const [unionId, events] of eventsByUnion) {
+    latestEventByUnion.set(unionId, events.slice().sort(byEventDate).at(-1))
+    marriageDateByUnion.set(
+      unionId,
+      events
+        .filter((event) => event.type === "married")
+        .sort(byCreatedAt)
+        .at(-1)?.eventDate,
+    )
+  }
+
   const currentUnionByPair = new Map<string, Union>()
   const associatedUnions = Object.values(relationships.treeUnions)
     .filter((association) => association.treeId === treeId)
@@ -251,8 +266,11 @@ export function projectTree(
       !union
       || !family[union.firstPersonId]
       || !family[union.secondPersonId]
-      || !unionIsCurrent(union.id, relationships.unionEvents)
     ) {
+      continue
+    }
+    const latest = latestEventByUnion.get(union.id)
+    if (latest !== undefined && TERMINAL_UNION_EVENTS.has(latest.type)) {
       continue
     }
     currentUnionByPair.set(
@@ -267,10 +285,7 @@ export function projectTree(
     if (!firstPerson || !secondPerson) continue
     firstPerson.spouseIds.push(secondPerson.id)
     secondPerson.spouseIds.push(firstPerson.id)
-    const marriageDate = marriageDateForUnion(
-      union.id,
-      relationships.unionEvents,
-    )
+    const marriageDate = marriageDateByUnion.get(union.id)
     if (marriageDate) {
       firstPerson.marriageDates[secondPerson.id] = marriageDate
       secondPerson.marriageDates[firstPerson.id] = marriageDate
@@ -297,12 +312,12 @@ export function projectTree(
     }
   }
   for (const union of latestUnionByPair.values()) {
-    const latest = latestEventForUnion(union.id, relationships.unionEvents)
+    const latest = latestEventByUnion.get(union.id)
     if (!latest) continue
     const status: UnionStatus = {
       type: latest.type,
       date: isTerminalUnionEvent(latest.type) ? latest.eventDate : undefined,
-      marriageDate: marriageDateForUnion(union.id, relationships.unionEvents),
+      marriageDate: marriageDateByUnion.get(union.id),
     }
     const firstPerson = family[union.firstPersonId]
     const secondPerson = family[union.secondPersonId]
@@ -423,7 +438,7 @@ export function stabilizeFamily(
   return changed ? result : previous
 }
 
-function relationshipsSame(
+export function relationshipsSame(
   previous: NormalizedRelationships,
   current: NormalizedRelationships,
 ): boolean {
@@ -465,6 +480,39 @@ export function projectTreeStable(
     prevIdentities,
     prevRelationships,
     projectTree(identities, relationships, treeId),
+    identities,
+    relationships,
+  )
+}
+
+/**
+ * Project multiple trees with structural sharing. Mirrors `projectTreeStable`
+ * for the merged "show all families" view: short-circuits to `previous` when
+ * neither identities nor any relationship collection changed, otherwise
+ * recomputes via `projectTrees` and reuses unchanged `Person` objects.
+ */
+export function projectTreesStable(
+  previous: FamilyData | undefined,
+  prevIdentities: Record<string, PersonIdentity> | undefined,
+  prevRelationships: NormalizedRelationships | undefined,
+  identities: Record<string, PersonIdentity>,
+  relationships: NormalizedRelationships,
+  treeIds: string[],
+): FamilyData {
+  if (
+    previous
+    && prevIdentities
+    && prevRelationships
+    && prevIdentities === identities
+    && relationshipsSame(prevRelationships, relationships)
+  ) {
+    return previous
+  }
+  return stabilizeFamily(
+    previous,
+    prevIdentities,
+    prevRelationships,
+    projectTrees(identities, relationships, treeIds),
     identities,
     relationships,
   )

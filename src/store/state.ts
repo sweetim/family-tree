@@ -13,7 +13,12 @@ import type {
   TreeParentChildRelationshipRecordWire,
   TreeSnapshotResponse,
 } from "../sync/types"
-import type { NormalizedRelationships, PersonIdentity } from "../types"
+import type {
+  NormalizedRelationships,
+  ParentChildRelationship,
+  PersonIdentity,
+  TreeMember,
+} from "../types"
 import { clearDirty, dirtyToken, snapshotDirty, stampAndEnqueue } from "./dirty"
 import {
   loadPersistedStore,
@@ -589,33 +594,52 @@ function blockOperation(
   setSyncStatus("conflict")
 }
 
+function treeSignature(tree: TreeMeta): string {
+  return JSON.stringify(tree, Object.keys(tree).sort())
+}
+
+/** Structural equality for the tree index. The periodic manifest poll rebuilds
+ *  a fresh `index` array even when nothing changed, which would churn every
+ *  narrow selector subscribing to `index` (and thus every `PersonNode`). When
+ *  the rebuild is byte-identical we return `previous` so `update` no-ops. */
+function indexEqual(previous: TreeMeta[], next: TreeMeta[]): boolean {
+  if (previous.length !== next.length) return false
+  for (let position = 0; position < next.length; position++) {
+    const before = previous[position]
+    const after = next[position]
+    if (!before || !after) return false
+    if (before.id !== after.id) return false
+    if (treeSignature(before) !== treeSignature(after)) return false
+  }
+  return true
+}
+
 export function applyTreeManifest(manifest: TreeManifestItem[]): void {
   const remoteIds = new Set(manifest.map((tree) => tree.id))
   const pendingTreeIds = new Set(dirtyState.trees.keys())
   update(
     (previous) => {
       const localById = new Map(previous.index.map((tree) => [tree.id, tree]))
-      return {
-        ...previous,
-        index: [
-          ...manifest.map((tree) => {
-            const local = localById.get(tree.id)
-            const pending = dirtyState.trees.get(tree.id)
-            return {
-              ...local,
-              ...tree,
-              ...(pending?.action === "upsert" && local
-                ? { name: local.name }
-                : {}),
-              loaded: local?.loaded,
-              cursor: local?.cursor,
-            }
-          }),
-          ...previous.index.filter(
-            (tree) => !remoteIds.has(tree.id) && pendingTreeIds.has(tree.id),
-          ),
-        ],
-      }
+      const nextIndex: TreeMeta[] = [
+        ...manifest.map((tree) => {
+          const local = localById.get(tree.id)
+          const pending = dirtyState.trees.get(tree.id)
+          return {
+            ...local,
+            ...tree,
+            ...(pending?.action === "upsert" && local
+              ? { name: local.name }
+              : {}),
+            loaded: local?.loaded,
+            cursor: local?.cursor,
+          }
+        }),
+        ...previous.index.filter(
+          (tree) => !remoteIds.has(tree.id) && pendingTreeIds.has(tree.id),
+        ),
+      ]
+      if (indexEqual(previous.index, nextIndex)) return previous
+      return { ...previous, index: nextIndex }
     },
     { remote: true },
   )
@@ -1247,6 +1271,29 @@ export async function restorePersistentStore(userId: string): Promise<void> {
 
 export function useGraph(): GlobalState {
   return useStore((selector) => selector.state)
+}
+
+/**
+ * Narrow collection selectors. Each subscribes to one collection only, so a
+ * component re-renders when that collection's reference changes (structural
+ * sharing means surgical edits leave untouched collections' references stable)
+ * rather than on every store update the way `useGraph` does. This keeps
+ * per-node hooks like `useMemberTrees`/`useAncestorTree` from re-rendering
+ * every card on unrelated writes (e.g. typing in a name, periodic sync).
+ */
+export function useTreeMembers(): Record<string, TreeMember> {
+  return useStore((selector) => selector.state.treeMembers)
+}
+
+export function useTrees(): TreeMeta[] {
+  return useStore((selector) => selector.state.index)
+}
+
+export function useParentChildRelationships(): Record<
+  string,
+  ParentChildRelationship
+> {
+  return useStore((selector) => selector.state.parentChildRelationships)
 }
 
 export function useAncestorTreeLinks(treeId: string): Map<string, string> {

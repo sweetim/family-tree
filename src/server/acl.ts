@@ -94,18 +94,20 @@ export function resolvePersonRole(
 /**
  * Highest role `userId` has on person `personId`. Owners of the person row,
  * owners of any tree the person is a member of, editors, and viewers are
- * considered in descending priority.
+ * considered in descending priority. Pass `person` when the caller already
+ * loaded the row to avoid re-fetching it (e.g. the photo proxy).
  */
 export async function personRole(
   db: DB,
   userId: string,
   personId: string,
+  person?: typeof persons.$inferSelect,
 ): Promise<Role | null> {
-  const person = await db.query.persons.findFirst({
-    where: eq(persons.id, personId),
-  })
-  if (!person) return null
-  if (!person.deletedAt && person.ownerId === userId) return "owner"
+  const row =
+    person
+    ?? (await db.query.persons.findFirst({ where: eq(persons.id, personId) }))
+  if (!row) return null
+  if (!row.deletedAt && row.ownerId === userId) return "owner"
 
   // Trees containing this person that the user owns or is shared with.
   const rows = await db
@@ -129,7 +131,7 @@ export async function personRole(
 
   return resolvePersonRole(
     userId,
-    { ownerId: person.ownerId, deletedAt: person.deletedAt },
+    { ownerId: row.ownerId, deletedAt: row.deletedAt },
     rows.map((row) => ({
       ownerId: row.ownerId,
       shareRole: row.shareRole as Role | null,
