@@ -15,6 +15,8 @@ export type ViewSettings = {
   marriageYears: boolean
   /** Show a living person's age beside their birth year on their card. */
   showAge: boolean
+  /** Center the selected person's card in view mode. */
+  focusSelectedPerson: boolean
   /**
    * Show each person's family name before their name on their card
    * (e.g. "Tan Tim"). On (default): the family name is shown; off: only the
@@ -49,6 +51,7 @@ const DEFAULTS: ViewSettings = {
   minimap: false,
   marriageYears: true,
   showAge: true,
+  focusSelectedPerson: true,
   showFamilyName: true,
   showAllFamilies: false,
   highlightBloodline: false,

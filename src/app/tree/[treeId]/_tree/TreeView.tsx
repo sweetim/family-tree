@@ -229,7 +229,8 @@ function TreeCanvas({
   const editModeRequest = useRef(0)
   const editModeAbort = useRef<AbortController | null>(null)
   const editMode = editingTreeId === tree.id
-  const { fitView, getNodes, getViewport, setViewport } = useReactFlow()
+  const { fitView, getNode, getNodes, getViewport, setCenter, setViewport } =
+    useReactFlow()
   const [printing, setPrinting] = useState(false)
   // Crossfade the canvas skeleton into the real tree. The tree mounts as soon
   // as the fresh snapshot is ready (opacity 0, so it can measure/fitView
@@ -446,6 +447,36 @@ function TreeCanvas({
     targetSourceId,
     linkEligible,
     settings.highlightBloodline,
+  ])
+
+  useEffect(() => {
+    if (
+      !freshlyLoaded
+      || canEdit
+      || !selectedId
+      || !settings.focusSelectedPerson
+    ) {
+      return
+    }
+    const frame = requestAnimationFrame(() => {
+      const node = getNode(selectedId)
+      if (!node) return
+      const width = node.measured?.width ?? 176
+      const height = node.measured?.height ?? 220
+      void setCenter(node.position.x + width / 2, node.position.y + height / 2, {
+        zoom: getViewport().zoom,
+        duration: 250,
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [
+    canEdit,
+    freshlyLoaded,
+    getNode,
+    getViewport,
+    selectedId,
+    setCenter,
+    settings.focusSelectedPerson,
   ])
 
   // Print the whole tree to a PDF. Fits every node into a fixed page-sized box

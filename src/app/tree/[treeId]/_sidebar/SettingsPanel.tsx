@@ -4,6 +4,7 @@ import {
   Download,
   EyeOff,
   FileDown,
+  Focus,
   GitBranch,
   Heart,
   Layers,
@@ -288,6 +289,15 @@ export function SettingsPanel({
               description="Show each living person's age on their card."
               checked={settings.showAge}
               onChange={(checked) => update({ showAge: checked })}
+            />
+            <SettingToggle
+              icon={<Focus className="h-4 w-4" />}
+              title="Focus selected person"
+              description="Center the selected person's card in view mode."
+              checked={settings.focusSelectedPerson}
+              onChange={(checked) =>
+                update({ focusSelectedPerson: checked })
+              }
             />
             <SettingToggle
               icon={<User className="h-4 w-4" />}
