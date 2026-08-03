@@ -18,6 +18,7 @@
   "dependencies": {
     "@biomejs/biome": "^2.5.4",
     "@neondatabase/serverless": "^1.1.0",
+    "@next/third-parties": "^16.2.12",
     "@tailwindcss/postcss": "^4.3.2",
     "@vercel/blob": "^2.6.1",
     "@xyflow/react": "^12.11.2",

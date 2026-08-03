@@ -1,7 +1,10 @@
+import { GoogleAnalytics } from "@next/third-parties/google"
 import type { Metadata } from "next"
 import { Bricolage_Grotesque, IBM_Plex_Mono, Inter } from "next/font/google"
 import "./globals.css"
 import { Providers } from "./providers"
+
+const googleAnalyticsId = process.env.NEXT_PUBLIC_GA_ID
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const bricolage = Bricolage_Grotesque({
@@ -63,6 +66,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <Providers>{children}</Providers>
       </body>
+      {googleAnalyticsId && <GoogleAnalytics gaId={googleAnalyticsId} />}
     </html>
   )
 }
