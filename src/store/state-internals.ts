@@ -110,6 +110,28 @@ export function emptyDirtyState(): DirtyState {
   }
 }
 
+export function emptyState(): GlobalState {
+  return {
+    persons: {},
+    index: [],
+    treeMembers: {},
+    unions: {},
+    unionEvents: {},
+    treeUnions: {},
+    parentChildRelationships: {},
+    treeParentChildRelationships: {},
+  }
+}
+
+const emptyAncestorTreeLinks = new Map<string, string>()
+
+export function ancestorTreeLinksFor(
+  links: Map<string, Map<string, string>>,
+  treeId: string,
+): Map<string, string> {
+  return links.get(treeId) ?? emptyAncestorTreeLinks
+}
+
 // ---------------------------------------------------------------------------
 // Read-only lookups over a snapshot + dirty state (pure).
 // ---------------------------------------------------------------------------

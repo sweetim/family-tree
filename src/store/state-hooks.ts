@@ -1,18 +1,10 @@
 import { create } from "zustand"
 import type {
-  ParentChildRelationship,
-  PersonIdentity,
-  TreeMember,
-  TreeParentChildRelationship,
-  TreeUnion,
-  Union,
-  UnionEvent,
-} from "../types"
-import type {
   PersistedConflict,
   PersistedOperationConflict,
 } from "./persistence"
-import type { GlobalState, SyncStatus, TreeMeta } from "./state"
+import type { GlobalState, SyncStatus } from "./state"
+import { ancestorTreeLinksFor, emptyState } from "./state-internals"
 
 // ---------------------------------------------------------------------------
 // Reactive store (Zustand). Mirrors the engine's reactive singletons in
@@ -34,19 +26,6 @@ export type ReactiveState = {
   blockedChangesVersion: number
 }
 
-function emptyState(): GlobalState {
-  return {
-    persons: {},
-    index: [],
-    treeMembers: {},
-    unions: {},
-    unionEvents: {},
-    treeUnions: {},
-    parentChildRelationships: {},
-    treeParentChildRelationships: {},
-  }
-}
-
 export const useStore = create<ReactiveState>(() => ({
   state: emptyState(),
   hydrated: false,
@@ -57,8 +36,6 @@ export const useStore = create<ReactiveState>(() => ({
   ancestorTreeLinks: new Map(),
   blockedChangesVersion: 0,
 }))
-
-const emptyAncestorTreeLinks = new Map<string, string>()
 
 export function useGraph(): GlobalState {
   return useStore((selector) => selector.state)
@@ -72,48 +49,28 @@ export function useGraph(): GlobalState {
  * per-node hooks like `useMemberTrees`/`useAncestorTree` from re-rendering
  * every card on unrelated writes (e.g. typing in a name, periodic sync).
  */
-export function useTreeMembers(): Record<string, TreeMember> {
-  return useStore((selector) => selector.state.treeMembers)
+function graphCollectionHook<Field extends keyof GlobalState>(
+  field: Field,
+): () => GlobalState[Field] {
+  return () => useStore((selector) => selector.state[field])
 }
 
-export function usePersons(): Record<string, PersonIdentity> {
-  return useStore((selector) => selector.state.persons)
-}
-
-export function useTrees(): TreeMeta[] {
-  return useStore((selector) => selector.state.index)
-}
-
-export function useUnions(): Record<string, Union> {
-  return useStore((selector) => selector.state.unions)
-}
-
-export function useUnionEvents(): Record<string, UnionEvent> {
-  return useStore((selector) => selector.state.unionEvents)
-}
-
-export function useTreeUnions(): Record<string, TreeUnion> {
-  return useStore((selector) => selector.state.treeUnions)
-}
-
-export function useParentChildRelationships(): Record<
-  string,
-  ParentChildRelationship
-> {
-  return useStore((selector) => selector.state.parentChildRelationships)
-}
-
-export function useTreeParentChildRelationships(): Record<
-  string,
-  TreeParentChildRelationship
-> {
-  return useStore((selector) => selector.state.treeParentChildRelationships)
-}
+export const usePersons = graphCollectionHook("persons")
+export const useTreeMembers = graphCollectionHook("treeMembers")
+export const useTrees = graphCollectionHook("index")
+export const useUnions = graphCollectionHook("unions")
+export const useUnionEvents = graphCollectionHook("unionEvents")
+export const useTreeUnions = graphCollectionHook("treeUnions")
+export const useParentChildRelationships = graphCollectionHook(
+  "parentChildRelationships",
+)
+export const useTreeParentChildRelationships = graphCollectionHook(
+  "treeParentChildRelationships",
+)
 
 export function useAncestorTreeLinks(treeId: string): Map<string, string> {
-  return useStore(
-    (selector) =>
-      selector.ancestorTreeLinks.get(treeId) ?? emptyAncestorTreeLinks,
+  return useStore((selector) =>
+    ancestorTreeLinksFor(selector.ancestorTreeLinks, treeId),
   )
 }
 

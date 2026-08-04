@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { type DirtyState, findAncestorTree, type GlobalState } from "./store"
 import { ensureParentChildRelationship } from "./store/parent-child"
 import {
+  emptyState,
   getAncestorTreeLinks,
   isTreeFreshlyLoaded,
   subscribe,
@@ -15,19 +16,6 @@ import type {
 import { projectTree } from "./types"
 
 const timestamp = "2024-01-01T00:00:00.000Z"
-
-function emptyState(): GlobalState {
-  return {
-    persons: {},
-    index: [],
-    treeMembers: {},
-    unions: {},
-    unionEvents: {},
-    treeUnions: {},
-    parentChildRelationships: {},
-    treeParentChildRelationships: {},
-  }
-}
 
 function relationshipState(): GlobalState {
   return {

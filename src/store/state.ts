@@ -31,10 +31,12 @@ import {
 } from "./remote"
 import { useStore } from "./state-hooks"
 import {
+  ancestorTreeLinksFor,
   blockedChangesForTree,
   buildPushWires,
   dirtyBatchKey,
   emptyDirtyState,
+  emptyState,
   firstPendingOperation,
   hasAcknowledgedIds,
   isStoredPhotoMarker,
@@ -89,6 +91,7 @@ export {
   blockedChangesForTree,
   buildPushWires,
   clearDirty,
+  emptyState,
   fetchFullPull,
   fetchTreeManifest,
   fetchTreeSnapshot,
@@ -155,19 +158,6 @@ export type BlockedChange = {
 type TombstoneClock = { updatedAt: string; revision?: number }
 type TombstoneClocks = Record<DirtyCollection, Map<string, TombstoneClock>>
 
-function emptyState(): GlobalState {
-  return {
-    persons: {},
-    index: [],
-    treeMembers: {},
-    unions: {},
-    unionEvents: {},
-    treeUnions: {},
-    parentChildRelationships: {},
-    treeParentChildRelationships: {},
-  }
-}
-
 function emptyTombstoneClocks(): TombstoneClocks {
   return {
     persons: new Map(),
@@ -224,7 +214,6 @@ let persistenceRestoreToken = 0
  * part of the normalized graph — `projectTree` never reads it, so it cannot
  * leak partial membership into a tree's projection.
  */
-const emptyAncestorTreeLinks = new Map<string, string>()
 let ancestorTreeLinks = new Map<string, Map<string, string>>()
 
 /**
@@ -1151,7 +1140,7 @@ export function getGraph(): GlobalState {
 }
 
 export function getAncestorTreeLinks(treeId: string): Map<string, string> {
-  return ancestorTreeLinks.get(treeId) ?? emptyAncestorTreeLinks
+  return ancestorTreeLinksFor(ancestorTreeLinks, treeId)
 }
 
 export function subscribe(listener: () => void): () => void {
