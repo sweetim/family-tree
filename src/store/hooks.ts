@@ -252,35 +252,7 @@ export function useAncestorParents(
     }
   }, [ancestorTreeId, loaded])
 
-  const projectionRef = useRef<
-    | {
-        treeId: string
-        identities: Record<string, PersonIdentity>
-        relationships: NormalizedRelationships
-        family: FamilyData
-      }
-    | undefined
-  >(undefined)
-  const people = useMemo(() => {
-    if (!ancestorTreeId) return NO_FAMILY
-    const previous = projectionRef.current
-    const sameTree = previous?.treeId === ancestorTreeId
-    const family = projectTreeStable(
-      sameTree ? previous?.family : undefined,
-      sameTree ? previous?.identities : undefined,
-      sameTree ? previous?.relationships : undefined,
-      persons,
-      relationships,
-      ancestorTreeId,
-    )
-    projectionRef.current = {
-      treeId: ancestorTreeId,
-      identities: persons,
-      relationships,
-      family,
-    }
-    return family
-  }, [ancestorTreeId, persons, relationships])
+  const people = useStableFamily(persons, relationships, ancestorTreeId)
   const parents = useMemo(() => {
     if (!ancestorTreeId) return NO_PARENT_LINKS
     const projected = people[personId]
@@ -344,45 +316,67 @@ export function useMembersOf(
 
 const NO_PEOPLE: Person[] = []
 
-export function useTreePeople(treeId: string | undefined): Person[] {
-  const persons = usePersons()
-  const relationships = useRelationships()
-  // Structural-sharing projection (mirrors useFamily): skip the full
-  // projectTree pass whenever this tree's records are unchanged, and reuse the
-  // previous Person[] when the projected FamilyData is referentially stable.
+/**
+ * Project one tree with structural sharing: returns a referentially stable
+ * `FamilyData` (reusing the previous result) whenever this tree's identities
+ * and relationships are unchanged, so downstream `useMemo` and `React.memo`
+ * boundaries don't recompute on unrelated edits. Returns `NO_FAMILY` (without
+ * touching the cache) when `treeId` is absent.
+ */
+function useStableFamily(
+  identities: Record<string, PersonIdentity>,
+  relationships: NormalizedRelationships,
+  treeId: string | undefined,
+): FamilyData {
   const projectionRef = useRef<
     | {
         treeId: string
         identities: Record<string, PersonIdentity>
         relationships: NormalizedRelationships
         family: FamilyData
-        people: Person[]
       }
     | undefined
   >(undefined)
   return useMemo(() => {
-    if (!treeId) return NO_PEOPLE
-    const prev = projectionRef.current
-    const sameTree = prev?.treeId === treeId
+    if (!treeId) return NO_FAMILY
+    const previous = projectionRef.current
+    const sameTree = previous?.treeId === treeId
     const family = projectTreeStable(
-      sameTree ? prev?.family : undefined,
-      sameTree ? prev?.identities : undefined,
-      sameTree ? prev?.relationships : undefined,
-      persons,
+      sameTree ? previous?.family : undefined,
+      sameTree ? previous?.identities : undefined,
+      sameTree ? previous?.relationships : undefined,
+      identities,
       relationships,
       treeId,
     )
-    const people =
-      prev && family === prev.family ? prev.people : Object.values(family)
     projectionRef.current = {
       treeId,
-      identities: persons,
+      identities,
       relationships,
       family,
-      people,
     }
+    return family
+  }, [identities, relationships, treeId])
+}
+
+export function useTreePeople(treeId: string | undefined): Person[] {
+  const persons = usePersons()
+  const relationships = useRelationships()
+  // Reuse `useStableFamily`'s referentially stable FamilyData, then derive the
+  // Person[] only when that projection actually changed.
+  const family = useStableFamily(persons, relationships, treeId)
+  const peopleRef = useRef<
+    { family: FamilyData; people: Person[] } | undefined
+  >(undefined)
+  return useMemo(() => {
+    if (!treeId) return NO_PEOPLE
+    const people =
+      peopleRef.current?.family === family
+        ? peopleRef.current.people
+        : Object.values(family)
+    peopleRef.current = { family, people }
     return people
-  }, [persons, relationships, treeId])
+  }, [family, treeId])
 }
 
 export type PersonSearchResult = {
@@ -497,37 +491,7 @@ export function useFamily(treeId: string) {
   const persons = usePersons()
   const trees = useTrees()
   const relationships = useRelationships()
-  // Structural-sharing projection: returns the same `people` reference (and the
-  // same `Person` objects within it) whenever this tree's underlying records
-  // are unchanged, so the layout memo and per-card `React.memo` actually fire.
-  const projectionRef = useRef<
-    | {
-        treeId: string
-        identities: Record<string, PersonIdentity>
-        relationships: NormalizedRelationships
-        people: FamilyData
-      }
-    | undefined
-  >(undefined)
-  const people = useMemo(() => {
-    const prev = projectionRef.current
-    const sameTree = prev?.treeId === treeId
-    const next = projectTreeStable(
-      sameTree ? prev?.people : undefined,
-      sameTree ? prev?.identities : undefined,
-      sameTree ? prev?.relationships : undefined,
-      persons,
-      relationships,
-      treeId,
-    )
-    projectionRef.current = {
-      treeId,
-      identities: persons,
-      relationships,
-      people: next,
-    }
-    return next
-  }, [persons, relationships, treeId])
+  const people = useStableFamily(persons, relationships, treeId)
   const readOnly = useMemo(
     () => trees.find((tree) => tree.id === treeId)?.role === "viewer",
     [treeId, trees],

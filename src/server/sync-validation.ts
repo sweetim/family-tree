@@ -348,6 +348,47 @@ function hasUniqueKeys(
   return true
 }
 
+const COLLECTION_RULES: Record<
+  SyncCollectionName,
+  {
+    readonly isValid: (value: unknown, now: Date) => boolean
+    readonly keyFor: (record: Record<string, unknown>) => string
+  }
+> = {
+  persons: {
+    isValid: isValidPersonWire,
+    keyFor: (record) => String(record.id),
+  },
+  trees: { isValid: isValidTreeWire, keyFor: (record) => String(record.id) },
+  treeMembers: {
+    isValid: isValidTreeMemberWire,
+    keyFor: (record) =>
+      associationKey(String(record.treeId), String(record.personId)),
+  },
+  unions: { isValid: isValidUnionWire, keyFor: (record) => String(record.id) },
+  unionEvents: {
+    isValid: isValidUnionEventWire,
+    keyFor: (record) => String(record.id),
+  },
+  treeUnions: {
+    isValid: isValidTreeUnionWire,
+    keyFor: (record) =>
+      associationKey(String(record.treeId), String(record.unionId)),
+  },
+  parentChildRelationships: {
+    isValid: isValidParentRelationshipWire,
+    keyFor: (record) => String(record.id),
+  },
+  treeParentChildRelationships: {
+    isValid: isValidTreeParentRelationshipWire,
+    keyFor: (record) =>
+      associationKey(
+        String(record.treeId),
+        String(record.parentChildRelationshipId),
+      ),
+  },
+}
+
 export function isValidSyncPushRequest(
   value: unknown,
   now: Date,
@@ -360,60 +401,27 @@ export function isValidSyncPushRequest(
     return false
   }
 
-  const persons = value.persons as unknown[]
-  const trees = value.trees as unknown[]
-  const treeMembers = value.treeMembers as unknown[]
-  const unions = value.unions as unknown[]
-  const unionEvents = value.unionEvents as unknown[]
-  const treeUnions = value.treeUnions as unknown[]
-  const parentRelationships = value.parentChildRelationships as unknown[]
-  const treeParentRelationships =
-    value.treeParentChildRelationships as unknown[]
-
-  const collections = SYNC_COLLECTIONS.map(
-    (collection) => value[collection] as unknown[],
-  )
+  const entries = SYNC_COLLECTIONS.map((collection) => ({
+    collection,
+    items: value[collection] as unknown[],
+  }))
   if (
-    collections.some(
-      (collection) => collection.length > MAX_SYNC_RECORDS_PER_COLLECTION,
+    entries.some(
+      (entry) => entry.items.length > MAX_SYNC_RECORDS_PER_COLLECTION,
     )
-    || collections.reduce((total, collection) => total + collection.length, 0)
+    || entries.reduce((total, entry) => total + entry.items.length, 0)
       > MAX_SYNC_TOTAL_RECORDS
   ) {
     return false
   }
 
-  return (
-    persons.every((record) => isValidPersonWire(record, now))
-    && trees.every((record) => isValidTreeWire(record, now))
-    && treeMembers.every((record) => isValidTreeMemberWire(record, now))
-    && unions.every((record) => isValidUnionWire(record, now))
-    && unionEvents.every((record) => isValidUnionEventWire(record, now))
-    && treeUnions.every((record) => isValidTreeUnionWire(record, now))
-    && parentRelationships.every((record) =>
-      isValidParentRelationshipWire(record, now),
+  return entries.every((entry) => {
+    const rule = COLLECTION_RULES[entry.collection]
+    return (
+      entry.items.every((record) => rule.isValid(record, now))
+      && hasUniqueKeys(entry.items, rule.keyFor)
     )
-    && treeParentRelationships.every((record) =>
-      isValidTreeParentRelationshipWire(record, now),
-    )
-    && hasUniqueKeys(persons, (record) => String(record.id))
-    && hasUniqueKeys(trees, (record) => String(record.id))
-    && hasUniqueKeys(treeMembers, (record) =>
-      associationKey(String(record.treeId), String(record.personId)),
-    )
-    && hasUniqueKeys(unions, (record) => String(record.id))
-    && hasUniqueKeys(unionEvents, (record) => String(record.id))
-    && hasUniqueKeys(treeUnions, (record) =>
-      associationKey(String(record.treeId), String(record.unionId)),
-    )
-    && hasUniqueKeys(parentRelationships, (record) => String(record.id))
-    && hasUniqueKeys(treeParentRelationships, (record) =>
-      associationKey(
-        String(record.treeId),
-        String(record.parentChildRelationshipId),
-      ),
-    )
-  )
+  })
 }
 
 export function clientCanTombstone(collection: SyncCollectionName): boolean {

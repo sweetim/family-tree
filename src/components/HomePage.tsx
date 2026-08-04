@@ -9,8 +9,8 @@ import {
   Search,
   Share2,
   Sparkles,
-  TriangleAlert,
   Trash2,
+  TriangleAlert,
   Users,
   X,
 } from "lucide-react"
@@ -19,17 +19,20 @@ import { useRouter } from "next/navigation"
 import {
   type FormEvent,
   type ReactNode,
+  type Ref,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
 } from "react"
-import { useSession } from "../lib/auth-client"
+import { match } from "ts-pattern"
 import { useOwnedAccessRequestCount } from "../lib/access-requests"
+import { useSession } from "../lib/auth-client"
 import {
   countMembers,
-  seedData,
   type SyncStatus,
+  seedData,
   type TreeIndexStore,
   type TreeMeta,
   useHydrated,
@@ -50,34 +53,46 @@ function initialFor(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "?"
 }
 
-function TreeCard({
-  tree,
-  navigate,
-  onRename,
-  onDelete,
-  onShare,
-}: {
+type TreeNameFieldHandle = {
+  start: () => void
+}
+
+type TreeNameFieldProps = {
   tree: TreeMeta
   navigate: (to: string) => void
   onRename: (name: string) => void
-  onDelete: () => Promise<void>
-  onShare: () => void
-}) {
-  const confirm = useConfirm()
-  const toast = useToast()
+}
+
+/**
+ * Inline-rename field for a tree's name. Owns the rename state machine
+ * (editing, sync status, click-outside-to-close, auto-dismiss on saved) and
+ * exposes a `start()` handle so the rename trigger button elsewhere in the
+ * card can enter edit mode.
+ */
+function TreeNameField({
+  ref,
+  tree,
+  navigate,
+  onRename,
+}: TreeNameFieldProps & { ref?: Ref<TreeNameFieldHandle> }) {
   const [renaming, setRenaming] = useState(false)
-  const [deleting, setDeleting] = useState(false)
   const [name, setName] = useState(tree.name)
   const [renameStatus, setRenameStatus] = useState<SyncStatus | null>(null)
   const renameFormRef = useRef<HTMLFormElement>(null)
   const nameInputRef = useRef<HTMLInputElement>(null)
   const syncStatus = useSyncStatus()
-  const members = countMembers(tree.id)
-  const created = new Date(tree.createdAt).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  })
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      start: () => {
+        setName(tree.name)
+        setRenameStatus(null)
+        setRenaming(true)
+      },
+    }),
+    [tree.name],
+  )
 
   function submitRename(e: FormEvent) {
     e.preventDefault()
@@ -122,20 +137,102 @@ function TreeCard({
     return () => document.removeEventListener("mousedown", closeWhenUnfocused)
   }, [renaming, renameStatus])
 
-  const renameIndicator =
-    renameStatus === "saving"
-      ? { icon: Loader2, label: "Saving", className: "text-slate-400" }
-      : renameStatus === "saved"
-        ? { icon: Check, label: "Saved", className: "text-emerald-600" }
-        : renameStatus === "offline"
-          ? { icon: CloudOff, label: "Offline", className: "text-amber-600" }
-          : renameStatus === "conflict"
-            ? {
-                icon: TriangleAlert,
-                label: "Sync conflict",
-                className: "text-red-600",
-              }
-            : null
+  const renameIndicator = match(renameStatus)
+    .with("saving", () => ({
+      icon: Loader2,
+      label: "Saving",
+      className: "text-slate-400",
+      spin: true,
+    }))
+    .with("saved", () => ({
+      icon: Check,
+      label: "Saved",
+      className: "text-emerald-600",
+      spin: false,
+    }))
+    .with("offline", () => ({
+      icon: CloudOff,
+      label: "Offline",
+      className: "text-amber-600",
+      spin: false,
+    }))
+    .with("conflict", () => ({
+      icon: TriangleAlert,
+      label: "Sync conflict",
+      className: "text-red-600",
+      spin: false,
+    }))
+    .with(null, () => null)
+    .exhaustive()
+
+  if (renaming) {
+    return (
+      <form
+        ref={renameFormRef}
+        onSubmit={submitRename}
+        className="relative"
+      >
+        <input
+          ref={nameInputRef}
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value)
+            if (renameStatus !== "saving") setRenameStatus(null)
+          }}
+          onBlur={submitRename}
+          aria-label="Tree name"
+          disabled={renameStatus === "saving"}
+          className={`${inputCls} pr-32`}
+        />
+        {renameIndicator && (
+          <span
+            aria-live="polite"
+            className={`pointer-events-none absolute inset-y-0 right-3 inline-flex items-center gap-1 text-xs font-medium ${renameIndicator.className}`}
+          >
+            <renameIndicator.icon
+              className={`h-3.5 w-3.5 ${renameIndicator.spin ? "animate-spin" : ""}`}
+            />
+            {renameIndicator.label}
+          </span>
+        )}
+      </form>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`/tree/${tree.id}`)}
+      className="block truncate text-left font-semibold text-slate-900 transition-colors hover:text-cobalt-700"
+    >
+      {tree.name}
+    </button>
+  )
+}
+
+function TreeCard({
+  tree,
+  navigate,
+  onRename,
+  onDelete,
+  onShare,
+}: {
+  tree: TreeMeta
+  navigate: (to: string) => void
+  onRename: (name: string) => void
+  onDelete: () => Promise<void>
+  onShare: () => void
+}) {
+  const confirm = useConfirm()
+  const toast = useToast()
+  const [deleting, setDeleting] = useState(false)
+  const nameFieldRef = useRef<TreeNameFieldHandle>(null)
+  const members = countMembers(tree.id)
+  const created = new Date(tree.createdAt).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
 
   return (
     <div className="group flex flex-col rounded-xl border border-slate-200 bg-white p-4 transition-all hover:border-cobalt-300 hover:shadow-soft sm:p-5">
@@ -144,45 +241,12 @@ function TreeCard({
           {initialFor(tree.name)}
         </span>
         <div className="min-w-0 flex-1">
-          {renaming ? (
-            <form
-              ref={renameFormRef}
-              onSubmit={submitRename}
-              className="relative"
-            >
-              <input
-                ref={nameInputRef}
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value)
-                  if (renameStatus !== "saving") setRenameStatus(null)
-                }}
-                onBlur={submitRename}
-                aria-label="Tree name"
-                disabled={renameStatus === "saving"}
-                className={`${inputCls} pr-32`}
-              />
-              {renameIndicator && (
-                <span
-                  aria-live="polite"
-                  className={`pointer-events-none absolute inset-y-0 right-3 inline-flex items-center gap-1 text-xs font-medium ${renameIndicator.className}`}
-                >
-                  <renameIndicator.icon
-                    className={`h-3.5 w-3.5 ${renameStatus === "saving" ? "animate-spin" : ""}`}
-                  />
-                  {renameIndicator.label}
-                </span>
-              )}
-            </form>
-          ) : (
-            <button
-              type="button"
-              onClick={() => navigate(`/tree/${tree.id}`)}
-              className="block truncate text-left font-semibold text-slate-900 transition-colors hover:text-cobalt-700"
-            >
-              {tree.name}
-            </button>
-          )}
+          <TreeNameField
+            ref={nameFieldRef}
+            tree={tree}
+            navigate={navigate}
+            onRename={onRename}
+          />
           <p className="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-500">
             <Users className="h-3.5 w-3.5" />
             {members} {members === 1 ? "member" : "members"} · created {created}
@@ -209,11 +273,7 @@ function TreeCard({
         <button
           type="button"
           title="Rename tree"
-          onClick={() => {
-            setName(tree.name)
-            setRenameStatus(null)
-            setRenaming(true)
-          }}
+          onClick={() => nameFieldRef.current?.start()}
           className={ghostBtn}
         >
           <Pencil className="h-4 w-4" />
@@ -544,14 +604,21 @@ function NewTreeDialog({
   )
 }
 
-export function HomePage({ index }: { index: TreeIndexStore }) {
-  const { data: session, isPending } = useSession()
-  const hydrated = useHydrated()
+/**
+ * Authenticated home dashboard: tree summary, the user's own trees, trees
+ * shared with them, and the create/share dialogs. The page shell
+ * (header + search) lives in `HomePage`.
+ */
+function HomeDashboard({
+  index,
+  navigate,
+}: {
+  index: TreeIndexStore
+  navigate: (to: string) => void
+}) {
   const { trees, createTree, renameTree, deleteTree } = index
   const [newTreeOpen, setNewTreeOpen] = useState(false)
   const [shareTarget, setShareTarget] = useState<TreeMeta | null>(null)
-  const router = useRouter()
-  const navigate = (to: string) => router.push(to)
 
   const own = useMemo(
     () => trees.filter((t) => t.role !== "viewer" && t.role !== "editor"),
@@ -561,13 +628,7 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
     () => trees.filter((t) => t.role === "viewer" || t.role === "editor"),
     [trees],
   )
-  const pendingAccessRequestCount = useOwnedAccessRequestCount(
-    Boolean(session?.user) && own.length > 0,
-  )
-  const treeNameById = useMemo(
-    () => new Map(trees.map((tree) => [tree.id, tree.name] as const)),
-    [trees],
-  )
+  const pendingAccessRequestCount = useOwnedAccessRequestCount(own.length > 0)
   const totalPeople = useMemo(
     () => trees.reduce((sum, tree) => sum + countMembers(tree.id), 0),
     [trees],
@@ -578,127 +639,147 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
     navigate(`/tree/${createTree(trimmed)}`)
   }
 
-  let body: ReactNode
-  if (!session?.user) {
-    return <LandingPage />
-  } else if (isPending || !hydrated) {
-    body = <HomeSkeleton />
-  } else {
-    body = (
-      <>
-        <div className="flex items-end justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
-              Your family trees
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              {trees.length} {trees.length === 1 ? "tree" : "trees"} ·{" "}
-              {totalPeople} {totalPeople === 1 ? "person" : "people"}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {own.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => navigate("/sharing")}
-                  aria-label={
-                    pendingAccessRequestCount > 0
-                      ? `Sharing, ${pendingAccessRequestCount} pending access ${pendingAccessRequestCount === 1 ? "request" : "requests"}`
-                      : "Sharing"
-                  }
-                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-cobalt-700 ring-1 ring-cobalt-200 transition-all hover:bg-cobalt-50 active:scale-95"
-                >
-                  <Users className="h-4 w-4" /> Sharing
-                  {pendingAccessRequestCount > 0 ? (
-                    <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-                      {pendingAccessRequestCount > 99
-                        ? "99+"
-                        : pendingAccessRequestCount}
-                    </span>
-                  ) : null}
-                </button>
-            )}
-          </div>
+  return (
+    <>
+      <div className="flex items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">
+            Your family trees
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {trees.length} {trees.length === 1 ? "tree" : "trees"} ·{" "}
+            {totalPeople} {totalPeople === 1 ? "person" : "people"}
+          </p>
         </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {own.length > 0 && (
+            <button
+              type="button"
+              onClick={() => navigate("/sharing")}
+              aria-label={
+                pendingAccessRequestCount > 0
+                  ? `Sharing, ${pendingAccessRequestCount} pending access ${pendingAccessRequestCount === 1 ? "request" : "requests"}`
+                  : "Sharing"
+              }
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-cobalt-700 ring-1 ring-cobalt-200 transition-all hover:bg-cobalt-50 active:scale-95"
+            >
+              <Users className="h-4 w-4" /> Sharing
+              {pendingAccessRequestCount > 0 ? (
+                <span className="rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                  {pendingAccessRequestCount > 99
+                    ? "99+"
+                    : pendingAccessRequestCount}
+                </span>
+              ) : null}
+            </button>
+          )}
+        </div>
+      </div>
 
-        <div className="mt-8">
-          {trees.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
-              <span className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-cobalt-50 text-cobalt-600">
-                <Network className="h-6 w-6" />
-              </span>
-              <p className="text-sm font-semibold text-slate-700">
-                No family trees yet
-              </p>
-              <p className="mt-1 text-sm text-slate-500">
-                Create one to get started, or try a small example.
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  navigate(`/tree/${createTree("Sample Family", seedData())}`)
-                }
-                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-medium text-cobalt-700 ring-1 ring-cobalt-200 transition-all hover:bg-cobalt-50 active:scale-95"
-              >
-                <Sparkles className="h-4 w-4" /> Create sample tree
-              </button>
-            </div>
-          ) : (
-            <>
-              <section>
+      <div className="mt-8">
+        {trees.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
+            <span className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-cobalt-50 text-cobalt-600">
+              <Network className="h-6 w-6" />
+            </span>
+            <p className="text-sm font-semibold text-slate-700">
+              No family trees yet
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Create one to get started, or try a small example.
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                navigate(`/tree/${createTree("Sample Family", seedData())}`)
+              }
+              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-medium text-cobalt-700 ring-1 ring-cobalt-200 transition-all hover:bg-cobalt-50 active:scale-95"
+            >
+              <Sparkles className="h-4 w-4" /> Create sample tree
+            </button>
+          </div>
+        ) : (
+          <>
+            <section>
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Your trees
+              </h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <NewTreeCard onClick={() => setNewTreeOpen(true)} />
+                {own.map((tree) => (
+                  <TreeCard
+                    key={tree.id}
+                    tree={tree}
+                    navigate={navigate}
+                    onRename={(n) => renameTree(tree.id, n)}
+                    onDelete={() => deleteTree(tree.id)}
+                    onShare={() => setShareTarget(tree)}
+                  />
+                ))}
+              </div>
+            </section>
+
+            {shared.length > 0 && (
+              <section className="mt-8">
                 <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Your trees
+                  Shared with you
                 </h2>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <NewTreeCard onClick={() => setNewTreeOpen(true)} />
-                  {own.map((tree) => (
-                    <TreeCard
+                <div className="space-y-3">
+                  {shared.map((tree) => (
+                    <SharedTreeCard
                       key={tree.id}
                       tree={tree}
                       navigate={navigate}
-                      onRename={(n) => renameTree(tree.id, n)}
-                      onDelete={() => deleteTree(tree.id)}
-                      onShare={() => setShareTarget(tree)}
                     />
                   ))}
                 </div>
               </section>
-
-              {shared.length > 0 && (
-                <section className="mt-8">
-                  <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Shared with you
-                  </h2>
-                  <div className="space-y-3">
-                    {shared.map((tree) => (
-                      <SharedTreeCard
-                        key={tree.id}
-                        tree={tree}
-                        navigate={navigate}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
-            </>
-          )}
-        </div>
-
-        {shareTarget && (
-          <ShareDialog
-            treeId={shareTarget.id}
-            treeName={shareTarget.name}
-            onClose={() => setShareTarget(null)}
-          />
+            )}
+          </>
         )}
+      </div>
 
-        {newTreeOpen && (
-          <NewTreeDialog
-            onClose={() => setNewTreeOpen(false)}
-            onCreate={createWithName}
-          />
-        )}
-      </>
+      {shareTarget && (
+        <ShareDialog
+          treeId={shareTarget.id}
+          treeName={shareTarget.name}
+          onClose={() => setShareTarget(null)}
+        />
+      )}
+
+      {newTreeOpen && (
+        <NewTreeDialog
+          onClose={() => setNewTreeOpen(false)}
+          onCreate={createWithName}
+        />
+      )}
+    </>
+  )
+}
+
+export function HomePage({ index }: { index: TreeIndexStore }) {
+  const { data: session, isPending } = useSession()
+  const hydrated = useHydrated()
+  const router = useRouter()
+  const navigate = (to: string) => router.push(to)
+  const treeNameById = useMemo(
+    () => new Map(index.trees.map((tree) => [tree.id, tree.name] as const)),
+    [index.trees],
+  )
+
+  if (!session?.user) {
+    return <LandingPage />
+  }
+
+  let body: ReactNode
+  if (isPending || !hydrated) {
+    body = <HomeSkeleton />
+  } else {
+    body = (
+      <HomeDashboard
+        index={index}
+        navigate={navigate}
+      />
     )
   }
 

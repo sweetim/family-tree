@@ -29,6 +29,7 @@
     "react": "^19",
     "react-dom": "^19",
     "tailwindcss": "^4.3.2",
+    "ts-pattern": "5",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
