@@ -453,9 +453,117 @@ export function relationshipsSame(
   )
 }
 
+function recordsForTreesSame<Value extends { treeId: string }>(
+  previous: Record<string, Value>,
+  current: Record<string, Value>,
+  treeIds: Set<string>,
+): boolean {
+  for (const [id, record] of Object.entries(previous)) {
+    if (treeIds.has(record.treeId) && current[id] !== record) return false
+  }
+  for (const [id, record] of Object.entries(current)) {
+    if (treeIds.has(record.treeId) && previous[id] !== record) return false
+  }
+  return true
+}
+
+function recordsForIdsSame<Value>(
+  previous: Record<string, Value>,
+  current: Record<string, Value>,
+  ids: Set<string>,
+): boolean {
+  for (const id of ids) {
+    if (previous[id] !== current[id]) return false
+  }
+  return true
+}
+
+function recordsForUnionIdsSame(
+  previous: Record<string, UnionEvent>,
+  current: Record<string, UnionEvent>,
+  unionIds: Set<string>,
+): boolean {
+  for (const [id, record] of Object.entries(previous)) {
+    if (unionIds.has(record.unionId) && current[id] !== record) return false
+  }
+  for (const [id, record] of Object.entries(current)) {
+    if (unionIds.has(record.unionId) && previous[id] !== record) return false
+  }
+  return true
+}
+
+function projectionInputsSame(
+  previousIdentities: Record<string, PersonIdentity>,
+  previousRelationships: NormalizedRelationships,
+  identities: Record<string, PersonIdentity>,
+  relationships: NormalizedRelationships,
+  treeIds: string[],
+): boolean {
+  const selectedTreeIds = new Set(treeIds)
+  if (
+    !recordsForTreesSame(
+      previousRelationships.treeMembers,
+      relationships.treeMembers,
+      selectedTreeIds,
+    )
+    || !recordsForTreesSame(
+      previousRelationships.treeUnions,
+      relationships.treeUnions,
+      selectedTreeIds,
+    )
+    || !recordsForTreesSame(
+      previousRelationships.treeParentChildRelationships,
+      relationships.treeParentChildRelationships,
+      selectedTreeIds,
+    )
+  ) {
+    return false
+  }
+
+  const memberIds = new Set(
+    Object.values(relationships.treeMembers)
+      .filter((member) => selectedTreeIds.has(member.treeId))
+      .map((member) => member.personId),
+  )
+  if (!recordsForIdsSame(previousIdentities, identities, memberIds)) {
+    return false
+  }
+
+  const unionIds = new Set(
+    Object.values(relationships.treeUnions)
+      .filter((association) => selectedTreeIds.has(association.treeId))
+      .map((association) => association.unionId),
+  )
+  if (
+    !recordsForIdsSame(
+      previousRelationships.unions,
+      relationships.unions,
+      unionIds,
+    )
+    || !recordsForUnionIdsSame(
+      previousRelationships.unionEvents,
+      relationships.unionEvents,
+      unionIds,
+    )
+  ) {
+    return false
+  }
+
+  const parentChildRelationshipIds = new Set(
+    Object.values(relationships.treeParentChildRelationships)
+      .filter((association) => selectedTreeIds.has(association.treeId))
+      .map((association) => association.parentChildRelationshipId),
+  )
+  return recordsForIdsSame(
+    previousRelationships.parentChildRelationships,
+    relationships.parentChildRelationships,
+    parentChildRelationshipIds,
+  )
+}
+
 /**
  * Project a tree with structural sharing. Short-circuits to the previous
- * result when neither identities nor any relationship collection changed;
+ * result when the selected tree's identities and relationships are unchanged;
  * otherwise recomputes and reuses unchanged `Person` objects.
  */
 export function projectTreeStable(
@@ -470,8 +578,13 @@ export function projectTreeStable(
     previous
     && prevIdentities
     && prevRelationships
-    && prevIdentities === identities
-    && relationshipsSame(prevRelationships, relationships)
+    && projectionInputsSame(
+      prevIdentities,
+      prevRelationships,
+      identities,
+      relationships,
+      [treeId],
+    )
   ) {
     return previous
   }
@@ -485,11 +598,20 @@ export function projectTreeStable(
   )
 }
 
+const projectedTreeIds = new WeakMap<FamilyData, string[]>()
+
+function treeIdsSame(previous: string[], current: string[]): boolean {
+  return (
+    previous.length === current.length
+    && previous.every((treeId, index) => treeId === current[index])
+  )
+}
+
 /**
  * Project multiple trees with structural sharing. Mirrors `projectTreeStable`
  * for the merged "show all families" view: short-circuits to `previous` when
- * neither identities nor any relationship collection changed, otherwise
- * recomputes via `projectTrees` and reuses unchanged `Person` objects.
+ * the selected trees' inputs are unchanged, otherwise recomputes via
+ * `projectTrees` and reuses unchanged `Person` objects.
  */
 export function projectTreesStable(
   previous: FamilyData | undefined,
@@ -499,16 +621,24 @@ export function projectTreesStable(
   relationships: NormalizedRelationships,
   treeIds: string[],
 ): FamilyData {
+  const previousTreeIds = previous && projectedTreeIds.get(previous)
   if (
     previous
     && prevIdentities
     && prevRelationships
-    && prevIdentities === identities
-    && relationshipsSame(prevRelationships, relationships)
+    && previousTreeIds
+    && treeIdsSame(previousTreeIds, treeIds)
+    && projectionInputsSame(
+      prevIdentities,
+      prevRelationships,
+      identities,
+      relationships,
+      treeIds,
+    )
   ) {
     return previous
   }
-  return stabilizeFamily(
+  const family = stabilizeFamily(
     previous,
     prevIdentities,
     prevRelationships,
@@ -516,6 +646,8 @@ export function projectTreesStable(
     identities,
     relationships,
   )
+  projectedTreeIds.set(family, [...treeIds])
+  return family
 }
 
 export type Relationship =

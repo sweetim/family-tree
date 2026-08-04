@@ -26,6 +26,7 @@ mock.module("@vercel/blob", () => ({
 }))
 
 const { runSyncMutation } = await import("./push")
+const { runDirectTreeDeletion } = await import("../handlers/trees")
 
 /**
  * Integration characterization tests for the normalized sync mutation
@@ -74,6 +75,143 @@ async function mutate(
 
 function appliedOf(result: SyncMutationResponse): SyncAppliedIds {
   return result.applied
+}
+
+async function createDeletionFixture(suffix: string): Promise<{
+  treeId: string
+  parentId: string
+  childId: string
+  unionId: string
+  parentRelationshipId: string
+}> {
+  const treeId = `${RUN}-delete-${suffix}-tree`
+  const parentId = `${RUN}-delete-${suffix}-parent`
+  const childId = `${RUN}-delete-${suffix}-child`
+  const unionId = `${RUN}-delete-${suffix}-union`
+  const parentRelationshipId = `${RUN}-delete-${suffix}-relationship`
+  const [firstPersonId, secondPersonId]: [string, string] =
+    parentId < childId ? [parentId, childId] : [childId, parentId]
+
+  await mutate(owner, {
+    ...emptyBody(),
+    trees: [
+      {
+        id: treeId,
+        name: "Deletion fixture",
+        createdAt: now(),
+        updatedAt: now(),
+      },
+    ],
+    persons: [
+      { id: parentId, name: "Parent", updatedAt: now() },
+      { id: childId, name: "Child", updatedAt: now() },
+    ],
+    treeMembers: [
+      { treeId, personId: parentId, createdAt: now(), updatedAt: now() },
+      { treeId, personId: childId, createdAt: now(), updatedAt: now() },
+    ],
+    unions: [
+      {
+        id: unionId,
+        firstPersonId,
+        secondPersonId,
+        createdAt: now(),
+        updatedAt: now(),
+      },
+    ],
+    unionEvents: [
+      {
+        id: `${unionId}-event`,
+        unionId,
+        type: "married",
+        createdAt: now(),
+        updatedAt: now(),
+      },
+    ],
+    treeUnions: [{ treeId, unionId, createdAt: now(), updatedAt: now() }],
+    parentChildRelationships: [
+      {
+        id: parentRelationshipId,
+        parentPersonId: parentId,
+        childPersonId: childId,
+        type: "biological",
+        createdAt: now(),
+        updatedAt: now(),
+      },
+    ],
+    treeParentChildRelationships: [
+      {
+        treeId,
+        parentChildRelationshipId: parentRelationshipId,
+        createdAt: now(),
+        updatedAt: now(),
+      },
+    ],
+  })
+  await db.insert(schema.treeShares).values({
+    treeId,
+    email: `${RUN}-delete-${suffix}@test`,
+    role: "viewer",
+  })
+  return { treeId, parentId, childId, unionId, parentRelationshipId }
+}
+
+async function expectTreeDeletionCascade(
+  fixture: Awaited<ReturnType<typeof createDeletionFixture>>,
+): Promise<void> {
+  const [tree, parent, child, member, treeUnion, parentAssociation, share] =
+    await Promise.all([
+      db.query.trees.findFirst({ where: eq(schema.trees.id, fixture.treeId) }),
+      db.query.persons.findFirst({
+        where: eq(schema.persons.id, fixture.parentId),
+      }),
+      db.query.persons.findFirst({
+        where: eq(schema.persons.id, fixture.childId),
+      }),
+      db.query.treeMembers.findFirst({
+        where: and(
+          eq(schema.treeMembers.treeId, fixture.treeId),
+          eq(schema.treeMembers.personId, fixture.parentId),
+        ),
+      }),
+      db.query.treeUnions.findFirst({
+        where: and(
+          eq(schema.treeUnions.treeId, fixture.treeId),
+          eq(schema.treeUnions.unionId, fixture.unionId),
+        ),
+      }),
+      db.query.treeParentChildRelationships.findFirst({
+        where: and(
+          eq(schema.treeParentChildRelationships.treeId, fixture.treeId),
+          eq(
+            schema.treeParentChildRelationships.parentChildRelationshipId,
+            fixture.parentRelationshipId,
+          ),
+        ),
+      }),
+      db.query.treeShares.findFirst({
+        where: eq(schema.treeShares.treeId, fixture.treeId),
+      }),
+    ])
+  const parentRelationship = await db.query.parentChildRelationships.findFirst({
+    where: eq(schema.parentChildRelationships.id, fixture.parentRelationshipId),
+  })
+
+  expect(tree?.deletedAt).not.toBeNull()
+  expect(tree?.revision).toBe(2)
+  expect(member?.deletedAt).not.toBeNull()
+  expect(member?.revision).toBe(2)
+  expect(treeUnion?.deletedAt).not.toBeNull()
+  expect(parentAssociation?.deletedAt).not.toBeNull()
+  expect(parentRelationship?.deletedAt).not.toBeNull()
+  expect(share).toBeUndefined()
+  expect(parent?.deletedAt).toBeNull()
+  expect(child?.deletedAt).toBeNull()
+  expect(
+    await db.query.unions.findFirst({
+      where: eq(schema.unions.id, fixture.unionId),
+    }),
+  ).toMatchObject({ deletedAt: null })
 }
 
 beforeAll(async () => {
@@ -240,6 +378,140 @@ test("creates a full tree with members, a union, an event, and parent/child fact
   })
   expect(relationship?.type).toBe("biological")
 })
+
+test("direct tree deletion tombstones its local graph and orphaned parent fact", async () => {
+  const fixture = await createDeletionFixture("direct")
+
+  const response = await runDirectTreeDeletion(owner, fixture.treeId)
+
+  expect(response.status).toBe(200)
+  expect(response.headers.get("cache-control")).toBe("private, no-store")
+  expect(await response.json()).toEqual({ ok: true })
+  await expectTreeDeletionCascade(fixture)
+
+  const retry = await runDirectTreeDeletion(owner, fixture.treeId)
+  expect(retry.status).toBe(404)
+  expect(await retry.json()).toEqual({ error: "tree not found" })
+})
+
+test("tree deletion keeps a parent fact associated with another tree", async () => {
+  const fixture = await createDeletionFixture("shared-parent")
+  const otherTreeId = `${RUN}-delete-shared-parent-other-tree`
+  await mutate(owner, {
+    ...emptyBody(),
+    trees: [
+      {
+        id: otherTreeId,
+        name: "Related tree",
+        createdAt: now(),
+        updatedAt: now(),
+      },
+    ],
+    treeMembers: [
+      {
+        treeId: otherTreeId,
+        personId: fixture.parentId,
+        createdAt: now(),
+        updatedAt: now(),
+      },
+      {
+        treeId: otherTreeId,
+        personId: fixture.childId,
+        createdAt: now(),
+        updatedAt: now(),
+      },
+    ],
+    treeParentChildRelationships: [
+      {
+        treeId: otherTreeId,
+        parentChildRelationshipId: fixture.parentRelationshipId,
+        createdAt: now(),
+        updatedAt: now(),
+      },
+    ],
+  })
+
+  const response = await runDirectTreeDeletion(owner, fixture.treeId)
+
+  expect(response.status).toBe(200)
+  expect(
+    await db.query.parentChildRelationships.findFirst({
+      where: eq(
+        schema.parentChildRelationships.id,
+        fixture.parentRelationshipId,
+      ),
+    }),
+  ).toMatchObject({ deletedAt: null, revision: 1 })
+  expect(
+    await db.query.treeParentChildRelationships.findFirst({
+      where: and(
+        eq(schema.treeParentChildRelationships.treeId, otherTreeId),
+        eq(
+          schema.treeParentChildRelationships.parentChildRelationshipId,
+          fixture.parentRelationshipId,
+        ),
+      ),
+    }),
+  ).toMatchObject({ deletedAt: null, revision: 1 })
+}, 15_000)
+
+test("mutation tree deletion uses the same cascade and rejects a deleted revision", async () => {
+  const fixture = await createDeletionFixture("mutation")
+  const tree = await db.query.trees.findFirst({
+    where: eq(schema.trees.id, fixture.treeId),
+  })
+  if (!tree) throw new Error("deletion fixture tree is missing")
+  expect(tree.revision).toBe(1)
+
+  const deletion = await mutate(
+    owner,
+    {
+      ...emptyBody(),
+      trees: [
+        {
+          id: fixture.treeId,
+          revision: tree.revision,
+          updatedAt: now(),
+          deletedAt: now(),
+        },
+      ],
+    },
+    `${RUN}-delete-mutation`,
+  )
+  expect(deletion.status).toBe("applied")
+  expect(deletion.applied.trees).toEqual([fixture.treeId])
+  await expectTreeDeletionCascade(fixture)
+
+  const deletedTree = await db.query.trees.findFirst({
+    where: eq(schema.trees.id, fixture.treeId),
+  })
+  if (!deletedTree) throw new Error("deleted fixture tree is missing")
+  const retry = await runSyncMutation(
+    owner,
+    {
+      ...emptyBody(),
+      trees: [
+        {
+          id: fixture.treeId,
+          revision: deletedTree.revision,
+          updatedAt: now(),
+          deletedAt: now(),
+        },
+      ],
+    },
+    `${RUN}-delete-mutation-retry`,
+  )
+  expect(retry.status).toBe(409)
+  const conflict = (await retry.json()) as SyncMutationResponse
+  expect(conflict.status).toBe("conflict")
+  expect(conflict.conflict?.reason).toBe("revision-mismatch")
+  expect(conflict.skipped.trees).toEqual([fixture.treeId])
+  expect(
+    await db.query.trees.findFirst({
+      where: eq(schema.trees.id, fixture.treeId),
+    }),
+  ).toMatchObject({ revision: 2 })
+}, 15_000)
 
 test("is idempotent: replaying a mutation id reports alreadyApplied and writes nothing new", async () => {
   const id = `${RUN}-person-idem`

@@ -18,6 +18,10 @@ import type {
   ParentChildRelationship,
   PersonIdentity,
   TreeMember,
+  TreeParentChildRelationship,
+  TreeUnion,
+  Union,
+  UnionEvent,
 } from "../types"
 import { clearDirty, dirtyToken, snapshotDirty, stampAndEnqueue } from "./dirty"
 import {
@@ -1285,8 +1289,24 @@ export function useTreeMembers(): Record<string, TreeMember> {
   return useStore((selector) => selector.state.treeMembers)
 }
 
+export function usePersons(): Record<string, PersonIdentity> {
+  return useStore((selector) => selector.state.persons)
+}
+
 export function useTrees(): TreeMeta[] {
   return useStore((selector) => selector.state.index)
+}
+
+export function useUnions(): Record<string, Union> {
+  return useStore((selector) => selector.state.unions)
+}
+
+export function useUnionEvents(): Record<string, UnionEvent> {
+  return useStore((selector) => selector.state.unionEvents)
+}
+
+export function useTreeUnions(): Record<string, TreeUnion> {
+  return useStore((selector) => selector.state.treeUnions)
 }
 
 export function useParentChildRelationships(): Record<
@@ -1294,6 +1314,13 @@ export function useParentChildRelationships(): Record<
   ParentChildRelationship
 > {
   return useStore((selector) => selector.state.parentChildRelationships)
+}
+
+export function useTreeParentChildRelationships(): Record<
+  string,
+  TreeParentChildRelationship
+> {
+  return useStore((selector) => selector.state.treeParentChildRelationships)
 }
 
 export function useAncestorTreeLinks(treeId: string): Map<string, string> {

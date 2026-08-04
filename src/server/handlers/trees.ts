@@ -1,13 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm"
 import { getDB } from "../../db"
-import {
-  treeMembers,
-  treeParentChildRelationships,
-  treeShares,
-  trees,
-  treeUnions,
-  user,
-} from "../../db/schema"
+import { trees, user } from "../../db/schema"
 import type {
   AncestorTreeLink,
   SyncRecordSet,
@@ -31,6 +24,11 @@ import {
 } from "../sync/pull"
 import { treeToWire } from "../sync/wire"
 import { isValidSyncId } from "../sync-validation"
+import {
+  lockTreeDeletion,
+  tombstoneOrphanParentRelationships,
+  tombstoneOwnedTree,
+} from "../tree-deletion"
 
 const DEFAULT_PAGE_SIZE = 50
 const MAXIMUM_PAGE_SIZE = 100
@@ -244,97 +242,35 @@ export async function deleteTree(
     return Response.json({ error: "invalid tree id" }, { status: 400 })
   }
 
-  const db = getDB()
-  const result = await db.execute(sql<{ id: string }>`
-    WITH server_clock AS MATERIALIZED (
-      SELECT CURRENT_TIMESTAMP AS value
-    ),
-    parent_graph_lock AS MATERIALIZED (
-      SELECT pg_advisory_xact_lock(7091885217057541735)
-    ),
-    tree_graph_lock AS MATERIALIZED (
-      SELECT pg_advisory_xact_lock(
-        hashtextextended(${`sync-tree:${treeId}`}, 0)
-      )
-    ),
-    target_tree AS MATERIALIZED (
-      UPDATE ${trees}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${trees.id} = ${treeId}
-        AND ${trees.ownerId} = ${me.id}
-        AND ${trees.deletedAt} IS NULL
-        AND EXISTS (SELECT 1 FROM parent_graph_lock)
-        AND EXISTS (SELECT 1 FROM tree_graph_lock)
-      RETURNING ${trees.id} AS id
-    ),
-    affected_parent_relationships AS MATERIALIZED (
-      SELECT ${treeParentChildRelationships.parentChildRelationshipId} AS id
-      FROM ${treeParentChildRelationships}
-      WHERE ${treeParentChildRelationships.treeId} IN (SELECT id FROM target_tree)
-        AND ${treeParentChildRelationships.deletedAt} IS NULL
-    ),
-    tombstoned_memberships AS (
-      UPDATE ${treeMembers}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${treeMembers.treeId} IN (SELECT id FROM target_tree)
-        AND ${treeMembers.deletedAt} IS NULL
-      RETURNING ${treeMembers.treeId}
-    ),
-    tombstoned_tree_unions AS (
-      UPDATE ${treeUnions}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${treeUnions.treeId} IN (SELECT id FROM target_tree)
-        AND ${treeUnions.deletedAt} IS NULL
-      RETURNING ${treeUnions.treeId}
-    ),
-    tombstoned_tree_parent_relationships AS (
-      UPDATE ${treeParentChildRelationships}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${treeParentChildRelationships.treeId} IN (
-        SELECT id FROM target_tree
-      )
-        AND ${treeParentChildRelationships.deletedAt} IS NULL
-      RETURNING ${treeParentChildRelationships.treeId}
-    ),
-    removed_shares AS (
-      DELETE FROM ${treeShares}
-      WHERE ${treeShares.treeId} IN (SELECT id FROM target_tree)
-      RETURNING ${treeShares.treeId}
-    ),
-    tombstoned_orphan_parent_relationships AS (
-      UPDATE parent_child_relationships AS relationship
-      SET deleted_at = (SELECT value FROM server_clock),
-          updated_at = (SELECT value FROM server_clock),
-          revision = relationship.revision + 1
-      WHERE relationship.id IN (SELECT id FROM affected_parent_relationships)
-        AND relationship.deleted_at IS NULL
-        AND NOT EXISTS (
-          SELECT 1
-          FROM tree_parent_child_relationships AS association
-          WHERE association.parent_child_relationship_id = relationship.id
-            AND association.tree_id NOT IN (SELECT id FROM target_tree)
-            AND association.deleted_at IS NULL
-        )
-      RETURNING relationship.id
-    )
-    SELECT id FROM target_tree
-  `)
+  return runDirectTreeDeletion(me, treeId)
+}
 
-  if (result.rows.length === 0) {
-    return Response.json({ error: "tree not found" }, { status: 404 })
-  }
-  return Response.json(
-    { ok: true },
-    { headers: { "cache-control": "private, no-store" } },
-  )
+/** Auth-free direct deletion execution seam for route-level integration tests. */
+export async function runDirectTreeDeletion(
+  me: { id: string },
+  treeId: string,
+): Promise<Response> {
+  return getDB().transaction(async (db) => {
+    await lockTreeDeletion(db, treeId)
+    const serverTime = new Date()
+    const effects = await tombstoneOwnedTree(db, {
+      ownerId: me.id,
+      treeId,
+      serverTime,
+    })
+    if (!effects) {
+      return Response.json({ error: "tree not found" }, { status: 404 })
+    }
+    await tombstoneOrphanParentRelationships(
+      db,
+      effects.parentRelationshipIds,
+      serverTime,
+    )
+    return Response.json(
+      { ok: true },
+      { headers: { "cache-control": "private, no-store" } },
+    )
+  })
 }
 
 /** Paginated metadata only; no family graph rows are loaded. */
@@ -434,7 +370,9 @@ export async function listTrees(request: Request): Promise<Response> {
 }
 
 /** Public, unauthenticated tree-name preview for invitees and link previews. */
-export async function getPublicTreeName(treeId: string): Promise<string | null> {
+export async function getPublicTreeName(
+  treeId: string,
+): Promise<string | null> {
   if (!isValidSyncId(treeId)) return null
   const db = getDB()
   const rows = await db

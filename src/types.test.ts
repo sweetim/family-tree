@@ -439,7 +439,36 @@ describe("projectTreeStable", () => {
     expect(second.kid).toBe(first.kid)
   })
 
-  test("recomputes everyone when a relationship collection changes", () => {
+  test("keeps the projection when a global person outside the tree changes", () => {
+    const rel = relationships()
+    const parent = identities.parent
+    if (!parent) throw new Error("Missing foreign parent fixture")
+    const first = projectTreeStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      rel,
+      "a",
+    )
+    const nextIdentities = {
+      ...identities,
+      parent: { ...parent, name: "Updated Foreign Parent" },
+    }
+
+    const second = projectTreeStable(
+      first,
+      identities,
+      rel,
+      nextIdentities,
+      rel,
+      "a",
+    )
+
+    expect(second).toBe(first)
+  })
+
+  test("keeps one tree cached while another tree gains a relationship", () => {
     const rel = relationships()
     const first = projectTreeStable(
       undefined,
@@ -451,7 +480,75 @@ describe("projectTreeStable", () => {
     )
     const nextRel: NormalizedRelationships = {
       ...rel,
-      unions: { ...rel.unions },
+      treeMembers: {
+        ...rel.treeMembers,
+        '["b","tim"]': {
+          treeId: "b",
+          personId: "tim",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        '["b","parent"]': {
+          treeId: "b",
+          personId: "parent",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      },
+      unions: {
+        ...rel.unions,
+        foreign: {
+          id: "foreign",
+          firstPersonId: "tim",
+          secondPersonId: "parent",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      },
+      treeUnions: {
+        ...rel.treeUnions,
+        '["b","foreign"]': {
+          treeId: "b",
+          unionId: "foreign",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      },
+    }
+
+    const second = projectTreeStable(
+      first,
+      identities,
+      rel,
+      identities,
+      nextRel,
+      "a",
+    )
+
+    expect(second).toBe(first)
+    expect(projectTree(identities, nextRel, "b").tim?.spouseIds).toEqual([
+      "parent",
+    ])
+  })
+
+  test("recomputes when a selected tree relationship changes", () => {
+    const rel = relationships()
+    const married = rel.unionEvents.married
+    if (!married) throw new Error("Missing marriage event fixture")
+    const first = projectTreeStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      rel,
+      "a",
+    )
+    const nextRel: NormalizedRelationships = {
+      ...rel,
+      unionEvents: {
+        ...rel.unionEvents,
+        married: { ...married, eventDate: "2021-05-01" },
+      },
     }
     const second = projectTreeStable(
       first,
@@ -462,6 +559,7 @@ describe("projectTreeStable", () => {
       "a",
     )
     expect(second.tim).not.toBe(first.tim)
+    expect(second.tim?.marriageDates.yumi).toBe("2021-05-01")
   })
 
   test("first call with no previous projects normally", () => {
@@ -522,8 +620,72 @@ describe("projectTreesStable", () => {
     expect(second.yumi).toBe(first.yumi)
   })
 
-  test("recomputes everyone when a relationship collection changes", () => {
+  test("keeps related families cached when an unrelated tree changes", () => {
     const rel = relationships()
+    rel.treeMembers['["b","tim"]'] = {
+      treeId: "b",
+      personId: "tim",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    rel.treeMembers['["b","parent"]'] = {
+      treeId: "b",
+      personId: "parent",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    rel.parentChildRelationships.foreign = {
+      id: "foreign",
+      parentPersonId: "parent",
+      childPersonId: "tim",
+      type: "biological",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    rel.treeParentChildRelationships['["b","foreign"]'] = {
+      treeId: "b",
+      parentChildRelationshipId: "foreign",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    const first = projectTreesStable(
+      undefined,
+      undefined,
+      undefined,
+      identities,
+      rel,
+      ["a", "b"],
+    )
+    const nextRel: NormalizedRelationships = {
+      ...rel,
+      treeMembers: {
+        ...rel.treeMembers,
+        '["c","relative"]': {
+          treeId: "c",
+          personId: "relative",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      },
+    }
+
+    const second = projectTreesStable(
+      first,
+      identities,
+      rel,
+      identities,
+      nextRel,
+      ["a", "b"],
+    )
+
+    expect(first.tim?.parents.map((link) => link.id)).toEqual(["parent"])
+    expect(second).toBe(first)
+  })
+
+  test("recomputes when a selected tree relationship changes", () => {
+    const rel = relationships()
+    const married = rel.unionEvents.married
+    if (!married) throw new Error("Missing marriage event fixture")
     const first = projectTreesStable(
       undefined,
       undefined,
@@ -534,7 +696,10 @@ describe("projectTreesStable", () => {
     )
     const nextRel: NormalizedRelationships = {
       ...rel,
-      unions: { ...rel.unions },
+      unionEvents: {
+        ...rel.unionEvents,
+        married: { ...married, eventDate: "2021-05-01" },
+      },
     }
     const second = projectTreesStable(
       first,
@@ -545,6 +710,7 @@ describe("projectTreesStable", () => {
       ["a"],
     )
     expect(second.tim).not.toBe(first.tim)
+    expect(second.tim?.marriageDates.yumi).toBe("2021-05-01")
   })
 
   test("first call with no previous projects normally", () => {
