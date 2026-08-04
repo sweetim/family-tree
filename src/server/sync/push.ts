@@ -23,7 +23,7 @@ import type {
 } from "../../sync/types"
 import type { ParentChildRelationshipType } from "../../types"
 import { canWrite, personRole, type Role, treeRole } from "../acl"
-import { deletePhoto, isPhotoDataUrl, normalizePhoto } from "../blob"
+import { deletePhoto, isPhotoDataUrl } from "../blob"
 import {
   MAX_RESPONSE_PAGE_BYTES,
   MAX_TREE_MEMBERS,
@@ -47,6 +47,26 @@ import {
   tombstoneOwnedTree,
 } from "../tree-deletion"
 import {
+  type ActivePeopleExist,
+  activeTreeHasMembers,
+  canWriteExistingParentRelationship,
+  canWriteExistingUnion,
+  hasWritableTreeContaining,
+  type RoleForTree,
+} from "./push-authorize"
+import {
+  discardStagedPhotos,
+  finalizeCommittedPhotos,
+  type PhotoLifecycle,
+  preuploadMutationPhotos,
+  resolvePreuploadedPhoto,
+  resolvePreuploadedPhotoUpdate,
+} from "./push-photos"
+import {
+  tombstonePersonCascade,
+  tombstonePersonReferencesInTrees,
+} from "./push-tombstone"
+import {
   parentRelationshipToWire,
   personToWire,
   treeMemberToWire,
@@ -58,8 +78,6 @@ import {
 } from "./wire"
 
 type SyncCollection = keyof SyncAppliedIds
-type RoleForTree = (treeId: string) => Promise<Role | null>
-type ActivePeopleExist = (personIds: string[]) => Promise<boolean>
 type CascadedTreeReferences = {
   unionIds: Set<string>
   parentRelationshipIds: Set<string>
@@ -67,12 +85,6 @@ type CascadedTreeReferences = {
   treeParentRelationshipKeys: Set<string>
 }
 type RoleForPerson = (personId: string) => Promise<Role | null>
-type PhotoLifecycle = {
-  uploadedPhotos: Set<string>
-  photosToDeleteAfterCommit: Set<string>
-  consumedPhotos: Set<string>
-  preuploadedPhotos: Map<string, { url: string } | { error: true }>
-}
 type MutationContext = {
   db: DB
   me: SessionUser
@@ -698,456 +710,6 @@ function isParentGraphConstraintError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false
   if ("code" in error && error.code === "23514") return true
   return "cause" in error && isParentGraphConstraintError(error.cause)
-}
-
-async function ownedEndpointCount(
-  db: DB,
-  userId: string,
-  personIds: string[],
-): Promise<number> {
-  const uniqueIds = [...new Set(personIds)]
-  if (uniqueIds.length === 0) return 0
-  const rows = await db
-    .select({ id: persons.id })
-    .from(persons)
-    .where(and(inArray(persons.id, uniqueIds), eq(persons.ownerId, userId)))
-  return rows.length
-}
-
-async function hasWritableTreeContaining(
-  db: DB,
-  personIds: string[],
-  roleForTree: RoleForTree,
-): Promise<boolean> {
-  const uniqueIds = [...new Set(personIds)]
-  if (uniqueIds.length !== personIds.length || uniqueIds.length === 0) {
-    return false
-  }
-  const rows = await db
-    .select({ treeId: treeMembers.treeId, personId: treeMembers.personId })
-    .from(treeMembers)
-    .where(
-      and(
-        inArray(treeMembers.personId, uniqueIds),
-        isNull(treeMembers.deletedAt),
-      ),
-    )
-  const peopleByTree = new Map<string, Set<string>>()
-  for (const row of rows) {
-    const people = peopleByTree.get(row.treeId) ?? new Set<string>()
-    people.add(row.personId)
-    peopleByTree.set(row.treeId, people)
-  }
-  for (const [treeId, people] of peopleByTree) {
-    if (
-      people.size === uniqueIds.length
-      && canWrite(await roleForTree(treeId))
-    ) {
-      return true
-    }
-  }
-  return false
-}
-
-async function rolesForTrees(
-  treeIds: string[],
-  roleForTree: RoleForTree,
-): Promise<Array<Role | null>> {
-  return Promise.all([...new Set(treeIds)].map(roleForTree))
-}
-
-async function rolesForUnion(
-  db: DB,
-  unionId: string,
-  roleForTree: RoleForTree,
-): Promise<Array<Role | null>> {
-  const rows = await db
-    .select({ treeId: treeUnions.treeId })
-    .from(treeUnions)
-    .where(and(eq(treeUnions.unionId, unionId), isNull(treeUnions.deletedAt)))
-  return rolesForTrees(
-    rows.map((row) => row.treeId),
-    roleForTree,
-  )
-}
-
-async function rolesForParentRelationship(
-  db: DB,
-  relationshipId: string,
-  roleForTree: RoleForTree,
-): Promise<Array<Role | null>> {
-  const rows = await db
-    .select({ treeId: treeParentChildRelationships.treeId })
-    .from(treeParentChildRelationships)
-    .where(
-      and(
-        eq(
-          treeParentChildRelationships.parentChildRelationshipId,
-          relationshipId,
-        ),
-        isNull(treeParentChildRelationships.deletedAt),
-      ),
-    )
-  return rolesForTrees(
-    rows.map((row) => row.treeId),
-    roleForTree,
-  )
-}
-
-async function canWriteExistingUnion(
-  db: DB,
-  userId: string,
-  row: typeof unions.$inferSelect,
-  roleForTree: RoleForTree,
-): Promise<boolean> {
-  const roles = await rolesForUnion(db, row.id, roleForTree)
-  if (roles.some(canWrite)) return true
-  return (
-    (await ownedEndpointCount(db, userId, [
-      row.firstPersonId,
-      row.secondPersonId,
-    ])) === 2
-  )
-}
-
-async function canWriteExistingParentRelationship(
-  db: DB,
-  userId: string,
-  row: typeof parentChildRelationships.$inferSelect,
-  roleForTree: RoleForTree,
-): Promise<boolean> {
-  const roles = await rolesForParentRelationship(db, row.id, roleForTree)
-  if (roles.some(canWrite)) return true
-  return (
-    (await ownedEndpointCount(db, userId, [
-      row.parentPersonId,
-      row.childPersonId,
-    ])) === 2
-  )
-}
-
-async function activeTreeHasMembers(
-  db: DB,
-  treeId: string,
-  personIds: string[],
-  activePeopleExist: ActivePeopleExist,
-): Promise<boolean> {
-  const uniqueIds = [...new Set(personIds)]
-  const rows = await db
-    .select({ personId: treeMembers.personId })
-    .from(treeMembers)
-    .where(
-      and(
-        eq(treeMembers.treeId, treeId),
-        inArray(treeMembers.personId, uniqueIds),
-        isNull(treeMembers.deletedAt),
-      ),
-    )
-  return (
-    rows.length === uniqueIds.length && (await activePeopleExist(uniqueIds))
-  )
-}
-
-/**
- * Tombstones every tree-scoped union and parent-child association that any of
- * the given (treeId, personId) removals participates in, in a fixed number of
- * queries instead of four per removal. Returns the (treeId, id) pairs it
- * tombstoned so the caller can fold them into the cascaded-reference sets.
- */
-async function tombstonePersonReferencesInTrees(
-  db: DB,
-  removals: ReadonlyArray<{ treeId: string; personId: string }>,
-  serverTime: Date,
-): Promise<{
-  unionAssociations: { treeId: string; unionId: string }[]
-  parentAssociations: { treeId: string; parentChildRelationshipId: string }[]
-}> {
-  if (removals.length === 0) {
-    return { unionAssociations: [], parentAssociations: [] }
-  }
-  const unionAssociations = await db
-    .select({ treeId: treeUnions.treeId, unionId: treeUnions.unionId })
-    .from(treeUnions)
-    .innerJoin(unions, eq(unions.id, treeUnions.unionId))
-    .where(
-      and(
-        isNull(treeUnions.deletedAt),
-        isNull(unions.deletedAt),
-        or(
-          ...removals.map((removal) =>
-            and(
-              eq(treeUnions.treeId, removal.treeId),
-              or(
-                eq(unions.firstPersonId, removal.personId),
-                eq(unions.secondPersonId, removal.personId),
-              ),
-            ),
-          ),
-        ),
-      ),
-    )
-  const parentAssociations = await db
-    .select({
-      treeId: treeParentChildRelationships.treeId,
-      parentChildRelationshipId:
-        treeParentChildRelationships.parentChildRelationshipId,
-    })
-    .from(treeParentChildRelationships)
-    .innerJoin(
-      parentChildRelationships,
-      eq(
-        parentChildRelationships.id,
-        treeParentChildRelationships.parentChildRelationshipId,
-      ),
-    )
-    .where(
-      and(
-        isNull(treeParentChildRelationships.deletedAt),
-        isNull(parentChildRelationships.deletedAt),
-        or(
-          ...removals.map((removal) =>
-            and(
-              eq(treeParentChildRelationships.treeId, removal.treeId),
-              or(
-                eq(parentChildRelationships.parentPersonId, removal.personId),
-                eq(parentChildRelationships.childPersonId, removal.personId),
-              ),
-            ),
-          ),
-        ),
-      ),
-    )
-
-  await Promise.all([
-    unionAssociations.length > 0
-      ? db
-          .update(treeUnions)
-          .set({
-            deletedAt: serverTime,
-            updatedAt: serverTime,
-            revision: sql`${treeUnions.revision} + 1`,
-          })
-          .where(
-            and(
-              isNull(treeUnions.deletedAt),
-              sql`(tree_id, union_id) IN (${sql.join(
-                unionAssociations.map(
-                  (association) =>
-                    sql`(${association.treeId}, ${association.unionId})`,
-                ),
-                sql`, `,
-              )})`,
-            ),
-          )
-      : Promise.resolve(),
-    parentAssociations.length > 0
-      ? db
-          .update(treeParentChildRelationships)
-          .set({
-            deletedAt: serverTime,
-            updatedAt: serverTime,
-            revision: sql`${treeParentChildRelationships.revision} + 1`,
-          })
-          .where(
-            and(
-              isNull(treeParentChildRelationships.deletedAt),
-              sql`(tree_id, parent_child_relationship_id) IN (${sql.join(
-                parentAssociations.map(
-                  (association) =>
-                    sql`(${association.treeId}, ${association.parentChildRelationshipId})`,
-                ),
-                sql`, `,
-              )})`,
-            ),
-          )
-      : Promise.resolve(),
-  ])
-
-  return { unionAssociations, parentAssociations }
-}
-
-/** One PostgreSQL statement makes person-owner deletion globally atomic. */
-async function tombstonePersonCascade(
-  db: DB,
-  userId: string,
-  personId: string,
-  expectedRevision: number,
-  serverTime: Date,
-  photosToDeleteAfterCommit: Set<string>,
-): Promise<boolean> {
-  const result = await db.execute(sql<{ id: string; photo: string | null }>`
-    WITH     server_clock AS MATERIALIZED (
-      SELECT ${serverTime}::timestamptz AS value
-    ),
-    target_person AS MATERIALIZED (
-      UPDATE ${persons}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${persons.id} = ${personId}
-        AND ${persons.ownerId} = ${userId}
-        AND ${persons.deletedAt} IS NULL
-        AND ${persons.revision} = ${expectedRevision}
-      RETURNING ${persons.id} AS id, ${persons.photo} AS photo
-    ),
-    affected_unions AS MATERIALIZED (
-      SELECT ${unions.id} AS id
-      FROM ${unions}
-      WHERE EXISTS (SELECT 1 FROM target_person)
-        AND (
-          ${unions.firstPersonId} = ${personId}
-          OR ${unions.secondPersonId} = ${personId}
-        )
-    ),
-    affected_parent_relationships AS MATERIALIZED (
-      SELECT ${parentChildRelationships.id} AS id
-      FROM ${parentChildRelationships}
-      WHERE EXISTS (SELECT 1 FROM target_person)
-        AND (
-          ${parentChildRelationships.parentPersonId} = ${personId}
-          OR ${parentChildRelationships.childPersonId} = ${personId}
-        )
-    ),
-    tombstoned_memberships AS (
-      UPDATE ${treeMembers}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${treeMembers.personId} IN (SELECT id FROM target_person)
-        AND ${treeMembers.deletedAt} IS NULL
-      RETURNING ${treeMembers.treeId}
-    ),
-    tombstoned_tree_unions AS (
-      UPDATE ${treeUnions}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${treeUnions.unionId} IN (SELECT id FROM affected_unions)
-        AND ${treeUnions.deletedAt} IS NULL
-      RETURNING ${treeUnions.treeId}
-    ),
-    tombstoned_tree_parent_relationships AS (
-      UPDATE ${treeParentChildRelationships}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${treeParentChildRelationships.parentChildRelationshipId} IN (
-        SELECT id FROM affected_parent_relationships
-      )
-        AND ${treeParentChildRelationships.deletedAt} IS NULL
-      RETURNING ${treeParentChildRelationships.treeId}
-    ),
-    tombstoned_union_events AS (
-      UPDATE ${unionEvents}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${unionEvents.unionId} IN (SELECT id FROM affected_unions)
-        AND ${unionEvents.deletedAt} IS NULL
-      RETURNING ${unionEvents.id}
-    ),
-    tombstoned_unions AS (
-      UPDATE ${unions}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${unions.id} IN (SELECT id FROM affected_unions)
-        AND ${unions.deletedAt} IS NULL
-      RETURNING ${unions.id}
-    ),
-    tombstoned_parent_relationships AS (
-      UPDATE ${parentChildRelationships}
-      SET "deleted_at" = (SELECT value FROM server_clock),
-          "updated_at" = (SELECT value FROM server_clock),
-          "revision" = "revision" + 1
-      WHERE ${parentChildRelationships.id} IN (
-        SELECT id FROM affected_parent_relationships
-      )
-        AND ${parentChildRelationships.deletedAt} IS NULL
-      RETURNING ${parentChildRelationships.id}
-    )
-    SELECT id, photo FROM target_person
-  `)
-  const previousPhoto = result.rows[0]?.photo as string | null | undefined
-  if (previousPhoto && !isPhotoDataUrl(previousPhoto)) {
-    photosToDeleteAfterCommit.add(previousPhoto)
-  }
-  return result.rows.length > 0
-}
-
-async function preuploadMutationPhotos(
-  me: SessionUser,
-  body: SyncPushRequest,
-): Promise<PhotoLifecycle> {
-  const photoLifecycle: PhotoLifecycle = {
-    uploadedPhotos: new Set(),
-    photosToDeleteAfterCommit: new Set(),
-    consumedPhotos: new Set(),
-    preuploadedPhotos: new Map(),
-  }
-  for (const wire of body.persons) {
-    if ("deletedAt" in wire) continue
-    const value = wire.photo
-    if (
-      value === null
-      || value === undefined
-      || !isPhotoDataUrl(value)
-      || photoLifecycle.preuploadedPhotos.has(value)
-    ) {
-      continue
-    }
-    try {
-      const url = await normalizePhoto(me.id, value)
-      if (!url) throw new Error("photo upload returned no url")
-      photoLifecycle.preuploadedPhotos.set(value, { url })
-      photoLifecycle.uploadedPhotos.add(url)
-    } catch {
-      photoLifecycle.preuploadedPhotos.set(value, { error: true })
-    }
-  }
-  return photoLifecycle
-}
-
-function resolvePreuploadedPhoto(
-  photoLifecycle: PhotoLifecycle,
-  value: string | null | undefined,
-): string | null {
-  if (!value) return null
-  if (!isPhotoDataUrl(value)) return value
-  const result = photoLifecycle.preuploadedPhotos.get(value)
-  if (!result || "error" in result) throw new Error("photo upload failed")
-  return result.url
-}
-
-function resolvePreuploadedPhotoUpdate(
-  photoLifecycle: PhotoLifecycle,
-  existingPhoto: string | null,
-  value: string | null | undefined,
-): string | null {
-  return value === undefined
-    ? existingPhoto
-    : resolvePreuploadedPhoto(photoLifecycle, value)
-}
-
-async function finalizeCommittedPhotos(
-  photoLifecycle: PhotoLifecycle,
-): Promise<void> {
-  await Promise.all(
-    [...photoLifecycle.photosToDeleteAfterCommit].map(deletePhoto),
-  )
-  // Delete staged photos not used by a committed row, including uploads made for
-  // skipped records or an already-applied mutation.
-  await Promise.all(
-    [...photoLifecycle.uploadedPhotos]
-      .filter((url) => !photoLifecycle.consumedPhotos.has(url))
-      .map(deletePhoto),
-  )
-}
-
-async function discardStagedPhotos(
-  photoLifecycle: PhotoLifecycle,
-): Promise<void> {
-  await Promise.all([...photoLifecycle.uploadedPhotos].map(deletePhoto))
 }
 
 async function prepareMutationContext(

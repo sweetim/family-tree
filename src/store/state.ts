@@ -1,4 +1,3 @@
-import { create } from "zustand"
 import type {
   ParentChildRelationshipRecordWire,
   PersonRecordWire,
@@ -13,16 +12,7 @@ import type {
   TreeParentChildRelationshipRecordWire,
   TreeSnapshotResponse,
 } from "../sync/types"
-import type {
-  NormalizedRelationships,
-  ParentChildRelationship,
-  PersonIdentity,
-  TreeMember,
-  TreeParentChildRelationship,
-  TreeUnion,
-  Union,
-  UnionEvent,
-} from "../types"
+import type { NormalizedRelationships, PersonIdentity } from "../types"
 import { clearDirty, dirtyToken, snapshotDirty, stampAndEnqueue } from "./dirty"
 import {
   loadPersistedStore,
@@ -39,6 +29,7 @@ import {
   recordTombstone,
   sharedRemoteRecords,
 } from "./remote"
+import { useStore } from "./state-hooks"
 import {
   blockedChangesForTree,
   buildPushWires,
@@ -70,6 +61,27 @@ import {
   fetchTreeSnapshot,
 } from "./sync-transport"
 
+// Re-export the React hooks so the barrel and sibling modules can keep
+// importing them from "./state". The hook implementations live in
+// `./state-hooks`; this module only pulls in `useStore` for `notifyListeners`,
+// `subscribe`, and `useBlockedChanges`, keeping the runtime dependency
+// one-directional (state.ts -> state-hooks).
+export {
+  useAncestorTreeLinks,
+  useGraph,
+  useHydrated,
+  useParentChildRelationships,
+  usePersons,
+  useSyncConflictCount,
+  useSyncStatus,
+  useTreeFreshlyLoaded,
+  useTreeMembers,
+  useTreeParentChildRelationships,
+  useTrees,
+  useTreeUnions,
+  useUnionEvents,
+  useUnions,
+} from "./state-hooks"
 // Re-export stateless helpers so the barrel and sibling modules can keep
 // importing them from "./state".
 export {
@@ -168,36 +180,6 @@ function emptyTombstoneClocks(): TombstoneClocks {
     treeParentChildRelationships: new Map(),
   }
 }
-
-// ---------------------------------------------------------------------------
-// Reactive store (Zustand). Mirrors the engine's reactive singletons so React
-// subscribes via selectors. The module-scoped `let` bindings below remain the
-// source of truth; `notifyListeners` pushes their current values here, and
-// subscribers re-render only when their selected slice actually changes
-// (Object.is per selector), matching the previous `useSyncExternalStore` model.
-// ---------------------------------------------------------------------------
-
-type ReactiveState = {
-  state: GlobalState
-  hydrated: boolean
-  syncStatus: SyncStatus
-  freshlyLoadedTrees: Set<string>
-  syncConflicts: PersistedConflict[]
-  operationConflicts: PersistedOperationConflict[]
-  ancestorTreeLinks: Map<string, Map<string, string>>
-  blockedChangesVersion: number
-}
-
-const useStore = create<ReactiveState>(() => ({
-  state: emptyState(),
-  hydrated: false,
-  syncStatus: "saved" as SyncStatus,
-  freshlyLoadedTrees: new Set(),
-  syncConflicts: [],
-  operationConflicts: [],
-  ancestorTreeLinks: new Map(),
-  blockedChangesVersion: 0,
-}))
 
 // ---------------------------------------------------------------------------
 // Per-record dirty tracking and normalized sync.
@@ -1273,83 +1255,8 @@ export async function restorePersistentStore(userId: string): Promise<void> {
   await persistenceRestore
 }
 
-export function useGraph(): GlobalState {
-  return useStore((selector) => selector.state)
-}
-
-/**
- * Narrow collection selectors. Each subscribes to one collection only, so a
- * component re-renders when that collection's reference changes (structural
- * sharing means surgical edits leave untouched collections' references stable)
- * rather than on every store update the way `useGraph` does. This keeps
- * per-node hooks like `useMemberTrees`/`useAncestorTree` from re-rendering
- * every card on unrelated writes (e.g. typing in a name, periodic sync).
- */
-export function useTreeMembers(): Record<string, TreeMember> {
-  return useStore((selector) => selector.state.treeMembers)
-}
-
-export function usePersons(): Record<string, PersonIdentity> {
-  return useStore((selector) => selector.state.persons)
-}
-
-export function useTrees(): TreeMeta[] {
-  return useStore((selector) => selector.state.index)
-}
-
-export function useUnions(): Record<string, Union> {
-  return useStore((selector) => selector.state.unions)
-}
-
-export function useUnionEvents(): Record<string, UnionEvent> {
-  return useStore((selector) => selector.state.unionEvents)
-}
-
-export function useTreeUnions(): Record<string, TreeUnion> {
-  return useStore((selector) => selector.state.treeUnions)
-}
-
-export function useParentChildRelationships(): Record<
-  string,
-  ParentChildRelationship
-> {
-  return useStore((selector) => selector.state.parentChildRelationships)
-}
-
-export function useTreeParentChildRelationships(): Record<
-  string,
-  TreeParentChildRelationship
-> {
-  return useStore((selector) => selector.state.treeParentChildRelationships)
-}
-
-export function useAncestorTreeLinks(treeId: string): Map<string, string> {
-  return useStore(
-    (selector) =>
-      selector.ancestorTreeLinks.get(treeId) ?? emptyAncestorTreeLinks,
-  )
-}
-
-export function useHydrated(): boolean {
-  return useStore((selector) => selector.hydrated)
-}
-
-/**
- * True once the tree has received a fresh server snapshot during the current
- * store generation (i.e. `applyTreeSnapshot` has run for it this session).
- * Used to hold the tree view on its loading state until the first visible
- * frame is the authoritative server state, not stale persisted data.
- */
-export function useTreeFreshlyLoaded(treeId: string): boolean {
-  return useStore((selector) => selector.freshlyLoadedTrees.has(treeId))
-}
-
 export function isTreeFreshlyLoaded(treeId: string): boolean {
   return freshlyLoadedTrees.has(treeId)
-}
-
-export function useSyncStatus(): SyncStatus {
-  return useStore((selector) => selector.syncStatus)
 }
 
 export function getSyncStatus(): SyncStatus {
@@ -1358,10 +1265,6 @@ export function getSyncStatus(): SyncStatus {
 
 export function hasBlockedChanges(treeId: string): boolean {
   return blockedChangesForTree(state, dirtyState, treeId).length > 0
-}
-
-export function useSyncConflictCount(): number {
-  return useStore((selector) => selector.syncConflicts.length)
 }
 
 /** Server conflict reasons are protocol values; the panel shows people text. */
@@ -1473,6 +1376,256 @@ function getBlockedChangesSnapshot(treeId: string): BlockedChange[] {
   return changes
 }
 
+type ConflictRecordRef = { collection: DirtyCollection; id: string }
+type ResolvedConflictRecord = ConflictRecordRef & { dirty: DirtyRecord }
+type CanonicalAdoption = {
+  localRelationshipId: string
+  canonicalRelationship: ParentChildRelationshipRecordWire
+  associations: Array<{
+    localKey: string
+    canonicalKey: string
+    canonicalAssociation: TreeParentChildRelationshipRecordWire
+  }>
+}
+
+function isCurrentConflictRecord(
+  current: DirtyRecord | undefined,
+  record: PersistedOperationConflict["records"][number],
+  operationId: string,
+): current is DirtyRecord {
+  return Boolean(
+    current
+      && (current.conflictId === operationId
+        || (!current.conflictId
+          && current.blocked
+          && (current.operationId === record.dirty.operationId
+            || current.sourceId === record.dirty.sourceId))),
+  )
+}
+
+function collectLegacyBlockedRecords(
+  dirty: DirtyState,
+  operationId: string,
+): ResolvedConflictRecord[] {
+  return RECORD_COLLECTIONS.flatMap((collection) =>
+    [...dirty[collection]]
+      .filter(
+        ([id, record]) =>
+          record.blocked
+          && (record.operationId === operationId
+            || `${collection}:${id}` === operationId),
+      )
+      .map(([id, dirtyRecord]) => ({
+        collection,
+        id,
+        dirty: dirtyRecord,
+      })),
+  )
+}
+
+function collectCapturedConflictRecords(
+  dirty: DirtyState,
+  conflict: PersistedOperationConflict | undefined,
+  operationId: string,
+): ResolvedConflictRecord[] {
+  if (!conflict) return []
+  return conflict.records.flatMap((record) => {
+    const current = dirty[record.collection].get(record.id)
+    return isCurrentConflictRecord(current, record, operationId)
+      ? [{ collection: record.collection, id: record.id, dirty: current }]
+      : []
+  })
+}
+
+function matchesCapturedIntent(
+  current: DirtyRecord | undefined,
+  captured: DirtyRecord,
+): current is DirtyRecord {
+  return Boolean(
+    current?.blocked
+      && current.operationId === captured.operationId
+      && current.sourceId === captured.sourceId
+      && current.action === captured.action,
+  )
+}
+
+function revisionIn(
+  records: SyncRecordSet | undefined,
+  record: ConflictRecordRef,
+): number | undefined {
+  return records
+    ? (
+        recordSetValue(records, record.collection, record.id) as
+          | { revision?: number }
+          | undefined
+      )?.revision
+    : undefined
+}
+
+function snapshotRevisionFor(
+  freshRecords: SyncRecordSet | undefined,
+  freshTreeRevision: number | undefined,
+  treeId: string,
+  record: ConflictRecordRef,
+): number | undefined {
+  return record.collection === "trees" && record.id === treeId
+    ? freshTreeRevision
+    : revisionIn(freshRecords, record)
+}
+
+function capturedRevisionFor(
+  conflict: PersistedOperationConflict | undefined,
+  record: ConflictRecordRef,
+): number | undefined {
+  return (
+    conflict?.records.find(
+      (candidate) =>
+        candidate.collection === record.collection
+        && candidate.id === record.id,
+    )?.serverValue as { revision?: number } | undefined
+  )?.revision
+}
+
+/** Detects whether a "missing-parent-relationship" conflict is in fact
+ *  already satisfied on the server by a canonical relationship. Returns the
+ *  computed adoptions so the caller can apply them once. Pure: reads the
+ *  supplied state/dirty snapshots and fresh records without mutation. */
+function computeCanonicalAdoptions(
+  stateSnapshot: GlobalState,
+  dirty: DirtyState,
+  currentRecords: ResolvedConflictRecord[],
+  freshRecords: SyncRecordSet,
+): {
+  adoptions: CanonicalAdoption[]
+  authoritativePeople: Map<string, PersonRecordWire>
+  operationAlreadyExistsOnServer: boolean
+} {
+  const serverRelationships = freshRecords.parentChildRelationships.filter(
+    (wire): wire is ParentChildRelationshipRecordWire => !("deletedAt" in wire),
+  )
+  const serverAssociations = freshRecords.treeParentChildRelationships.filter(
+    (wire): wire is TreeParentChildRelationshipRecordWire =>
+      !("deletedAt" in wire),
+  )
+  const coveredRecords = new Set<string>()
+  const adoptions: CanonicalAdoption[] = []
+
+  for (const record of currentRecords) {
+    if (record.collection !== "parentChildRelationships") continue
+    const current = dirty.parentChildRelationships.get(record.id)
+    const localRelationship = stateSnapshot.parentChildRelationships[record.id]
+    if (!matchesCapturedIntent(current, record.dirty) || !localRelationship) {
+      continue
+    }
+    const canonicalRelationship = serverRelationships.find(
+      (candidate) =>
+        candidate.parentPersonId === localRelationship.parentPersonId
+        && candidate.childPersonId === localRelationship.childPersonId,
+    )
+    if (!canonicalRelationship) continue
+
+    const localAssociations = currentRecords.filter((candidate) => {
+      if (candidate.collection !== "treeParentChildRelationships") {
+        return false
+      }
+      return (
+        stateSnapshot.treeParentChildRelationships[candidate.id]
+          ?.parentChildRelationshipId === record.id
+      )
+    })
+    if (localAssociations.length === 0) continue
+
+    const associations: CanonicalAdoption["associations"] = []
+    let allAssociationsExist = true
+    for (const associationRecord of localAssociations) {
+      const localAssociation =
+        stateSnapshot.treeParentChildRelationships[associationRecord.id]
+      const canonicalAssociation = serverAssociations.find(
+        (candidate) =>
+          candidate.treeId === localAssociation?.treeId
+          && candidate.parentChildRelationshipId === canonicalRelationship.id,
+      )
+      if (!localAssociation || !canonicalAssociation) {
+        allAssociationsExist = false
+        break
+      }
+      associations.push({
+        localKey: associationRecord.id,
+        canonicalKey: treeParentChildRelationshipKey(
+          canonicalAssociation.treeId,
+          canonicalRelationship.id,
+        ),
+        canonicalAssociation,
+      })
+    }
+    if (!allAssociationsExist) continue
+
+    coveredRecords.add(`parentChildRelationships:${record.id}`)
+    for (const association of associations) {
+      coveredRecords.add(`treeParentChildRelationships:${association.localKey}`)
+    }
+    adoptions.push({
+      localRelationshipId: record.id,
+      canonicalRelationship,
+      associations,
+    })
+  }
+
+  const linkedPersonIds = new Set(
+    adoptions.flatMap((adoption) => [
+      adoption.canonicalRelationship.parentPersonId,
+      adoption.canonicalRelationship.childPersonId,
+    ]),
+  )
+  const serverPeople = freshRecords.persons.filter(
+    (wire): wire is PersonRecordWire => !("deletedAt" in wire),
+  )
+  const authoritativePeople = new Map<string, PersonRecordWire>()
+  for (const record of currentRecords) {
+    if (record.collection !== "persons" || !linkedPersonIds.has(record.id)) {
+      continue
+    }
+    const current = dirty.persons.get(record.id)
+    const localPerson = stateSnapshot.persons[record.id]
+    const serverPerson = serverPeople.find(
+      (candidate) => candidate.id === record.id,
+    )
+    if (
+      !matchesCapturedIntent(current, record.dirty)
+      || !localPerson
+      || !serverPerson
+    ) {
+      continue
+    }
+    const photoMatches = serverPerson.hasPhoto
+      ? isStoredPhotoMarker(localPerson.photo)
+      : localPerson.photo === serverPerson.photo
+    if (
+      localPerson.name === serverPerson.name
+      && localPerson.familyName === (serverPerson.familyName ?? "")
+      && localPerson.dob === serverPerson.dob
+      && localPerson.dod === serverPerson.dod
+      && localPerson.gender === serverPerson.gender
+      && localPerson.birthplace === serverPerson.birthplace
+      && photoMatches
+    ) {
+      coveredRecords.add(`persons:${record.id}`)
+      authoritativePeople.set(record.id, serverPerson)
+    }
+  }
+
+  const operationAlreadyExistsOnServer =
+    adoptions.length > 0
+    && currentRecords.every((record) =>
+      coveredRecords.has(`${record.collection}:${record.id}`),
+    )
+  return {
+    adoptions,
+    authoritativePeople,
+    operationAlreadyExistsOnServer,
+  }
+}
+
 export async function resolveBlockedOperation(
   operationId: string,
   resolution: "device" | "server",
@@ -1482,36 +1635,12 @@ export async function resolveBlockedOperation(
   const conflict = operationConflicts.find(
     (candidate) => candidate.operationId === operationId,
   )
-  const isCurrentConflictRecord = (
-    current: DirtyRecord | undefined,
-    record: PersistedOperationConflict["records"][number],
-  ): current is DirtyRecord =>
-    Boolean(
-      current
-        && (current.conflictId === operationId
-          || (!current.conflictId
-            && current.blocked
-            && (current.operationId === record.dirty.operationId
-              || current.sourceId === record.dirty.sourceId))),
-    )
-  const legacyRecords = RECORD_COLLECTIONS.flatMap((collection) =>
-    [...dirtyState[collection]]
-      .filter(
-        ([id, record]) =>
-          record.blocked
-          && (record.operationId === operationId
-            || `${collection}:${id}` === operationId),
-      )
-      .map(([id, dirty]) => ({ collection, id, dirty })),
+  const capturedRecords = collectCapturedConflictRecords(
+    dirtyState,
+    conflict,
+    operationId,
   )
-  const capturedRecords = conflict
-    ? conflict.records.flatMap((record) => {
-        const current = dirtyState[record.collection].get(record.id)
-        return isCurrentConflictRecord(current, record)
-          ? [{ collection: record.collection, id: record.id, dirty: current }]
-          : []
-      })
-    : []
+  const legacyRecords = collectLegacyBlockedRecords(dirtyState, operationId)
   // A persisted conflict snapshot can drift out of sync with the live outbox
   // (cross-version persistence, a dependency-id rewrite, etc.). Always fall
   // back to the live blocked records for this operation so the user's choice
@@ -1529,16 +1658,6 @@ export async function resolveBlockedOperation(
     }
     return "stale"
   }
-  const matchesCapturedIntent = (
-    current: DirtyRecord | undefined,
-    captured: DirtyRecord,
-  ): current is DirtyRecord =>
-    Boolean(
-      current?.blocked
-        && current.operationId === captured.operationId
-        && current.sourceId === captured.sourceId
-        && current.action === captured.action,
-    )
 
   if (resolution === "server") {
     const resolutionGeneration = storeGeneration
@@ -1611,144 +1730,12 @@ export async function resolveBlockedOperation(
       freshRecords = undefined
     }
     if (conflict?.reason === "missing-parent-relationship" && freshRecords) {
-      type CanonicalAdoption = {
-        localRelationshipId: string
-        canonicalRelationship: ParentChildRelationshipRecordWire
-        associations: Array<{
-          localKey: string
-          canonicalKey: string
-          canonicalAssociation: TreeParentChildRelationshipRecordWire
-        }>
-      }
-      const serverRelationships = freshRecords.parentChildRelationships.filter(
-        (wire): wire is ParentChildRelationshipRecordWire =>
-          !("deletedAt" in wire),
-      )
-      const serverAssociations =
-        freshRecords.treeParentChildRelationships.filter(
-          (wire): wire is TreeParentChildRelationshipRecordWire =>
-            !("deletedAt" in wire),
-        )
-      const coveredRecords = new Set<string>()
-      const adoptions: CanonicalAdoption[] = []
-
-      for (const record of currentRecords) {
-        if (record.collection !== "parentChildRelationships") continue
-        const current = dirtyState.parentChildRelationships.get(record.id)
-        const localRelationship = state.parentChildRelationships[record.id]
-        if (
-          !matchesCapturedIntent(current, record.dirty)
-          || !localRelationship
-        ) {
-          continue
-        }
-        const canonicalRelationship = serverRelationships.find(
-          (candidate) =>
-            candidate.parentPersonId === localRelationship.parentPersonId
-            && candidate.childPersonId === localRelationship.childPersonId,
-        )
-        if (!canonicalRelationship) continue
-
-        const localAssociations = currentRecords.filter((candidate) => {
-          if (candidate.collection !== "treeParentChildRelationships") {
-            return false
-          }
-          return (
-            state.treeParentChildRelationships[candidate.id]
-              ?.parentChildRelationshipId === record.id
-          )
-        })
-        if (localAssociations.length === 0) continue
-
-        const associations: CanonicalAdoption["associations"] = []
-        let allAssociationsExist = true
-        for (const associationRecord of localAssociations) {
-          const localAssociation =
-            state.treeParentChildRelationships[associationRecord.id]
-          const canonicalAssociation = serverAssociations.find(
-            (candidate) =>
-              candidate.treeId === localAssociation?.treeId
-              && candidate.parentChildRelationshipId
-                === canonicalRelationship.id,
-          )
-          if (!localAssociation || !canonicalAssociation) {
-            allAssociationsExist = false
-            break
-          }
-          associations.push({
-            localKey: associationRecord.id,
-            canonicalKey: treeParentChildRelationshipKey(
-              canonicalAssociation.treeId,
-              canonicalRelationship.id,
-            ),
-            canonicalAssociation,
-          })
-        }
-        if (!allAssociationsExist) continue
-
-        coveredRecords.add(`parentChildRelationships:${record.id}`)
-        for (const association of associations) {
-          coveredRecords.add(
-            `treeParentChildRelationships:${association.localKey}`,
-          )
-        }
-        adoptions.push({
-          localRelationshipId: record.id,
-          canonicalRelationship,
-          associations,
-        })
-      }
-
-      const linkedPersonIds = new Set(
-        adoptions.flatMap((adoption) => [
-          adoption.canonicalRelationship.parentPersonId,
-          adoption.canonicalRelationship.childPersonId,
-        ]),
-      )
-      const serverPeople = freshRecords.persons.filter(
-        (wire): wire is PersonRecordWire => !("deletedAt" in wire),
-      )
-      const authoritativePeople = new Map<string, PersonRecordWire>()
-      for (const record of currentRecords) {
-        if (
-          record.collection !== "persons"
-          || !linkedPersonIds.has(record.id)
-        ) {
-          continue
-        }
-        const current = dirtyState.persons.get(record.id)
-        const localPerson = state.persons[record.id]
-        const serverPerson = serverPeople.find(
-          (candidate) => candidate.id === record.id,
-        )
-        if (
-          !matchesCapturedIntent(current, record.dirty)
-          || !localPerson
-          || !serverPerson
-        ) {
-          continue
-        }
-        const photoMatches = serverPerson.hasPhoto
-          ? isStoredPhotoMarker(localPerson.photo)
-          : localPerson.photo === serverPerson.photo
-        if (
-          localPerson.name === serverPerson.name
-          && localPerson.familyName === (serverPerson.familyName ?? "")
-          && localPerson.dob === serverPerson.dob
-          && localPerson.dod === serverPerson.dod
-          && localPerson.gender === serverPerson.gender
-          && localPerson.birthplace === serverPerson.birthplace
-          && photoMatches
-        ) {
-          coveredRecords.add(`persons:${record.id}`)
-          authoritativePeople.set(record.id, serverPerson)
-        }
-      }
-
-      const operationAlreadyExistsOnServer =
-        adoptions.length > 0
-        && currentRecords.every((record) =>
-          coveredRecords.has(`${record.collection}:${record.id}`),
+      const { adoptions, authoritativePeople, operationAlreadyExistsOnServer } =
+        computeCanonicalAdoptions(
+          state,
+          dirtyState,
+          currentRecords,
+          freshRecords,
         )
       if (operationAlreadyExistsOnServer) {
         for (const record of currentRecords) {
@@ -1813,34 +1800,6 @@ export async function resolveBlockedOperation(
         return "resolved"
       }
     }
-    type ConflictRecordRef = { collection: DirtyCollection; id: string }
-    const revisionIn = (
-      records: SyncRecordSet | undefined,
-      record: ConflictRecordRef,
-    ): number | undefined =>
-      records
-        ? (
-            recordSetValue(records, record.collection, record.id) as
-              | { revision?: number }
-              | undefined
-          )?.revision
-        : undefined
-    const snapshotRevisionFor = (
-      record: ConflictRecordRef,
-    ): number | undefined =>
-      record.collection === "trees" && record.id === treeId
-        ? freshTreeRevision
-        : revisionIn(freshRecords, record)
-    const capturedRevisionFor = (
-      record: ConflictRecordRef,
-    ): number | undefined =>
-      (
-        conflict?.records.find(
-          (candidate) =>
-            candidate.collection === record.collection
-            && candidate.id === record.id,
-        )?.serverValue as { revision?: number } | undefined
-      )?.revision
     // A tree snapshot only covers records still attached to that tree, and the
     // captured conflict only covers what the server chose to return. When
     // neither knows the authoritative revision of a record that does exist on
@@ -1852,8 +1811,9 @@ export async function resolveBlockedOperation(
       const current = dirtyState[record.collection].get(record.id)
       return (
         current?.baseRevision !== undefined
-        && snapshotRevisionFor(record) === undefined
-        && capturedRevisionFor(record) === undefined
+        && snapshotRevisionFor(freshRecords, freshTreeRevision, treeId, record)
+          === undefined
+        && capturedRevisionFor(conflict, record) === undefined
       )
     })
     if (missingAuthoritativeRevision) {
@@ -1873,9 +1833,10 @@ export async function resolveBlockedOperation(
           candidate.collection === record.collection
           && candidate.id === record.id,
       )
-      const capturedRevision = capturedRevisionFor(record)
+      const capturedRevision = capturedRevisionFor(conflict, record)
       const freshRevision =
-        snapshotRevisionFor(record) ?? revisionIn(pulledRecords, record)
+        snapshotRevisionFor(freshRecords, freshTreeRevision, treeId, record)
+        ?? revisionIn(pulledRecords, record)
       if (
         conflictRecord
         && current.action === "delete"

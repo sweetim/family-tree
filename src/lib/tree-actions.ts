@@ -3,7 +3,7 @@ import type { Relationship } from "../types"
 
 export type LinkKind = "spouse" | "parent" | "child"
 
-export interface TreeActions {
+export type TreeActions = {
   /** Open the sidebar's "add member" form with a preset relationship. */
   openAdd: (rel: Relationship) => void
   /** Open the sidebar chooser that asks the user to add a new person or connect an existing one. */
