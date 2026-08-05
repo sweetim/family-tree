@@ -2,10 +2,34 @@ import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { treeAccessRequests, treeShares, trees, user } from "../../db/schema"
 import { requireOwner } from "../acl"
+import { notifyShareChange, type ShareChange } from "../email"
 import { DEFAULT_LIST_PAGE_SIZE, MAXIMUM_LIST_PAGE_SIZE } from "../limits"
 import { readJsonBody } from "../request"
 import { requireSession } from "../session"
 import { isValidSyncId } from "../sync-validation"
+
+type GrantRole = "viewer" | "editor"
+
+type ShareNotificationPayload = {
+  granteeEmail: string
+  granteeName: string | null
+  treeName: string
+  treeId: string
+  change: ShareChange
+}
+
+/**
+ * Classify a role upsert against the share's prior role. Returns null for a
+ * no-op (same role re-applied) so callers can skip emailing. Pure for testing.
+ */
+export function classifyShareChange(
+  prior: GrantRole | undefined,
+  next: GrantRole,
+): ShareChange | null {
+  if (prior === next) return null
+  if (prior === undefined) return { kind: "granted", role: next }
+  return { kind: "roleChanged", role: next }
+}
 
 type ShareRow = {
   email: string
@@ -135,6 +159,26 @@ export async function addShare(
     where: eq(user.email, email),
   })
 
+  const [priorShare, treeRow, ownerRow] = await Promise.all([
+    db.query.treeShares.findFirst({
+      where: and(eq(treeShares.treeId, treeId), eq(treeShares.email, email)),
+      columns: { role: true },
+    }),
+    db.query.trees.findFirst({
+      where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
+      columns: { name: true },
+    }),
+    db.query.user.findFirst({
+      where: eq(user.id, me.id),
+      columns: { name: true },
+    }),
+  ])
+  const priorRole =
+    priorShare?.role === "viewer" || priorShare?.role === "editor"
+      ? priorShare.role
+      : undefined
+  const change = classifyShareChange(priorRole, role)
+
   await db
     .insert(treeShares)
     .values({
@@ -147,6 +191,17 @@ export async function addShare(
       target: [treeShares.treeId, treeShares.email],
       set: { role, userId: existingUser?.id ?? null },
     })
+
+  if (change) {
+    await notifyShareChange({
+      granteeEmail: email,
+      granteeName: existingUser?.name ?? null,
+      ownerName: ownerRow?.name ?? null,
+      treeName: treeRow?.name ?? "",
+      treeId,
+      change,
+    })
+  }
 
   return Response.json(
     { ok: true },
@@ -162,7 +217,7 @@ export async function removeShare(
   const owner = await requireOwner(request, treeId)
   if ("error" in owner)
     return Response.json({ error: owner.error }, { status: owner.status })
-  const { db } = owner
+  const { db, me } = owner
 
   const email = new URL(request.url).searchParams
     .get("email")
@@ -176,10 +231,26 @@ export async function removeShare(
 
   // Revoking access also clears the requester's access request, so a stale
   // "approved" row can't keep reporting access that no longer exists.
-  const account = await db.query.user.findFirst({
-    where: eq(user.email, email),
-    columns: { id: true },
-  })
+  const [account, priorShare, treeRow, ownerRow] = await Promise.all([
+    db.query.user.findFirst({
+      where: eq(user.email, email),
+      columns: { id: true, name: true },
+    }),
+    db.query.treeShares.findFirst({
+      where: and(eq(treeShares.treeId, treeId), eq(treeShares.email, email)),
+      columns: { role: true },
+    }),
+    db.query.trees.findFirst({
+      where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
+      columns: { name: true },
+    }),
+    db.query.user.findFirst({
+      where: eq(user.id, me.id),
+      columns: { name: true },
+    }),
+  ])
+  const hadAccess =
+    priorShare?.role === "viewer" || priorShare?.role === "editor"
 
   await db.transaction(async (transaction) => {
     await transaction
@@ -196,6 +267,17 @@ export async function removeShare(
         )
     }
   })
+
+  if (hadAccess) {
+    await notifyShareChange({
+      granteeEmail: email,
+      granteeName: account?.name ?? null,
+      ownerName: ownerRow?.name ?? null,
+      treeName: treeRow?.name ?? "",
+      treeId,
+      change: { kind: "revoked" },
+    })
+  }
 
   return Response.json(
     { ok: true },
@@ -397,25 +479,33 @@ export async function mutateOwnerShares(request: Request): Promise<Response> {
 
   const db = getDB()
   const treeIds = [...new Set(changes.map((change) => change.treeId))]
-  const ownedTrees = await db
-    .select({ id: trees.id })
-    .from(trees)
-    .where(
-      and(
-        eq(trees.ownerId, me.id),
-        isNull(trees.deletedAt),
-        inArray(trees.id, treeIds),
+  const [ownedTrees, ownerRow] = await Promise.all([
+    db
+      .select({ id: trees.id, name: trees.name })
+      .from(trees)
+      .where(
+        and(
+          eq(trees.ownerId, me.id),
+          isNull(trees.deletedAt),
+          inArray(trees.id, treeIds),
+        ),
       ),
-    )
+    db.query.user.findFirst({
+      where: eq(user.id, me.id),
+      columns: { name: true },
+    }),
+  ])
   if (ownedTrees.length !== treeIds.length) {
     return Response.json({ error: "tree not found" }, { status: 404 })
   }
+  const treeNameById = new Map(ownedTrees.map((tree) => [tree.id, tree.name]))
+  const ownerName = ownerRow?.name ?? null
 
   const upserts = changes.filter(
     (change): change is OwnerShareMutation & { role: "viewer" | "editor" } =>
       change.role !== null,
   )
-  const results = await db.transaction(async (transaction) => {
+  const { results, notifications } = await db.transaction(async (transaction) => {
     const userEmails = [...new Set(changes.map((change) => change.email))]
     const users = userEmails.length
       ? await transaction
@@ -426,6 +516,31 @@ export async function mutateOwnerShares(request: Request): Promise<Response> {
     const userByEmail = new Map(
       users.map((account) => [account.email, account]),
     )
+
+    // Snapshot existing shares before mutating so each change can be
+    // classified (new grant vs. role change vs. revocation) for notifications.
+    const priorShares =
+      changes.length > 0
+        ? await transaction
+            .select({
+              treeId: treeShares.treeId,
+              email: treeShares.email,
+              role: treeShares.role,
+            })
+            .from(treeShares)
+            .where(
+              and(
+                inArray(treeShares.treeId, treeIds),
+                inArray(treeShares.email, userEmails),
+              ),
+            )
+        : []
+    const priorByKey = new Map<string, GrantRole>()
+    for (const row of priorShares) {
+      if (row.role === "viewer" || row.role === "editor") {
+        priorByKey.set(`${row.treeId}:${row.email}`, row.role)
+      }
+    }
 
     if (upserts.length > 0) {
       await transaction
@@ -492,7 +607,7 @@ export async function mutateOwnerShares(request: Request): Promise<Response> {
       }
     }
 
-    return changes.map<OwnerShareMutationResult>((change) => {
+    const results = changes.map<OwnerShareMutationResult>((change) => {
       const account = userByEmail.get(change.email)
       return {
         ...change,
@@ -500,7 +615,33 @@ export async function mutateOwnerShares(request: Request): Promise<Response> {
         pending: !account,
       }
     })
+
+    const notifications: ShareNotificationPayload[] = []
+    for (const change of changes) {
+      const key = `${change.treeId}:${change.email}`
+      const grantee = userByEmail.get(change.email)
+      const base = {
+        granteeEmail: change.email,
+        granteeName: grantee?.name ?? null,
+        treeName: treeNameById.get(change.treeId) ?? "",
+        treeId: change.treeId,
+      }
+      if (change.role !== null) {
+        const classified = classifyShareChange(priorByKey.get(key), change.role)
+        if (classified) notifications.push({ ...base, change: classified })
+      } else if (priorByKey.has(key)) {
+        notifications.push({ ...base, change: { kind: "revoked" } })
+      }
+    }
+
+    return { results, notifications }
   })
+
+  await Promise.all(
+    notifications.map((notification) =>
+      notifyShareChange({ ...notification, ownerName }),
+    ),
+  )
 
   return Response.json(
     { changes: results },

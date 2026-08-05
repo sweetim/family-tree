@@ -14,17 +14,25 @@ import {
 export function AddForm({
   family,
   rel,
+  defaultFamilyName,
   onDone,
 }: {
   family: FamilyStore
   rel: Relationship
+  defaultFamilyName: string
   onDone: (id: string) => void
 }) {
   const { people } = family
   // A child is a descendant of the family, so prefill their family name from
   // the parent they're being added under (when the parent has one set).
-  const seedFamilyName =
-    rel.kind === "child" ? (people[rel.parentId]?.familyName ?? "") : ""
+  // Spouses marry in (a different surname), so they get no prefill. Parents
+  // and new root members default to this tree's family name.
+  let seedFamilyName = ""
+  if (rel.kind === "child") {
+    seedFamilyName = people[rel.parentId]?.familyName ?? ""
+  } else if (rel.kind !== "spouse") {
+    seedFamilyName = defaultFamilyName
+  }
   const [fields, setFields] = useState<Fields>(() => ({
     ...fieldsFrom(),
     familyName: seedFamilyName,

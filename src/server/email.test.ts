@@ -18,7 +18,7 @@ mock.module("nodemailer", () => ({
   createTransport,
 }))
 
-const { notifyOwnerOfAccessRequest, notifyRequesterOfResolution } =
+const { notifyOwnerOfAccessRequest, notifyRequesterOfResolution, notifyShareChange } =
   await import("./email")
 
 function lastMail(): MailArgs {
@@ -127,5 +127,83 @@ describe("notifyRequesterOfResolution", () => {
     expect(mail.html).toContain(
       "The owner declined your request to view this family tree.<br>",
     )
+  })
+})
+
+describe("notifyShareChange", () => {
+  test("grant message invites the grantee with a tree link", async () => {
+    await notifyShareChange({
+      granteeEmail: "alice@example.com",
+      granteeName: "Alice",
+      ownerName: "Owner",
+      treeName: "Smith Family",
+      treeId: "tree_123",
+      change: { kind: "granted", role: "editor" },
+    })
+
+    expect(sendMail).toHaveBeenCalledTimes(1)
+    const mail = lastMail()
+    expect(mail.to).toBe("alice@example.com")
+    expect(mail.subject).toBe('You\'ve been invited to "Smith Family"')
+    expect(mail.text).toContain("Hi Alice,")
+    expect(mail.text).toContain("invited you to \"Smith Family\" as a Editor")
+    expect(mail.text).toContain("https://tree.example.com/tree/tree_123")
+    expect(mail.html).toContain("You're now a Editor.")
+    expect(mail.html).toContain("Open your tree")
+    expect(mail.html).toContain("FamiKi")
+  })
+
+  test("role change message reports the new role", async () => {
+    await notifyShareChange({
+      granteeEmail: "alice@example.com",
+      granteeName: "Alice",
+      ownerName: "Owner",
+      treeName: "Smith Family",
+      treeId: "tree_123",
+      change: { kind: "roleChanged", role: "viewer" },
+    })
+
+    const mail = lastMail()
+    expect(mail.subject).toBe('Your access to "Smith Family" changed')
+    expect(mail.html).toContain("You're now a Viewer.")
+    expect(mail.html).toContain("changed your role on")
+    expect(mail.html).toContain("Open your tree")
+  })
+
+  test("revocation message uses the danger banner and request link", async () => {
+    await notifyShareChange({
+      granteeEmail: "alice@example.com",
+      granteeName: null,
+      ownerName: null,
+      treeName: "Smith Family",
+      treeId: "tree_123",
+      change: { kind: "revoked" },
+    })
+
+    const mail = lastMail()
+    expect(mail.subject).toBe('Access to "Smith Family" revoked')
+    expect(mail.text).toContain("Hi,")
+    expect(mail.text).toContain("The tree owner removed your access")
+    expect(mail.html).toContain("Your access was removed.")
+    expect(mail.html).toContain("Request access")
+    expect(mail.html).toContain("https://tree.example.com/tree/tree_123")
+  })
+
+  test("is best-effort: skips silently when SMTP is unconfigured", async () => {
+    delete process.env.SMTP_HOST
+    delete process.env.SMTP_USER
+    delete process.env.SMTP_PASSWORD
+
+    await expect(
+      notifyShareChange({
+        granteeEmail: "alice@example.com",
+        granteeName: "Alice",
+        ownerName: "Owner",
+        treeName: "Smith Family",
+        treeId: "tree_123",
+        change: { kind: "granted", role: "viewer" },
+      }),
+    ).resolves.toBeUndefined()
+    expect(sendMail).not.toHaveBeenCalled()
   })
 })

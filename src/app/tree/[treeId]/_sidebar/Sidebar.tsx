@@ -255,6 +255,7 @@ export function Sidebar({
             key={JSON.stringify(state.rel)}
             family={family}
             rel={state.rel}
+            defaultFamilyName={treeName}
             onDone={onClose}
           />
         ) : state.mode === "choose" && choosePerson && editable ? (

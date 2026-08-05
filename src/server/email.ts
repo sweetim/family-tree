@@ -1,4 +1,5 @@
 import nodemailer, { type Transporter } from "nodemailer"
+import { match } from "ts-pattern"
 
 type SmtpConfig = {
   host: string
@@ -150,6 +151,90 @@ export async function notifyRequesterOfResolution(
   await sendMail({ to: data.requesterEmail, subject, text, html })
 }
 
+export type ShareChange =
+  | { kind: "granted"; role: "viewer" | "editor" }
+  | { kind: "roleChanged"; role: "viewer" | "editor" }
+  | { kind: "revoked" }
+
+export type ShareChangeNotification = {
+  granteeEmail: string
+  granteeName: string | null
+  ownerName: string | null
+  treeName: string
+  treeId: string
+  change: ShareChange
+}
+
+type ShareMessage = {
+  subject: string
+  bannerTone: BannerTone
+  bannerText: string
+  bodyLine1: string
+  bodyLine2: string
+  button: string
+}
+
+/**
+ * Notify a grantee that their access to a tree was granted, changed, or
+ * revoked by its owner. Reuses the same card chrome as the access-request
+ * resolution email. Best-effort: failures are swallowed by `sendMail`.
+ */
+export async function notifyShareChange(
+  data: ShareChangeNotification,
+): Promise<void> {
+  const treeUrl = `${appBaseUrl()}/tree/${data.treeId}`
+  const actor = data.ownerName ?? "The tree owner"
+  const greeting = data.granteeName ? `Hi ${data.granteeName},` : "Hi,"
+  const message: ShareMessage = match(data.change)
+    .with({ kind: "granted" }, ({ role }) => ({
+      subject: `You've been invited to "${data.treeName}"`,
+      bannerTone: "success" as BannerTone,
+      bannerText: `You're now a ${roleLabel(role)}.`,
+      bodyLine1: `${actor} invited you to "${data.treeName}" as a ${roleLabel(role)}.`,
+      bodyLine2:
+        role === "editor"
+          ? "You can view and edit everyone in this family tree."
+          : "You can view everyone in this family tree.",
+      button: "Open your tree",
+    }))
+    .with({ kind: "roleChanged" }, ({ role }) => ({
+      subject: `Your access to "${data.treeName}" changed`,
+      bannerTone: "success" as BannerTone,
+      bannerText: `You're now a ${roleLabel(role)}.`,
+      bodyLine1: `${actor} changed your role on "${data.treeName}" to ${roleLabel(role)}.`,
+      bodyLine2:
+        role === "editor"
+          ? "You can now view and edit this family tree."
+          : "You can now view this family tree.",
+      button: "Open your tree",
+    }))
+    .with({ kind: "revoked" }, () => ({
+      subject: `Access to "${data.treeName}" revoked`,
+      bannerTone: "danger" as BannerTone,
+      bannerText: "Your access was removed.",
+      bodyLine1: `${actor} removed your access to "${data.treeName}".`,
+      bodyLine2:
+        "If you think this was a mistake, you can request access again.",
+      button: "Request access",
+    }))
+    .exhaustive()
+  const text = [
+    greeting,
+    "",
+    `${message.bodyLine1} ${message.bodyLine2}`,
+    "",
+    `${message.button}: ${treeUrl}`,
+  ].join("\n")
+  const html = renderCard([
+    renderBanner(message.bannerTone, message.bannerText),
+    `<h1 style="margin:24px 0 4px;font-size:24px;line-height:1.1;font-weight:700;letter-spacing:-0.045em;color:#27241f;text-align:center;">${escapeHtml(`"${data.treeName}"`)}</h1>`,
+    `<p style="margin:0 0 20px;font-size:13px;font-weight:600;color:#9b9384;text-align:center;">Family tree</p>`,
+    `<p style="margin:0 0 24px;font-size:15px;line-height:24px;color:#686155;text-align:center;">${escapeHtml(message.bodyLine1)}<br>${escapeHtml(message.bodyLine2)}</p>`,
+    renderButton(message.button, treeUrl),
+  ])
+  await sendMail({ to: data.granteeEmail, subject: message.subject, text, html })
+}
+
 const FONT_STACK =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
@@ -215,6 +300,10 @@ function renderCard(inner: string[]): string {
     + inner.join("")
     + "</td></tr></table></td></tr></table></body></html>"
   )
+}
+
+function roleLabel(role: "viewer" | "editor"): string {
+  return role === "editor" ? "Editor" : "Viewer"
 }
 
 function escapeHtml(value: string): string {

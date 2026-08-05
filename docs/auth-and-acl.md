@@ -42,6 +42,10 @@ When transactional email is configured (SMTP env vars in `.env.local`),
 
 - A **new request** emails the tree owner (a link to the `/sharing` page).
 - **Resolving** a request emails the requester, both on approve and deny.
+- An **owner changing a share** — via the `/sharing` matrix or a tree's share
+  dialog — emails the grantee when their access is granted, when their role
+  changes (viewer ↔ editor), or when access is revoked. Re-applying the same
+  role is a no-op and sends nothing.
 
 Delivery is best-effort: a send failure (or missing SMTP config) is logged and
 never blocks the request or approval. Configure `SMTP_HOST`, `SMTP_PORT`,
