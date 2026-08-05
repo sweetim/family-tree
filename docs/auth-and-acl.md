@@ -35,6 +35,18 @@ Resolution is conditional on an existing pending row. The API never resolves an
 arbitrary user ID, and share-list responses do not expose account IDs or account
 registration state.
 
+### Email notifications
+
+When transactional email is configured (SMTP env vars in `.env.local`),
+`src/server/email.ts` sends notifications over SMTP (e.g. Zoho Mail):
+
+- A **new request** emails the tree owner (a link to the `/sharing` page).
+- **Resolving** a request emails the requester, both on approve and deny.
+
+Delivery is best-effort: a send failure (or missing SMTP config) is logged and
+never blocks the request or approval. Configure `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, and `SMTP_PASSWORD` to enable it; leave them blank to disable.
+
 ## Roles
 
 `Role` is `owner | editor | viewer`, ordered from strongest to weakest. A

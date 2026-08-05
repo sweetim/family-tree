@@ -780,288 +780,314 @@ export async function resolveBlockedOperation(
   }
 
   if (resolution === "server") {
-    const resolutionGeneration = getStoreGeneration()
-    const existingPush = activePushPromise()
-    const execute = async () => {
-      if (existingPush) await existingPush
-      if (resolutionGeneration !== getStoreGeneration()) return "stale" as const
-      return runWithCrossTabSyncLock(async () => {
-        let pull: SyncPullResponse
-        try {
-          pull = await fetchFullPull()
-        } catch {
-          return "offline" as const
-        }
-        let cleared = 0
-        for (const record of currentRecords) {
-          const current = dirtyState[record.collection].get(record.id)
-          if (!matchesCapturedIntent(current, record.dirty)) continue
-          const token = dirtyToken(record.collection, record.id, current)
-          if (token) clearedDirtyTokens.add(token)
-          dirtyState[record.collection].delete(record.id)
-          cleared++
-        }
-        if (cleared === 0) return "stale" as const
-        if (conflict) {
-          operationConflicts = operationConflicts.filter(
-            (candidate) => candidate.operationId !== operationId,
-          )
-          clearedOperationConflictIds.add(operationId)
-        }
-        applyFullPull(pull)
-        schedulePersistence()
-        setSyncStatus(statusFromDirtyState())
-        notifyListeners()
-        await persistCurrentStore()
-        return "resolved" as const
-      })
-    }
-    const resolutionPromise = execute().finally(() => {
-      if (conflictResolutionInFlight === resolutionPromise) {
-        conflictResolutionInFlight = undefined
-      }
-    })
-    conflictResolutionInFlight = resolutionPromise
-    return resolutionPromise
-  } else {
-    // Drop the captured conflict up front so a re-conflict can snapshot a
-    // refreshed version under the same operation id. Reusing the id keeps the
-    // review item stable instead of surfacing a duplicate under a new id. The
-    // captured conflict is restored on the offline path so its comparison stays
-    // available, and the id is only marked cleared once the push truly succeeds.
-    if (conflict) {
-      operationConflicts = operationConflicts.filter(
-        (candidate) => candidate.operationId !== operationId,
-      )
-    }
-    // Refresh the optimistic-concurrency base from a live snapshot so the retry
-    // targets the server's current revision, not the one captured when the
-    // conflict was first detected. The device version is kept; only the base
-    // revision is refreshed. When the fetch fails (offline) the captured
-    // revision is used and the push/offline handling below takes over.
-    let freshRecords: SyncRecordSet | undefined
-    let freshTreeRevision: number | undefined
-    try {
-      const snapshot = await fetchTreeSnapshot(treeId)
-      freshRecords = { trees: [], ...snapshot.records }
-      freshTreeRevision = snapshot.tree.revision
-    } catch {
-      freshRecords = undefined
-    }
-    if (conflict?.reason === "missing-parent-relationship" && freshRecords) {
-      const { adoptions, authoritativePeople, operationAlreadyExistsOnServer } =
-        computeCanonicalAdoptions(
-          getSnapshot(),
-          dirtyState,
-          currentRecords,
-          freshRecords,
-        )
-      if (operationAlreadyExistsOnServer) {
-        for (const record of currentRecords) {
-          const current = dirtyState[record.collection].get(record.id)
-          if (!matchesCapturedIntent(current, record.dirty)) continue
-          const token = dirtyToken(record.collection, record.id, current)
-          if (token) clearedDirtyTokens.add(token)
-          dirtyState[record.collection].delete(record.id)
-        }
-        update(
-          (previous) => {
-            const parentChildRelationships = {
-              ...previous.parentChildRelationships,
-            }
-            const treeParentChildRelationships = {
-              ...previous.treeParentChildRelationships,
-            }
-            const persons = { ...previous.persons }
-            for (const serverPerson of authoritativePeople.values()) {
-              persons[serverPerson.id] = {
-                id: serverPerson.id,
-                name: serverPerson.name,
-                familyName: serverPerson.familyName ?? "",
-                dob: serverPerson.dob,
-                dod: serverPerson.dod,
-                gender: serverPerson.gender,
-                birthplace: serverPerson.birthplace,
-                photo: serverPerson.hasPhoto
-                  ? STORED_PHOTO_MARKER
-                  : serverPerson.photo,
-                revision: serverPerson.revision,
-                updatedAt: serverPerson.updatedAt,
-                ownerId: serverPerson.ownerId,
-              }
-            }
-            for (const adoption of adoptions) {
-              delete parentChildRelationships[adoption.localRelationshipId]
-              parentChildRelationships[adoption.canonicalRelationship.id] = {
-                ...adoption.canonicalRelationship,
-              }
-              for (const association of adoption.associations) {
-                delete treeParentChildRelationships[association.localKey]
-                treeParentChildRelationships[association.canonicalKey] = {
-                  ...association.canonicalAssociation,
-                }
-              }
-            }
-            return {
-              ...previous,
-              persons,
-              parentChildRelationships,
-              treeParentChildRelationships,
-            }
-          },
-          { remote: true },
-        )
-        clearedOperationConflictIds.add(operationId)
-        schedulePersistence()
-        setSyncStatus(statusFromDirtyState())
-        notifyListeners()
-        await persistCurrentStore()
-        return "resolved"
-      }
-    }
-    // A tree snapshot only covers records still attached to that tree, and the
-    // captured conflict only covers what the server chose to return. When
-    // neither knows the authoritative revision of a record that does exist on
-    // the server, the retry would resend the rejected base verbatim and be
-    // refused again, so fall back to a pull, which spans every accessible
-    // record.
-    let pulledRecords: SyncRecordSet | undefined
-    const missingAuthoritativeRevision = currentRecords.some((record) => {
-      const current = dirtyState[record.collection].get(record.id)
-      return (
-        current?.baseRevision !== undefined
-        && snapshotRevisionFor(freshRecords, freshTreeRevision, treeId, record)
-          === undefined
-        && capturedRevisionFor(conflict, record) === undefined
-      )
-    })
-    if (missingAuthoritativeRevision) {
+    return resolveBlockedOnServer(operationId, conflict, currentRecords)
+  }
+  return resolveBlockedOnDevice(
+    operationId,
+    conflict,
+    currentRecords,
+    treeId,
+    attempt,
+  )
+}
+
+// Resolution path for "keep the server's version": fetch the authoritative
+// full pull, drop the captured device records, and overwrite the local graph
+// so the user's intent becomes "accept what the server has".
+async function resolveBlockedOnServer(
+  operationId: string,
+  conflict: PersistedOperationConflict | undefined,
+  currentRecords: ResolvedConflictRecord[],
+): Promise<"resolved" | "stale" | "offline"> {
+  const resolutionGeneration = getStoreGeneration()
+  const existingPush = activePushPromise()
+  const execute = async () => {
+    if (existingPush) await existingPush
+    if (resolutionGeneration !== getStoreGeneration()) return "stale" as const
+    return runWithCrossTabSyncLock(async () => {
+      let pull: SyncPullResponse
       try {
-        pulledRecords = pullRecordSet(await fetchFullPull())
+        pull = await fetchFullPull()
       } catch {
-        pulledRecords = undefined
+        return "offline" as const
       }
-    }
-    const attemptedBases = new Map<string, number | undefined>()
-    let requeued = 0
-    for (const record of currentRecords) {
-      const current = dirtyState[record.collection].get(record.id)
-      if (!matchesCapturedIntent(current, record.dirty)) continue
-      const conflictRecord = conflict?.records.find(
-        (candidate) =>
-          candidate.collection === record.collection
-          && candidate.id === record.id,
-      )
-      const capturedRevision = capturedRevisionFor(conflict, record)
-      const freshRevision =
-        snapshotRevisionFor(freshRecords, freshTreeRevision, treeId, record)
-        ?? revisionIn(pulledRecords, record)
-      if (
-        conflictRecord
-        && current.action === "delete"
-        && !conflictRecord.serverValue
-      ) {
+      let cleared = 0
+      for (const record of currentRecords) {
+        const current = dirtyState[record.collection].get(record.id)
+        if (!matchesCapturedIntent(current, record.dirty)) continue
         const token = dirtyToken(record.collection, record.id, current)
         if (token) clearedDirtyTokens.add(token)
         dirtyState[record.collection].delete(record.id)
-        continue
+        cleared++
       }
-      const baseRevision =
-        freshRevision ?? capturedRevision ?? current.baseRevision
-      attemptedBases.set(`${record.collection}:${record.id}`, baseRevision)
-      dirtyState[record.collection].set(record.id, {
-        ...current,
-        blocked: false,
-        baseRevision,
-        revision: bumpRevision(),
-        operationId,
-        conflictId: undefined,
-        force: true,
-      })
-      requeued++
+      if (cleared === 0) return "stale" as const
+      if (conflict) {
+        operationConflicts = operationConflicts.filter(
+          (candidate) => candidate.operationId !== operationId,
+        )
+        clearedOperationConflictIds.add(operationId)
+      }
+      applyFullPull(pull)
+      schedulePersistence()
+      setSyncStatus(statusFromDirtyState())
+      notifyListeners()
+      await persistCurrentStore()
+      return "resolved" as const
+    })
+  }
+  const resolutionPromise = execute().finally(() => {
+    if (conflictResolutionInFlight === resolutionPromise) {
+      conflictResolutionInFlight = undefined
     }
-    if (requeued === 0) {
-      if (conflict) clearedOperationConflictIds.add(operationId)
+  })
+  conflictResolutionInFlight = resolutionPromise
+  return resolutionPromise
+}
+
+// Resolution path for "keep my version": refresh the optimistic-concurrency
+// base from a live snapshot, rebase the blocked records onto it, and retry the
+// push. Handles the missing-parent-relationship reconciliation, offline
+// fallback, and the retry/progress bookkeeping that decides whether to loop,
+// re-surface the conflict, or give up.
+async function resolveBlockedOnDevice(
+  operationId: string,
+  conflict: PersistedOperationConflict | undefined,
+  currentRecords: ResolvedConflictRecord[],
+  treeId: string,
+  attempt: number,
+): Promise<"resolved" | "stale" | "conflict" | "offline" | "unresolvable"> {
+  // Drop the captured conflict up front so a re-conflict can snapshot a
+  // refreshed version under the same operation id. Reusing the id keeps the
+  // review item stable instead of surfacing a duplicate under a new id. The
+  // captured conflict is restored on the offline path so its comparison stays
+  // available, and the id is only marked cleared once the push truly succeeds.
+  if (conflict) {
+    operationConflicts = operationConflicts.filter(
+      (candidate) => candidate.operationId !== operationId,
+    )
+  }
+  // Refresh the optimistic-concurrency base from a live snapshot so the retry
+  // targets the server's current revision, not the one captured when the
+  // conflict was first detected. The device version is kept; only the base
+  // revision is refreshed. When the fetch fails (offline) the captured
+  // revision is used and the push/offline handling below takes over.
+  let freshRecords: SyncRecordSet | undefined
+  let freshTreeRevision: number | undefined
+  try {
+    const snapshot = await fetchTreeSnapshot(treeId)
+    freshRecords = { trees: [], ...snapshot.records }
+    freshTreeRevision = snapshot.tree.revision
+  } catch {
+    freshRecords = undefined
+  }
+  if (conflict?.reason === "missing-parent-relationship" && freshRecords) {
+    const { adoptions, authoritativePeople, operationAlreadyExistsOnServer } =
+      computeCanonicalAdoptions(
+        getSnapshot(),
+        dirtyState,
+        currentRecords,
+        freshRecords,
+      )
+    if (operationAlreadyExistsOnServer) {
+      for (const record of currentRecords) {
+        const current = dirtyState[record.collection].get(record.id)
+        if (!matchesCapturedIntent(current, record.dirty)) continue
+        const token = dirtyToken(record.collection, record.id, current)
+        if (token) clearedDirtyTokens.add(token)
+        dirtyState[record.collection].delete(record.id)
+      }
+      update(
+        (previous) => {
+          const parentChildRelationships = {
+            ...previous.parentChildRelationships,
+          }
+          const treeParentChildRelationships = {
+            ...previous.treeParentChildRelationships,
+          }
+          const persons = { ...previous.persons }
+          for (const serverPerson of authoritativePeople.values()) {
+            persons[serverPerson.id] = {
+              id: serverPerson.id,
+              name: serverPerson.name,
+              familyName: serverPerson.familyName ?? "",
+              dob: serverPerson.dob,
+              dod: serverPerson.dod,
+              gender: serverPerson.gender,
+              birthplace: serverPerson.birthplace,
+              photo: serverPerson.hasPhoto
+                ? STORED_PHOTO_MARKER
+                : serverPerson.photo,
+              revision: serverPerson.revision,
+              updatedAt: serverPerson.updatedAt,
+              ownerId: serverPerson.ownerId,
+            }
+          }
+          for (const adoption of adoptions) {
+            delete parentChildRelationships[adoption.localRelationshipId]
+            parentChildRelationships[adoption.canonicalRelationship.id] = {
+              ...adoption.canonicalRelationship,
+            }
+            for (const association of adoption.associations) {
+              delete treeParentChildRelationships[association.localKey]
+              treeParentChildRelationships[association.canonicalKey] = {
+                ...association.canonicalAssociation,
+              }
+            }
+          }
+          return {
+            ...previous,
+            persons,
+            parentChildRelationships,
+            treeParentChildRelationships,
+          }
+        },
+        { remote: true },
+      )
+      clearedOperationConflictIds.add(operationId)
       schedulePersistence()
       setSyncStatus(statusFromDirtyState())
       notifyListeners()
       await persistCurrentStore()
       return "resolved"
     }
+  }
+  // A tree snapshot only covers records still attached to that tree, and the
+  // captured conflict only covers what the server chose to return. When
+  // neither knows the authoritative revision of a record that does exist on
+  // the server, the retry would resend the rejected base verbatim and be
+  // refused again, so fall back to a pull, which spans every accessible
+  // record.
+  let pulledRecords: SyncRecordSet | undefined
+  const missingAuthoritativeRevision = currentRecords.some((record) => {
+    const current = dirtyState[record.collection].get(record.id)
+    return (
+      current?.baseRevision !== undefined
+      && snapshotRevisionFor(freshRecords, freshTreeRevision, treeId, record)
+        === undefined
+      && capturedRevisionFor(conflict, record) === undefined
+    )
+  })
+  if (missingAuthoritativeRevision) {
+    try {
+      pulledRecords = pullRecordSet(await fetchFullPull())
+    } catch {
+      pulledRecords = undefined
+    }
+  }
+  const attemptedBases = new Map<string, number | undefined>()
+  let requeued = 0
+  for (const record of currentRecords) {
+    const current = dirtyState[record.collection].get(record.id)
+    if (!matchesCapturedIntent(current, record.dirty)) continue
+    const conflictRecord = conflict?.records.find(
+      (candidate) =>
+        candidate.collection === record.collection
+        && candidate.id === record.id,
+    )
+    const capturedRevision = capturedRevisionFor(conflict, record)
+    const freshRevision =
+      snapshotRevisionFor(freshRecords, freshTreeRevision, treeId, record)
+      ?? revisionIn(pulledRecords, record)
+    if (
+      conflictRecord
+      && current.action === "delete"
+      && !conflictRecord.serverValue
+    ) {
+      const token = dirtyToken(record.collection, record.id, current)
+      if (token) clearedDirtyTokens.add(token)
+      dirtyState[record.collection].delete(record.id)
+      continue
+    }
+    const baseRevision =
+      freshRevision ?? capturedRevision ?? current.baseRevision
+    attemptedBases.set(`${record.collection}:${record.id}`, baseRevision)
+    dirtyState[record.collection].set(record.id, {
+      ...current,
+      blocked: false,
+      baseRevision,
+      revision: bumpRevision(),
+      operationId,
+      conflictId: undefined,
+      force: true,
+    })
+    requeued++
+  }
+  if (requeued === 0) {
+    if (conflict) clearedOperationConflictIds.add(operationId)
     schedulePersistence()
     setSyncStatus(statusFromDirtyState())
     notifyListeners()
-    const activePush = activePushPromise()
-    if (activePush) await activePush
-    await pushDirty()
-    if (getSyncStatus() === "offline") {
-      for (const record of currentRecords) {
-        const current = dirtyState[record.collection].get(record.id)
-        if (current?.operationId !== operationId) continue
-        dirtyState[record.collection].set(record.id, {
-          ...record.dirty,
-          blocked: true,
-          revision: bumpRevision(),
-        })
-      }
-      if (conflict) operationConflicts = [...operationConflicts, conflict]
-      setSyncStatus(statusFromDirtyState())
+    await persistCurrentStore()
+    return "resolved"
+  }
+  schedulePersistence()
+  setSyncStatus(statusFromDirtyState())
+  notifyListeners()
+  const activePush = activePushPromise()
+  if (activePush) await activePush
+  await pushDirty()
+  if (getSyncStatus() === "offline") {
+    for (const record of currentRecords) {
+      const current = dirtyState[record.collection].get(record.id)
+      if (current?.operationId !== operationId) continue
+      dirtyState[record.collection].set(record.id, {
+        ...record.dirty,
+        blocked: true,
+        revision: bumpRevision(),
+      })
+    }
+    if (conflict) operationConflicts = [...operationConflicts, conflict]
+    setSyncStatus(statusFromDirtyState())
+    schedulePersistence()
+    notifyListeners()
+    await persistCurrentStore()
+    return "offline"
+  }
+  const retriedConflict = operationConflicts.find(
+    (candidate) => candidate.operationId === operationId,
+  )
+  if (retriedConflict) {
+    const recreatedMissingDependency =
+      retriedConflict.reason === "missing-parent-relationship"
+      && retriedConflict.records.some(
+        (record) => !attemptedBases.has(`${record.collection}:${record.id}`),
+      )
+    if (recreatedMissingDependency) {
+      // Recurse once to push the freshly-minted relationship id. If that
+      // still misses its dependency, minting more ids cannot help—stop so
+      // we never loop snapshot→mutation→sync indefinitely.
+      if (attempt >= 1) return "unresolvable"
+      return resolveBlockedOperation(operationId, "device", treeId, attempt + 1)
+    }
+    // The rebased mutation was refused too. If the server reports the same
+    // revisions this attempt already sent — or reports none at all — nothing
+    // a further retry could send would differ, so the record was refused for
+    // a reason optimistic concurrency cannot fix (a removed or unreachable
+    // record, or a dependency the server does not have). Stop offering the
+    // retry instead of looping the identical mutation.
+    const madeProgress = retriedConflict.records.some((record) => {
+      const key = `${record.collection}:${record.id}`
+      if (!attemptedBases.has(key)) return false
+      const serverRevision = (
+        record.serverValue as { revision?: number } | undefined
+      )?.revision
+      return (
+        serverRevision !== undefined
+        && serverRevision !== attemptedBases.get(key)
+      )
+    })
+    if (!madeProgress) {
+      operationConflicts = operationConflicts.map((candidate) =>
+        candidate.operationId === operationId
+          ? { ...candidate, retryable: false }
+          : candidate,
+      )
       schedulePersistence()
       notifyListeners()
       await persistCurrentStore()
-      return "offline"
+      return "unresolvable"
     }
-    const retriedConflict = operationConflicts.find(
-      (candidate) => candidate.operationId === operationId,
-    )
-    if (retriedConflict) {
-      const recreatedMissingDependency =
-        retriedConflict.reason === "missing-parent-relationship"
-        && retriedConflict.records.some(
-          (record) => !attemptedBases.has(`${record.collection}:${record.id}`),
-        )
-      if (recreatedMissingDependency) {
-        // Recurse once to push the freshly-minted relationship id. If that
-        // still misses its dependency, minting more ids cannot help—stop so
-        // we never loop snapshot→mutation→sync indefinitely.
-        if (attempt >= 1) return "unresolvable"
-        return resolveBlockedOperation(
-          operationId,
-          "device",
-          treeId,
-          attempt + 1,
-        )
-      }
-      // The rebased mutation was refused too. If the server reports the same
-      // revisions this attempt already sent — or reports none at all — nothing
-      // a further retry could send would differ, so the record was refused for
-      // a reason optimistic concurrency cannot fix (a removed or unreachable
-      // record, or a dependency the server does not have). Stop offering the
-      // retry instead of looping the identical mutation.
-      const madeProgress = retriedConflict.records.some((record) => {
-        const key = `${record.collection}:${record.id}`
-        if (!attemptedBases.has(key)) return false
-        const serverRevision = (
-          record.serverValue as { revision?: number } | undefined
-        )?.revision
-        return (
-          serverRevision !== undefined
-          && serverRevision !== attemptedBases.get(key)
-        )
-      })
-      if (!madeProgress) {
-        operationConflicts = operationConflicts.map((candidate) =>
-          candidate.operationId === operationId
-            ? { ...candidate, retryable: false }
-            : candidate,
-        )
-        schedulePersistence()
-        notifyListeners()
-        await persistCurrentStore()
-        return "unresolvable"
-      }
-      return "conflict"
-    }
+    return "conflict"
   }
   if (conflict) clearedOperationConflictIds.add(operationId)
   schedulePersistence()

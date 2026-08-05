@@ -23,11 +23,6 @@ import {
   resetCoordinator,
 } from "./coordinator"
 import {
-  persistCurrentStore,
-  resetPersistenceCoordinator,
-  schedulePersistence,
-} from "./persistence-coordinator"
-import {
   clearDirty,
   dirtyState,
   hydrateOutbox,
@@ -39,10 +34,11 @@ import {
 } from "./dirty"
 import type { PersistedStore } from "./persistence"
 import {
-  applyRemote,
-  recordTombstone,
-  sharedRemoteRecords,
-} from "./remote"
+  persistCurrentStore,
+  resetPersistenceCoordinator,
+  schedulePersistence,
+} from "./persistence-coordinator"
+import { applyRemote, recordTombstone, sharedRemoteRecords } from "./remote"
 import { useStore } from "./state-hooks"
 import {
   ancestorTreeLinksFor,
@@ -210,7 +206,6 @@ let ancestorTreeLinks = new Map<string, Map<string, string>>()
  * reflects the authoritative server data instead of stale persisted state.
  */
 let freshlyLoadedTrees = new Set<string>()
-
 
 type UpdateOptions = { remote?: boolean }
 

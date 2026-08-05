@@ -3,6 +3,7 @@ import {
   Check,
   CloudOff,
   Loader2,
+  Lock,
   Network,
   Pencil,
   Plus,
@@ -27,7 +28,11 @@ import {
   useState,
 } from "react"
 import { match } from "ts-pattern"
-import { useOwnedAccessRequestCount } from "../lib/access-requests"
+import {
+  type RequestedTree,
+  useMyAccessRequests,
+  useOwnedAccessRequestCount,
+} from "../lib/access-requests"
 import { useSession } from "../lib/auth-client"
 import {
   countMembers,
@@ -228,6 +233,7 @@ function TreeCard({
   const [deleting, setDeleting] = useState(false)
   const nameFieldRef = useRef<TreeNameFieldHandle>(null)
   const members = countMembers(tree.id)
+  const isShared = tree.role === "viewer" || tree.role === "editor"
   const created = new Date(tree.createdAt).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -235,21 +241,50 @@ function TreeCard({
   })
 
   return (
-    <div className="group flex flex-col rounded-xl border border-slate-200 bg-white p-4 transition-all hover:border-cobalt-300 hover:shadow-soft sm:p-5">
+    <div
+      className={`group flex flex-col rounded-xl border p-4 transition-all hover:shadow-soft sm:p-5 ${
+        isShared
+          ? "border-cobalt-200 bg-cobalt-50/40 hover:border-cobalt-300"
+          : "border-slate-200 bg-white hover:border-cobalt-300"
+      }`}
+    >
       <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cobalt-50 text-sm font-semibold text-cobalt-700">
+        <span
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-sm font-semibold ${
+            isShared
+              ? "bg-white text-cobalt-700 ring-1 ring-cobalt-200"
+              : "bg-cobalt-50 text-cobalt-700"
+          }`}
+        >
           {initialFor(tree.name)}
         </span>
         <div className="min-w-0 flex-1">
-          <TreeNameField
-            ref={nameFieldRef}
-            tree={tree}
-            navigate={navigate}
-            onRename={onRename}
-          />
+          {isShared ? (
+            <button
+              type="button"
+              onClick={() => navigate(`/tree/${tree.id}`)}
+              className="block truncate text-left font-semibold text-slate-900 transition-colors hover:text-cobalt-700"
+            >
+              {tree.name}
+            </button>
+          ) : (
+            <TreeNameField
+              ref={nameFieldRef}
+              tree={tree}
+              navigate={navigate}
+              onRename={onRename}
+            />
+          )}
           <p className="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-500">
             <Users className="h-3.5 w-3.5" />
-            {members} {members === 1 ? "member" : "members"} · created {created}
+            {members} {members === 1 ? "member" : "members"}
+            {isShared ? (
+              tree.ownerEmail ? (
+                <> · shared by {tree.ownerEmail}</>
+              ) : null
+            ) : (
+              <> · created {created}</>
+            )}
           </p>
         </div>
       </div>
@@ -262,53 +297,57 @@ function TreeCard({
         >
           Open <ArrowRight className="h-4 w-4" />
         </button>
-        <button
-          type="button"
-          title="Share tree"
-          onClick={onShare}
-          className={ghostBtn}
-        >
-          <Share2 className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          title="Rename tree"
-          onClick={() => nameFieldRef.current?.start()}
-          className={ghostBtn}
-        >
-          <Pencil className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          title="Delete tree"
-          onClick={async () => {
-            if (
-              await confirm({
-                title: "Delete tree",
-                message: `Delete "${tree.name}" and its ${members} members? This cannot be undone.`,
-                confirmText: "Delete",
-                tone: "danger",
-              })
-            ) {
-              setDeleting(true)
-              try {
-                await onDelete()
-              } catch (error) {
-                console.error(error)
-                toast("Couldn't delete tree.", "error")
-                setDeleting(false)
-              }
-            }
-          }}
-          disabled={deleting}
-          className="inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-95"
-        >
-          {deleting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Trash2 className="h-4 w-4" />
-          )}
-        </button>
+        {!isShared && (
+          <>
+            <button
+              type="button"
+              title="Share tree"
+              onClick={onShare}
+              className={ghostBtn}
+            >
+              <Share2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              title="Rename tree"
+              onClick={() => nameFieldRef.current?.start()}
+              className={ghostBtn}
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              title="Delete tree"
+              onClick={async () => {
+                if (
+                  await confirm({
+                    title: "Delete tree",
+                    message: `Delete "${tree.name}" and its ${members} members? This cannot be undone.`,
+                    confirmText: "Delete",
+                    tone: "danger",
+                  })
+                ) {
+                  setDeleting(true)
+                  try {
+                    await onDelete()
+                  } catch (error) {
+                    console.error(error)
+                    toast("Couldn't delete tree.", "error")
+                    setDeleting(false)
+                  }
+                }
+              }}
+              disabled={deleting}
+              className="inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-95"
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
@@ -332,46 +371,68 @@ function NewTreeCard({ onClick }: { onClick: () => void }) {
   )
 }
 
-function SharedTreeCard({
-  tree,
+function PendingAccessCard({
+  request,
   navigate,
 }: {
-  tree: TreeMeta
+  request: RequestedTree
   navigate: (to: string) => void
 }) {
-  const members = countMembers(tree.id)
-  const role = tree.role === "editor" ? "editor" : "viewer"
+  const { treeId, treeName, status, comment, createdAt } = request
+  const requested = new Date(createdAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  })
+  const tone = match(status)
+    .with("pending", () => ({
+      label: "Waiting for approval",
+      className: "bg-amber-50 text-amber-700 ring-amber-200",
+    }))
+    .with("approved", () => ({
+      label: "Approved",
+      className: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    }))
+    .with("denied", () => ({
+      label: "Declined",
+      className: "bg-red-50 text-red-700 ring-red-200",
+    }))
+    .exhaustive()
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 transition-all hover:border-cobalt-300 hover:shadow-soft">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-600">
-          {initialFor(tree.name)}
-        </span>
-        <div className="min-w-0">
-          <button
-            type="button"
-            onClick={() => navigate(`/tree/${tree.id}`)}
-            className="block truncate text-left text-sm font-semibold text-slate-900 transition-colors hover:text-cobalt-700"
-          >
-            {tree.name}
-          </button>
-          <p className="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-500">
-            <Users className="h-3.5 w-3.5" />
-            {members} {members === 1 ? "member" : "members"}
-            {tree.ownerEmail ? <> · from {tree.ownerEmail}</> : null}
-          </p>
-        </div>
-      </div>
+    <button
+      type="button"
+      onClick={() => navigate(`/tree/${treeId}`)}
+      className="group relative flex min-h-[140px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80 p-4 text-left transition-all hover:border-cobalt-300 hover:shadow-soft sm:p-5"
+    >
       <span
-        className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
-          role === "editor"
-            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-            : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
-        }`}
-      >
-        {role}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(135deg,transparent,transparent_10px,rgba(15,23,42,0.03)_10px,rgba(15,23,42,0.03)_11px)]"
+      />
+      <div className="relative flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-slate-400 ring-1 ring-slate-200">
+          <Lock className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <span className="block truncate font-semibold text-slate-700">
+            {treeName}
+          </span>
+          <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-500">
+            Access requested · {requested}
+          </span>
+        </div>
+        <span
+          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ring-1 ${tone.className}`}
+        >
+          {tone.label}
+        </span>
+      </div>
+      <p className="relative mt-3 line-clamp-2 text-xs italic text-slate-500">
+        &ldquo;{comment}&rdquo;
+      </p>
+      <span className="relative mt-auto inline-flex items-center gap-1 pt-4 text-sm font-medium text-cobalt-600">
+        {status === "denied" ? "Request again" : "View request"}
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
       </span>
-    </div>
+    </button>
   )
 }
 
@@ -628,6 +689,15 @@ function HomeDashboard({
     () => trees.filter((t) => t.role === "viewer" || t.role === "editor"),
     [trees],
   )
+  const myAccessRequests = useMyAccessRequests()
+  const accessibleTreeIds = useMemo(
+    () => new Set(trees.map((tree) => tree.id)),
+    [trees],
+  )
+  const pendingAccess = useMemo(
+    () => myAccessRequests.filter((r) => !accessibleTreeIds.has(r.treeId)),
+    [myAccessRequests, accessibleTreeIds],
+  )
   const pendingAccessRequestCount = useOwnedAccessRequestCount(own.length > 0)
   const totalPeople = useMemo(
     () => trees.reduce((sum, tree) => sum + countMembers(tree.id), 0),
@@ -677,7 +747,7 @@ function HomeDashboard({
       </div>
 
       <div className="mt-8">
-        {trees.length === 0 ? (
+        {trees.length === 0 && pendingAccess.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
             <span className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-cobalt-50 text-cobalt-600">
               <Network className="h-6 w-6" />
@@ -699,43 +769,41 @@ function HomeDashboard({
             </button>
           </div>
         ) : (
-          <>
-            <section>
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Your trees
-              </h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <NewTreeCard onClick={() => setNewTreeOpen(true)} />
-                {own.map((tree) => (
-                  <TreeCard
-                    key={tree.id}
-                    tree={tree}
-                    navigate={navigate}
-                    onRename={(n) => renameTree(tree.id, n)}
-                    onDelete={() => deleteTree(tree.id)}
-                    onShare={() => setShareTarget(tree)}
-                  />
-                ))}
-              </div>
-            </section>
-
-            {shared.length > 0 && (
-              <section className="mt-8">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Shared with you
-                </h2>
-                <div className="space-y-3">
-                  {shared.map((tree) => (
-                    <SharedTreeCard
-                      key={tree.id}
-                      tree={tree}
-                      navigate={navigate}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-          </>
+          <section>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Your trees
+            </h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {pendingAccess.map((request) => (
+                <PendingAccessCard
+                  key={request.treeId}
+                  request={request}
+                  navigate={navigate}
+                />
+              ))}
+              <NewTreeCard onClick={() => setNewTreeOpen(true)} />
+              {own.map((tree) => (
+                <TreeCard
+                  key={tree.id}
+                  tree={tree}
+                  navigate={navigate}
+                  onRename={(n) => renameTree(tree.id, n)}
+                  onDelete={() => deleteTree(tree.id)}
+                  onShare={() => setShareTarget(tree)}
+                />
+              ))}
+              {shared.map((tree) => (
+                <TreeCard
+                  key={tree.id}
+                  tree={tree}
+                  navigate={navigate}
+                  onRename={() => {}}
+                  onDelete={async () => {}}
+                  onShare={() => {}}
+                />
+              ))}
+            </div>
+          </section>
         )}
       </div>
 

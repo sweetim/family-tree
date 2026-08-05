@@ -2,6 +2,10 @@ import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm"
 import { getDB } from "../../db/index"
 import { treeAccessRequests, treeShares, trees, user } from "../../db/schema"
 import { requireOwner, treeRole } from "../acl"
+import {
+  notifyOwnerOfAccessRequest,
+  notifyRequesterOfResolution,
+} from "../email"
 import { DEFAULT_LIST_PAGE_SIZE, MAXIMUM_LIST_PAGE_SIZE } from "../limits"
 import { readJsonBody } from "../request"
 import { requireSession } from "../session"
@@ -60,6 +64,51 @@ export async function getAccessRequest(
   return Response.json(out, {
     headers: { "cache-control": "private, no-store" },
   })
+}
+
+export type MyAccessRequest = {
+  treeId: string
+  treeName: string
+  status: "pending" | "approved" | "denied"
+  comment: string
+  createdAt: string
+}
+
+/**
+ * GET /api/my-access-requests — a requester's own access requests across every
+ * tree, joined to the (live) tree name. Used by Home to render requested trees
+ * as opaque cards alongside trees the user already has access to.
+ */
+export async function listMyAccessRequests(
+  request: Request,
+): Promise<Response> {
+  const me = await requireSession(request)
+  if (!me) return Response.json({ error: "unauthorized" }, { status: 401 })
+  const db = getDB()
+  const rows = await db
+    .select({
+      treeId: treeAccessRequests.treeId,
+      treeName: trees.name,
+      status: treeAccessRequests.status,
+      comment: treeAccessRequests.comment,
+      createdAt: treeAccessRequests.createdAt,
+    })
+    .from(treeAccessRequests)
+    .innerJoin(trees, eq(trees.id, treeAccessRequests.treeId))
+    .where(and(eq(treeAccessRequests.userId, me.id), isNull(trees.deletedAt)))
+    .orderBy(asc(treeAccessRequests.createdAt))
+    .limit(50)
+  const out: MyAccessRequest[] = rows.map((row) => ({
+    treeId: row.treeId,
+    treeName: row.treeName,
+    status: row.status,
+    comment: row.comment,
+    createdAt: row.createdAt.toISOString(),
+  }))
+  return Response.json(
+    { requests: out },
+    { headers: { "cache-control": "private, no-store" } },
+  )
 }
 
 /** POST /api/trees/:treeId/access-request — requester creates or reopens. */
@@ -130,6 +179,27 @@ export async function createAccessRequest(
         createdAt: new Date(),
       },
     })
+
+  const [owner, requester] = await Promise.all([
+    db.query.user.findFirst({
+      where: eq(user.id, tree.ownerId),
+      columns: { email: true, name: true },
+    }),
+    db.query.user.findFirst({
+      where: eq(user.id, me.id),
+      columns: { name: true },
+    }),
+  ])
+  if (owner) {
+    await notifyOwnerOfAccessRequest({
+      ownerEmail: owner.email,
+      ownerName: owner.name,
+      treeName: tree.name,
+      requesterName: requester?.name ?? me.email,
+      requesterEmail: me.email,
+      comment,
+    })
+  }
 
   return Response.json(
     { ok: true },
@@ -415,8 +485,10 @@ export async function resolveAccessRequest(
   }
   const targetUserId = body.userId
 
+  let resolvedRequester: { email: string; name: string }
+
   try {
-    await db.transaction(async (tx) => {
+    resolvedRequester = await db.transaction(async (tx) => {
       const lockedTree = await tx.execute<{ id: string }>(sql`
         SELECT ${trees.id} AS id
         FROM ${trees}
@@ -490,6 +562,11 @@ export async function resolveAccessRequest(
             },
           })
       }
+
+      return {
+        email: requestRow.requester.email,
+        name: requestRow.requester.name,
+      }
     })
   } catch (error) {
     if (error instanceof AccessRequestResolutionError) {
@@ -497,6 +574,18 @@ export async function resolveAccessRequest(
     }
     throw error
   }
+
+  const treeRow = await db.query.trees.findFirst({
+    where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
+    columns: { name: true },
+  })
+  await notifyRequesterOfResolution({
+    requesterEmail: resolvedRequester.email,
+    requesterName: resolvedRequester.name,
+    treeName: treeRow?.name ?? "your tree",
+    treeId,
+    approved: action === "approve",
+  })
 
   return Response.json(
     { ok: true },

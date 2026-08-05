@@ -4,17 +4,14 @@ import {
   Controls,
   type Edge,
   type EdgeMouseHandler,
-  getViewportForBounds,
   MiniMap,
-  type Node,
   type NodeMouseHandler,
-  Panel,
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
 } from "@xyflow/react"
-import { ChevronRight, Link2, Menu, X } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ChevronRight, Menu } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
 import { PersonNode } from "@/components/PersonNode"
 import { useToast } from "@/components/Toast"
@@ -26,11 +23,7 @@ import {
   type FlowEdge,
   type FlowNode,
 } from "@/lib/layout"
-import {
-  type LinkKind,
-  type TreeActions,
-  TreeActionsContext,
-} from "@/lib/tree-actions"
+import { type TreeActions, TreeActionsContext } from "@/lib/tree-actions"
 import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import { useViewSettings } from "@/lib/view-settings"
 import {
@@ -45,36 +38,13 @@ import {
   useFamilyAll,
   useTreeFreshlyLoaded,
 } from "@/store"
-import { ancestorsOf, descendantsOf, filterBloodlinePeople } from "@/types"
+import { filterBloodlinePeople } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
+import { ConnectBanner } from "./ConnectBanner"
+import { useConnectionTarget } from "./useConnectionTarget"
+import { usePdfExport } from "./usePdfExport"
 
 const nodeTypes = { person: PersonNode, union: UnionNode }
-
-const nextFrame = () =>
-  new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
-
-// Bounding box of every node for PDF fitting. Falls back to the layout's nominal
-// card sizes (see layout.ts: NODE_WIDTH 176, NODE_HEIGHT 220, UNION_SIZE 12) when
-// React Flow hasn't measured a node yet — otherwise unmeasured cards contribute
-// zero size and the fit zooms in too far, clipping the rightmost/bottom cards.
-function getExportBounds(nodes: Node[]) {
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-  for (const node of nodes) {
-    const isUnion = node.type === "union"
-    const width = node.measured?.width ?? (isUnion ? 12 : 176)
-    const height = node.measured?.height ?? (isUnion ? 12 : 220)
-    const { x, y } = node.position
-    if (x < minX) minX = x
-    if (y < minY) minY = y
-    if (x + width > maxX) maxX = x + width
-    if (y + height > maxY) maxY = y + height
-  }
-  if (!Number.isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 }
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
-}
 
 export function TreeView({
   tree,
@@ -222,16 +192,21 @@ function TreeCanvas({
   const [sidebar, setSidebar] = useState<SidebarState>(() =>
     openPersonId ? { mode: "edit", personId: openPersonId } : { mode: "idle" },
   )
-  const [link, setLink] = useState<{ kind: LinkKind; sourceId: string }>()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const {
+    link,
+    setLink,
+    targetKind,
+    targetSourceId,
+    targetSource,
+    linkEligible,
+  } = useConnectionTarget(sidebar, family.people, setSidebar, setDrawerOpen)
   const [sidebarHidden, setSidebarHidden] = useState(false)
   const [startingEditMode, setStartingEditMode] = useState(false)
   const editModeRequest = useRef(0)
   const editModeAbort = useRef<AbortController | null>(null)
   const editMode = editingTreeId === tree.id
-  const { fitView, getNode, getNodes, getViewport, setCenter, setViewport } =
-    useReactFlow()
-  const [printing, setPrinting] = useState(false)
+  const { fitView, getNode, getViewport, setCenter } = useReactFlow()
   // Crossfade the canvas skeleton into the real tree. The tree mounts as soon
   // as the fresh snapshot is ready (opacity 0, so it can measure/fitView
   // first), then `revealed` flips on the next frame to drive both opacities.
@@ -355,73 +330,6 @@ function TreeCanvas({
     }
   }
 
-  // Both an explicit click-to-connect session (link) and the chooser panel
-  // (sidebar "Add/Connect") target a source person + relation kind. Collapsing
-  // them into a single target lets the canvas highlight connectable cards — and
-  // complete a connection on click — the moment the chooser opens, not only
-  // after pressing "Connect existing".
-  const chooserKind = sidebar.mode === "choose" ? sidebar.kind : undefined
-  const chooserSourceId =
-    sidebar.mode === "choose" ? sidebar.sourceId : undefined
-  const targetKind = link?.kind ?? chooserKind
-  const targetSourceId = link?.sourceId ?? chooserSourceId
-  const targetSource = targetSourceId
-    ? family.people[targetSourceId]
-    : undefined
-
-  // Cancel the active task if its source disappears (e.g. deleted from the sidebar).
-  useEffect(() => {
-    if (link && !targetSource) setLink(undefined)
-  }, [link, targetSource])
-
-  useEffect(() => {
-    if (!targetKind) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return
-      if (link) setLink(undefined)
-      else {
-        setSidebar({ mode: "idle" })
-        setDrawerOpen(false)
-      }
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [targetKind, link])
-
-  // Who may be clicked to complete the pending connection. Mirrors the
-  // sidebar's dropdown rules: max two parents, no duplicate links, and no
-  // cycles (an ancestor can't become a child, a descendant can't become a parent).
-  const linkEligible = useMemo(() => {
-    if (!targetKind || !targetSourceId || !targetSource) return undefined
-    const eligible = new Set<string>()
-    if (targetKind === "parent" && targetSource.parents.length >= 2)
-      return eligible
-    const blockedAncestry =
-      targetKind === "parent"
-        ? descendantsOf(family.people, targetSourceId)
-        : targetKind === "child"
-          ? ancestorsOf(family.people, targetSourceId)
-          : undefined
-    for (const p of Object.values(family.people)) {
-      if (p.id === targetSourceId || blockedAncestry?.has(p.id)) continue
-      if (targetKind === "spouse" && targetSource.spouseIds.includes(p.id))
-        continue
-      if (
-        targetKind === "parent"
-        && targetSource.parents.some((l) => l.id === p.id)
-      )
-        continue
-      if (
-        targetKind === "child"
-        && (p.parents.length >= 2
-          || p.parents.some((l) => l.id === targetSourceId))
-      )
-        continue
-      eligible.add(p.id)
-    }
-    return eligible
-  }, [targetKind, targetSourceId, targetSource, family.people])
-
   const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
   // Layout (positions + couples) depends only on the rendered people, so it is
   // memoized separately from selection. Selecting a card or toggling
@@ -463,10 +371,14 @@ function TreeCanvas({
       if (!node) return
       const width = node.measured?.width ?? 176
       const height = node.measured?.height ?? 220
-      void setCenter(node.position.x + width / 2, node.position.y + height / 2, {
-        zoom: getViewport().zoom,
-        duration: 250,
-      })
+      void setCenter(
+        node.position.x + width / 2,
+        node.position.y + height / 2,
+        {
+          zoom: getViewport().zoom,
+          duration: 250,
+        },
+      )
     })
     return () => cancelAnimationFrame(frame)
   }, [
@@ -479,56 +391,7 @@ function TreeCanvas({
     settings.focusSelectedPerson,
   ])
 
-  // Print the whole tree to a PDF. Fits every node into a fixed page-sized box
-  // (independent of the on-screen canvas, so nothing gets clipped by a narrower
-  // print page), disables culling so off-screen nodes render, then hands off to
-  // the browser's print dialog ("Save as PDF"). The viewport is restored after.
-  const exportPdf = useCallback(async () => {
-    // A4/Letter landscape printable area (6mm margin) in CSS px — fits both.
-    const targetWidth = 960
-    const targetHeight = 700
-    const previous = getViewport()
-    setPrinting(true)
-    // Wait for onlyRenderVisibleElements to flip off so off-screen nodes mount
-    // before computing bounds. getExportBounds falls back to nominal sizes for
-    // any still-unmeasured card so the rightmost/bottom cards aren't clipped.
-    await nextFrame()
-    try {
-      const bounds = getExportBounds(getNodes())
-      if (bounds.width > 0 && bounds.height > 0) {
-        const viewport = getViewportForBounds(
-          bounds,
-          targetWidth,
-          targetHeight,
-          0.1,
-          2,
-          0.06,
-        )
-        await setViewport(viewport)
-      } else {
-        await fitView({ padding: 0.15, duration: 0 })
-      }
-    } catch (error) {
-      console.error("Failed to fit tree for PDF export", error)
-      try {
-        await fitView({ padding: 0.15, duration: 0 })
-      } catch {
-        // Ignore — still open the print dialog below.
-      }
-    }
-    // Let the new viewport + the culling toggle paint before snapshotting.
-    await nextFrame()
-    await nextFrame()
-    const done = () => {
-      document.body.classList.remove("exporting-pdf")
-      setPrinting(false)
-      void setViewport(previous)
-      window.removeEventListener("afterprint", done)
-    }
-    window.addEventListener("afterprint", done)
-    document.body.classList.add("exporting-pdf")
-    window.print()
-  }, [fitView, getNodes, getViewport, setViewport])
+  const { printing, exportPdf } = usePdfExport()
 
   const actions = useMemo<TreeActions>(
     () => ({
@@ -848,39 +711,18 @@ function TreeCanvas({
               )}
 
               {targetKind && targetSource && (
-                <Panel position="top-center">
-                  <div className="flex max-w-[calc(100vw-1.5rem)] flex-wrap items-center justify-center gap-2 rounded-2xl bg-emerald-600/85 py-1.5 pl-4 pr-1.5 text-xs text-white shadow-glass ring-1 ring-white/25 backdrop-blur-md sm:flex-nowrap sm:rounded-full sm:text-sm">
-                    <Link2 className="h-4 w-4 shrink-0" />
-                    <span>
-                      {linkEligible && linkEligible.size === 0 ? (
-                        <>
-                          No one can be connected as <b>{targetSource.name}</b>
-                          &rsquo;s {targetKind}
-                        </>
-                      ) : (
-                        <>
-                          Click a highlighted card to connect as{" "}
-                          <b>{targetSource.name}</b>&rsquo;s {targetKind}
-                          {targetKind !== "spouse"
-                            && " · married couples connect together"}
-                        </>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (link) setLink(undefined)
-                        else {
-                          setSidebar({ mode: "idle" })
-                          setDrawerOpen(false)
-                        }
-                      }}
-                      className="inline-flex items-center gap-1 rounded-full bg-white/20 px-3 py-1 text-xs font-medium transition-colors hover:bg-white/30"
-                    >
-                      <X className="h-3.5 w-3.5" /> Cancel (Esc)
-                    </button>
-                  </div>
-                </Panel>
+                <ConnectBanner
+                  targetKind={targetKind}
+                  targetSource={targetSource}
+                  linkEligible={linkEligible}
+                  onCancel={() => {
+                    if (link) setLink(undefined)
+                    else {
+                      setSidebar({ mode: "idle" })
+                      setDrawerOpen(false)
+                    }
+                  }}
+                />
               )}
             </ReactFlow>
           )}

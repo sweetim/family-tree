@@ -63,6 +63,7 @@ function ServerDataBootstrap() {
       while (!cancelled) {
         try {
           await restorePersistentStore(userId)
+          await synchronizePending()
           const manifest = await fetchTreeManifest()
           if (cancelled) return
           applyTreeManifest(manifest)
@@ -75,7 +76,6 @@ function ServerDataBootstrap() {
             applyTreeSnapshot(snapshot)
           }
           setHydrated(true)
-          await synchronizePending()
           return
         } catch (error) {
           const status =

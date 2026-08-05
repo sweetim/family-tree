@@ -378,32 +378,49 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
                   <div className="mt-3 flex gap-2">
                     <button
                       type="button"
-                      onClick={async () => {
-                        const ok = await resolveRequest(
+                      onClick={() => {
+                        setOp(`approve:${request.treeId}:${request.userId}`)
+                        void resolveRequest(
                           request.treeId,
                           request.userId,
                           "approve",
                         )
-                        if (ok) await refreshOwnerShares()
+                          .then(async (ok) => {
+                            if (ok) await refreshOwnerShares()
+                          })
+                          .finally(() => setOp(null))
                       }}
                       disabled={requestsSubmitting}
                       className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95 disabled:opacity-50"
                     >
-                      <Check className="h-3.5 w-3.5" /> Approve
+                      {op ===
+                      `approve:${request.treeId}:${request.userId}` ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" />
+                      )}{" "}
+                      Approve
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        setOp(`deny:${request.treeId}:${request.userId}`)
                         void resolveRequest(
                           request.treeId,
                           request.userId,
                           "deny",
-                        )
-                      }
+                        ).finally(() => setOp(null))
+                      }}
                       disabled={requestsSubmitting}
                       className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-red-600 ring-1 ring-red-200 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50"
                     >
-                      <XCircle className="h-3.5 w-3.5" /> Decline
+                      {op ===
+                      `deny:${request.treeId}:${request.userId}` ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <XCircle className="h-3.5 w-3.5" />
+                      )}{" "}
+                      Decline
                     </button>
                   </div>
                 </li>

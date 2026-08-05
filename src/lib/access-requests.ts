@@ -84,6 +84,40 @@ export function useAccessRequest(treeId: string) {
   return { status, submitting, submit, refresh }
 }
 
+export type RequestedTree = {
+  treeId: string
+  treeName: string
+  status: RequestState
+  comment: string
+  createdAt: string
+}
+
+/**
+ * One-shot list of the signed-in user's own access requests (across all
+ * trees), for Home. Not polled — refreshed when Home remounts.
+ */
+export function useMyAccessRequests(): RequestedTree[] {
+  const [requests, setRequests] = useState<RequestedTree[]>([])
+  useEffect(() => {
+    const controller = new AbortController()
+    void fetch("/api/my-access-requests", {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`load failed: ${res.status}`)
+        return (await res.json()) as { requests: RequestedTree[] }
+      })
+      .then((data) => setRequests(data.requests))
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return
+        console.error(err)
+      })
+    return () => controller.abort()
+  }, [])
+  return requests
+}
+
 export type OwnerAccessRequest = {
   userId: string
   email: string
