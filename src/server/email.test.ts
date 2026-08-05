@@ -104,7 +104,7 @@ describe("notifyRequesterOfResolution", () => {
     expect(mail.html).toContain("Open your tree")
     expect(mail.html).toContain("https://tree.example.com/tree/tree_123")
     expect(mail.html).toContain("FamiKi")
-    expect(mail.html).toContain("data:image/png;base64,")
+    expect(mail.html).not.toContain("<img")
     expect(mail.html).toContain("The owner approved your request.<br>")
     expect(mail.html).not.toContain("A private home for family history")
   })

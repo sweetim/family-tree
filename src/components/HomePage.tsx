@@ -220,17 +220,20 @@ function TreeCard({
   navigate,
   onRename,
   onDelete,
+  onRemove,
   onShare,
 }: {
   tree: TreeMeta
   navigate: (to: string) => void
   onRename: (name: string) => void
   onDelete: () => Promise<void>
+  onRemove: () => void
   onShare: () => void
 }) {
   const confirm = useConfirm()
   const toast = useToast()
   const [deleting, setDeleting] = useState(false)
+  const [removing, setRemoving] = useState(false)
   const nameFieldRef = useRef<TreeNameFieldHandle>(null)
   const members = countMembers(tree.id)
   const isShared = tree.role === "viewer" || tree.role === "editor"
@@ -243,7 +246,7 @@ function TreeCard({
   return (
     <div
       className={`group flex flex-col rounded-xl border p-4 transition-all hover:shadow-soft sm:p-5 ${
-        deleting ? "animate-fade-out " : ""
+        removing ? "animate-fade-out " : ""
       }${
         isShared
           ? "border-cobalt-200 bg-cobalt-50/40 hover:border-cobalt-300"
@@ -333,6 +336,8 @@ function TreeCard({
                   try {
                     await onDelete()
                     toast(`Deleted "${tree.name}".`, "success")
+                    setRemoving(true)
+                    window.setTimeout(onRemove, 200)
                   } catch (error) {
                     console.error(error)
                     toast("Couldn't delete tree.", "error")
@@ -340,7 +345,7 @@ function TreeCard({
                   }
                 }
               }}
-              disabled={deleting}
+              disabled={deleting || removing}
               className="inline-flex items-center justify-center rounded-lg p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 active:scale-95"
             >
               {deleting ? (
@@ -676,11 +681,13 @@ function NewTreeDialog({
 function HomeDashboard({
   index,
   navigate,
+  myAccessRequests,
 }: {
   index: TreeIndexStore
   navigate: (to: string) => void
+  myAccessRequests: RequestedTree[]
 }) {
-  const { trees, createTree, renameTree, deleteTree } = index
+  const { trees, createTree, renameTree, deleteTreeRemote, removeTree } = index
   const [newTreeOpen, setNewTreeOpen] = useState(false)
   const [shareTarget, setShareTarget] = useState<TreeMeta | null>(null)
 
@@ -692,7 +699,6 @@ function HomeDashboard({
     () => trees.filter((t) => t.role === "viewer" || t.role === "editor"),
     [trees],
   )
-  const myAccessRequests = useMyAccessRequests()
   const accessibleTreeIds = useMemo(
     () => new Set(trees.map((tree) => tree.id)),
     [trees],
@@ -777,6 +783,7 @@ function HomeDashboard({
               Your trees
             </h2>
             <div className="grid gap-4 sm:grid-cols-2">
+              <NewTreeCard onClick={() => setNewTreeOpen(true)} />
               {pendingAccess.map((request) => (
                 <PendingAccessCard
                   key={request.treeId}
@@ -784,14 +791,14 @@ function HomeDashboard({
                   navigate={navigate}
                 />
               ))}
-              <NewTreeCard onClick={() => setNewTreeOpen(true)} />
               {own.map((tree) => (
                 <TreeCard
                   key={tree.id}
                   tree={tree}
                   navigate={navigate}
                   onRename={(n) => renameTree(tree.id, n)}
-                  onDelete={() => deleteTree(tree.id)}
+                  onDelete={() => deleteTreeRemote(tree.id)}
+                  onRemove={() => removeTree(tree.id)}
                   onShare={() => setShareTarget(tree)}
                 />
               ))}
@@ -802,6 +809,7 @@ function HomeDashboard({
                   navigate={navigate}
                   onRename={() => {}}
                   onDelete={async () => {}}
+                  onRemove={() => {}}
                   onShare={() => {}}
                 />
               ))}
@@ -831,6 +839,8 @@ function HomeDashboard({
 export function HomePage({ index }: { index: TreeIndexStore }) {
   const { data: session, isPending } = useSession()
   const hydrated = useHydrated()
+  const { requests: myAccessRequests, loading: accessLoading } =
+    useMyAccessRequests(!!session?.user)
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
   const treeNameById = useMemo(
@@ -843,13 +853,14 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
   }
 
   let body: ReactNode
-  if (isPending || !hydrated) {
+  if (isPending || !hydrated || accessLoading) {
     body = <HomeSkeleton />
   } else {
     body = (
       <HomeDashboard
         index={index}
         navigate={navigate}
+        myAccessRequests={myAccessRequests}
       />
     )
   }

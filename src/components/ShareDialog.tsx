@@ -31,11 +31,11 @@ export function ShareDialog({
   const {
     requests,
     loading: requestsLoading,
-    submitting: requestsSubmitting,
     resolve,
   } = useOwnerAccessRequests(treeId)
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<"viewer" | "editor">("viewer")
+  const [op, setOp] = useState<string | null>(null)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -224,25 +224,47 @@ export function ShareDialog({
                       <div className="mt-2 flex gap-2">
                         <button
                           type="button"
-                          onClick={async () => {
-                            const ok = await resolve(
-                              request.userId,
-                              "approve",
-                            )
-                            if (ok) await refreshShares()
+                          onClick={() => {
+                            setOp(`approve:${request.userId}`)
+                            void resolve(request.userId, "approve")
+                              .then(async (ok) => {
+                                if (ok) await refreshShares()
+                              })
+                              .finally(() => setOp(null))
                           }}
-                          disabled={requestsSubmitting}
+                          disabled={
+                            op === `approve:${request.userId}`
+                            || op === `deny:${request.userId}`
+                          }
                           className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95 disabled:opacity-50"
                         >
-                          <Check className="h-3.5 w-3.5" /> Approve
+                          {op === `approve:${request.userId}` ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}{" "}
+                          Approve
                         </button>
                         <button
                           type="button"
-                          onClick={() => resolve(request.userId, "deny")}
-                          disabled={requestsSubmitting}
+                          onClick={() => {
+                            setOp(`deny:${request.userId}`)
+                            void resolve(request.userId, "deny").finally(() =>
+                              setOp(null),
+                            )
+                          }}
+                          disabled={
+                            op === `approve:${request.userId}`
+                            || op === `deny:${request.userId}`
+                          }
                           className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-red-600 ring-1 ring-red-200 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50"
                         >
-                          <XCircle className="h-3.5 w-3.5" /> Decline
+                          {op === `deny:${request.userId}` ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <XCircle className="h-3.5 w-3.5" />
+                          )}{" "}
+                          Decline
                         </button>
                       </div>
                     </li>

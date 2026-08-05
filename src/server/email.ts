@@ -1,5 +1,4 @@
 import nodemailer, { type Transporter } from "nodemailer"
-import { LOGO_DATA_URI } from "./email-logo"
 
 type SmtpConfig = {
   host: string
@@ -112,9 +111,9 @@ export type AccessRequestResolutionNotification = {
 /**
  * Notify the requester that their access request was resolved. The HTML mirrors
  * the request-access card the requester sees in-app: a cream backdrop, a white
- * rounded card with the FamiKi logo, a coloured status banner, the tree name,
- * and a cobalt action button. Table-based with inline styles for email-client
- * robustness.
+ * rounded card with the FamiKi wordmark, a coloured status banner, the tree
+ * name, and a cobalt action button. Table-based with inline styles for
+ * email-client robustness.
  */
 export async function notifyRequesterOfResolution(
   data: AccessRequestResolutionNotification,
@@ -198,7 +197,7 @@ function renderButton(label: string, href: string): string {
 
 /**
  * Wrap message content in the FamiKi card chrome: cream backdrop, white rounded
- * card, and a logo + wordmark header.
+ * card, and a FamiKi wordmark header.
  */
 function renderCard(inner: string[]): string {
   return (
@@ -211,7 +210,6 @@ function renderCard(inner: string[]): string {
     + '<table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border:1px solid #f0ece2;border-radius:28px;box-shadow:0 28px 70px rgba(47,39,27,0.11);">'
     + '<tr><td align="center" style="padding:36px 32px;">'
     + '<table role="presentation" cellpadding="0" cellspacing="0" align="center"><tr>'
-    + `<td style="padding-right:10px;vertical-align:middle;"><img src="${LOGO_DATA_URI}" width="36" height="36" alt="FamiKi" style="display:block;border:0;"></td>`
     + `<td style="font-family:${FONT_STACK};font-size:18px;font-weight:700;letter-spacing:-0.04em;color:#27241f;vertical-align:middle;">FamiKi</td>`
     + "</tr></table>"
     + inner.join("")

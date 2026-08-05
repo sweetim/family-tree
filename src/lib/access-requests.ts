@@ -94,11 +94,22 @@ export type RequestedTree = {
 
 /**
  * One-shot list of the signed-in user's own access requests (across all
- * trees), for Home. Not polled — refreshed when Home remounts.
+ * trees), for Home. Not polled — refreshed when Home remounts. `loading`
+ * lets the caller hold the dashboard on its skeleton until the requests
+ * have landed, so pending-access cards don't pop in after the grid. Gated
+ * on `enabled` (session presence) so signed-out visitors skip the fetch.
  */
-export function useMyAccessRequests(): RequestedTree[] {
+export function useMyAccessRequests(enabled: boolean): {
+  requests: RequestedTree[]
+  loading: boolean
+} {
   const [requests, setRequests] = useState<RequestedTree[]>([])
+  const [loading, setLoading] = useState(true)
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false)
+      return
+    }
     const controller = new AbortController()
     void fetch("/api/my-access-requests", {
       credentials: "include",
@@ -108,14 +119,18 @@ export function useMyAccessRequests(): RequestedTree[] {
         if (!res.ok) throw new Error(`load failed: ${res.status}`)
         return (await res.json()) as { requests: RequestedTree[] }
       })
-      .then((data) => setRequests(data.requests))
+      .then((data) => {
+        setRequests(data.requests)
+        setLoading(false)
+      })
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return
         console.error(err)
+        setLoading(false)
       })
     return () => controller.abort()
-  }, [])
-  return requests
+  }, [enabled])
+  return { requests, loading }
 }
 
 export type OwnerAccessRequest = {

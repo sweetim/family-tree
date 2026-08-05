@@ -169,7 +169,6 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
     requests,
     pendingCount,
     loading: requestsLoading,
-    submitting: requestsSubmitting,
     resolve: resolveRequest,
   } = useOwnedAccessRequests()
   const confirm = useConfirm()
@@ -390,7 +389,10 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
                           })
                           .finally(() => setOp(null))
                       }}
-                      disabled={requestsSubmitting}
+                      disabled={
+                        op === `approve:${request.treeId}:${request.userId}`
+                        || op === `deny:${request.treeId}:${request.userId}`
+                      }
                       className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition-all hover:bg-emerald-700 active:scale-95 disabled:opacity-50"
                     >
                       {op ===
@@ -411,7 +413,10 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
                           "deny",
                         ).finally(() => setOp(null))
                       }}
-                      disabled={requestsSubmitting}
+                      disabled={
+                        op === `approve:${request.treeId}:${request.userId}`
+                        || op === `deny:${request.treeId}:${request.userId}`
+                      }
                       className="inline-flex flex-1 items-center justify-center gap-1 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-red-600 ring-1 ring-red-200 transition-all hover:bg-red-50 active:scale-95 disabled:opacity-50"
                     >
                       {op ===

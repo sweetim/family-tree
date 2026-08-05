@@ -89,14 +89,25 @@ export function useTreeIndex() {
     }))
   }, [])
 
-  const deleteTree = useCallback(deleteTreeById, [])
+  const deleteTreeRemote = useCallback(async (id: string) => {
+    await deleteTreeOnServer(id)
+  }, [])
+  const removeTree = useCallback(removeTreeFromIndex, [])
 
-  return { trees, createTree, renameTree, deleteTree }
+  return { trees, createTree, renameTree, deleteTreeRemote, removeTree }
 }
 
 export async function deleteTreeById(id: string): Promise<void> {
   await deleteTreeOnServer(id)
+  removeTreeFromIndex(id)
+}
 
+/**
+ * Remove a tree and all of its members/unions/parent-child relationships from
+ * the local store. Split from `deleteTreeById` so callers can await the server
+ * deletion, react to success, then drop the tree from the store.
+ */
+export function removeTreeFromIndex(id: string): void {
   update(
     (previous) => {
       const draft = makeDraft(previous)
