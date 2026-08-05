@@ -5,7 +5,6 @@ import Image from "next/image"
 import { useParams, usePathname, useRouter } from "next/navigation"
 import { type FormEvent, type ReactNode, useEffect, useState } from "react"
 import { GoogleSignInButton } from "@/components/GoogleSignInButton"
-import { useToast } from "@/components/Toast"
 import { useAccessRequest } from "@/lib/access-requests"
 import { useSession } from "@/lib/auth-client"
 import { useHydrated } from "@/store"
@@ -148,7 +147,6 @@ function RequestAccessCard({
   email: string
 }) {
   const { status, submitting, submit } = useAccessRequest(treeId)
-  const toast = useToast()
   const [comment, setComment] = useState("")
   const [editing, setEditing] = useState(false)
 
@@ -171,7 +169,6 @@ function RequestAccessCard({
     if (!trimmed) return
     const ok = await submit(trimmed)
     if (ok) {
-      toast("Access request sent — the owner will review it.", "success")
       setComment("")
       setEditing(false)
     }
