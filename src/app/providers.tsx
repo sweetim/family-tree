@@ -24,6 +24,7 @@ import {
   synchronizePending,
   synchronizeTree,
 } from "@/store"
+import { bootstrapTreeSync } from "./bootstrap-tree-sync"
 
 /**
  * Hydrates the in-memory store from the server when a session is present, and
@@ -62,20 +63,17 @@ function ServerDataBootstrap() {
       let retryDelay = 500
       while (!cancelled) {
         try {
-          await restorePersistentStore(userId)
-          await synchronizePending()
-          const manifest = await fetchTreeManifest()
-          if (cancelled) return
-          applyTreeManifest(manifest)
-          if (treeId) {
-            // Always fetch the full snapshot: the tree view waits for this
-            // before painting, so the first frame is the authoritative state
-            // rather than a radius-3 partial that later expands.
-            const snapshot = await fetchTreeSnapshot(treeId)
-            if (cancelled) return
-            applyTreeSnapshot(snapshot)
-          }
-          setHydrated(true)
+          await bootstrapTreeSync({
+            treeId,
+            restore: () => restorePersistentStore(userId),
+            synchronize: synchronizePending,
+            fetchManifest: fetchTreeManifest,
+            applyManifest: applyTreeManifest,
+            fetchSnapshot: fetchTreeSnapshot,
+            applySnapshot: applyTreeSnapshot,
+            markHydrated: () => setHydrated(true),
+            isCancelled: () => cancelled,
+          })
           return
         } catch (error) {
           const status =

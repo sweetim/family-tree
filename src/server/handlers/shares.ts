@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { getDB } from "../../db/index"
-import { treeShares, trees, user } from "../../db/schema"
+import { treeAccessRequests, treeShares, trees, user } from "../../db/schema"
 import { requireOwner } from "../acl"
 import { DEFAULT_LIST_PAGE_SIZE, MAXIMUM_LIST_PAGE_SIZE } from "../limits"
 import { readJsonBody } from "../request"
@@ -174,9 +174,28 @@ export async function removeShare(
       { status: 400 },
     )
 
-  await db
-    .delete(treeShares)
-    .where(and(eq(treeShares.treeId, treeId), eq(treeShares.email, email)))
+  // Revoking access also clears the requester's access request, so a stale
+  // "approved" row can't keep reporting access that no longer exists.
+  const account = await db.query.user.findFirst({
+    where: eq(user.email, email),
+    columns: { id: true },
+  })
+
+  await db.transaction(async (transaction) => {
+    await transaction
+      .delete(treeShares)
+      .where(and(eq(treeShares.treeId, treeId), eq(treeShares.email, email)))
+    if (account) {
+      await transaction
+        .delete(treeAccessRequests)
+        .where(
+          and(
+            eq(treeAccessRequests.treeId, treeId),
+            eq(treeAccessRequests.userId, account.id),
+          ),
+        )
+    }
+  })
 
   return Response.json(
     { ok: true },
@@ -397,15 +416,12 @@ export async function mutateOwnerShares(request: Request): Promise<Response> {
       change.role !== null,
   )
   const results = await db.transaction(async (transaction) => {
-    const users = upserts.length
+    const userEmails = [...new Set(changes.map((change) => change.email))]
+    const users = userEmails.length
       ? await transaction
           .select({ id: user.id, email: user.email, name: user.name })
           .from(user)
-          .where(
-            inArray(user.email, [
-              ...new Set(upserts.map((change) => change.email)),
-            ]),
-          )
+          .where(inArray(user.email, userEmails))
       : []
     const userByEmail = new Map(
       users.map((account) => [account.email, account]),
@@ -448,6 +464,32 @@ export async function mutateOwnerShares(request: Request): Promise<Response> {
             ),
           ),
         )
+
+      // Clear access requests for revoked shares so an "approved" request
+      // can't linger after access has been taken away.
+      const revokedAccessRequests = removals
+        .map((change) => {
+          const userId = userByEmail.get(change.email)?.id
+          return userId ? { treeId: change.treeId, userId } : null
+        })
+        .filter(
+          (entry): entry is { treeId: string; userId: string } =>
+            entry !== null,
+        )
+      if (revokedAccessRequests.length > 0) {
+        await transaction
+          .delete(treeAccessRequests)
+          .where(
+            or(
+              ...revokedAccessRequests.map((entry) =>
+                and(
+                  eq(treeAccessRequests.treeId, entry.treeId),
+                  eq(treeAccessRequests.userId, entry.userId),
+                ),
+              ),
+            ),
+          )
+      }
     }
 
     return changes.map<OwnerShareMutationResult>((change) => {
