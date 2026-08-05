@@ -3,6 +3,7 @@ import {
   Baby,
   Check,
   ChevronLeft,
+  Eye,
   FolderOpen,
   Heart,
   HeartCrack,
@@ -317,9 +318,47 @@ export function Sidebar({
             onSelect={onSelect}
           />
         ) : readOnly ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-800">
-            You have a <b>viewer</b> role on this tree — read-only. Ask the
-            owner for editor access to add or edit people.
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="space-y-2">
+              <div className="flex w-full gap-2.5 rounded-lg bg-amber-50 p-3">
+                <Eye className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <p className="text-sm leading-relaxed text-amber-800">
+                  <b className="font-semibold">Read-only</b>
+                  <br />
+                  You have a <b>viewer</b> role on this tree. Ask the owner for
+                  editor access to add or edit people.
+                </p>
+              </div>
+              <div className="flex w-full gap-2.5 rounded-lg bg-slate-50/70 p-3">
+                <MousePointerClick className="mt-0.5 h-4 w-4 shrink-0 text-cobalt-600" />
+                <p className="text-sm leading-relaxed text-slate-500">
+                  <b className="font-semibold text-slate-700">
+                    Select a person
+                  </b>
+                  <br />
+                  Select a person&apos;s card to view their details.
+                </p>
+              </div>
+              <div className="flex w-full gap-2.5 rounded-lg bg-slate-50/70 p-3">
+                <Search className="mt-0.5 h-4 w-4 shrink-0 text-cobalt-600" />
+                <p className="text-sm leading-relaxed text-slate-500">
+                  <b className="font-semibold text-slate-700">
+                    Find a family member
+                  </b>
+                  <br />
+                  Use the search field above to quickly open someone.
+                </p>
+              </div>
+              <div className="flex w-full gap-2.5 rounded-lg bg-slate-50/70 p-3">
+                <Settings className="mt-0.5 h-4 w-4 shrink-0 text-cobalt-600" />
+                <p className="text-sm leading-relaxed text-slate-500">
+                  <b className="font-semibold text-slate-700">Settings</b>
+                  <br />
+                  Use <b className="font-semibold text-slate-700">Settings</b>{" "}
+                  below to change the canvas appearance or manage tree data.
+                </p>
+              </div>
+            </div>
           </div>
         ) : editable ? (
           <div className="animate-slide-up space-y-5">
