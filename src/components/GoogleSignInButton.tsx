@@ -1,5 +1,6 @@
 "use client"
 
+import { Loader2 } from "lucide-react"
 import { useState } from "react"
 import { authClient } from "@/lib/auth-client"
 import { GoogleIcon } from "./icons"
@@ -38,7 +39,11 @@ export function GoogleSignInButton({
       }}
       className={`inline-flex min-h-10 items-center justify-center gap-2.5 rounded-full border border-[#747775] bg-white px-3 font-['Google_Sans',Arial,sans-serif] text-sm font-medium leading-5 text-[#1f1f1f] transition-colors hover:bg-[#f8fafd] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0b57d0] disabled:pointer-events-none disabled:opacity-70 ${className}`}
     >
-      <GoogleIcon />
+      {redirecting ? (
+        <Loader2 className="h-[18px] w-[18px] animate-spin" />
+      ) : (
+        <GoogleIcon />
+      )}
       <span>{label}</span>
     </button>
   )

@@ -269,12 +269,13 @@ export function SharingPage({ index }: { index: TreeIndexStore }) {
         const removed = await removeOwnerPerson(row.email, row.access.keys())
         if (removed) {
           setDrafts((prev) => prev.filter((email) => email !== row.email))
+          toast(`Removed "${displayName}".`, "success")
         }
       } finally {
         setOp(null)
       }
     },
-    [confirm, removeOwnerPerson],
+    [confirm, removeOwnerPerson, toast],
   )
 
   const busy = op !== null
