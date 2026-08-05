@@ -47,10 +47,7 @@ export function AccountMenu() {
   // expected) can be truthy yet lack a `user` — treat it as signed-out.
   if (!session?.user) {
     return (
-      <GoogleSignInButton
-        variant="outline"
-        label="Sign in"
-      />
+      <GoogleSignInButton label="Sign in with Google" />
     )
   }
 

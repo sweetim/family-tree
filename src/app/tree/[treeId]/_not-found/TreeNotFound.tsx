@@ -34,31 +34,25 @@ export function TreeNotFound() {
   if (!session?.user) {
     return (
       <CenteredCard>
-        <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-cobalt-50 text-cobalt-600 ring-1 ring-cobalt-100">
-          <Mail className="h-6 w-6" />
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-cobalt-50 text-cobalt-600 ring-1 ring-cobalt-100">
+          <Mail className="h-5 w-5" />
         </div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-cobalt-600">
+        <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.14em] text-cobalt-600">
           You&apos;re invited
         </p>
-        <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#27241f]">
-          {treeName ? (
-            <>
-              {treeName}
-              <span className="mt-0.5 block text-sm font-medium text-[#9b9384]">
-                family tree
-              </span>
-            </>
-          ) : (
-            "A family tree"
-          )}
+        <h1 className="mt-2 text-[1.75rem] font-bold leading-none tracking-[-0.045em] text-[#27241f]">
+          {treeName ?? "A family tree"}
         </h1>
-        <p className="mt-1.5 text-sm text-[#686155]">Sign in to view it.</p>
+        {treeName ? (
+          <p className="mt-1 text-sm font-medium text-[#9b9384]">Family tree</p>
+        ) : null}
+        <p className="mt-4 text-sm leading-6 text-[#686155]">
+          Sign in to see the people and stories shared with you.
+        </p>
         <GoogleSignInButton
-          variant="hero"
-          size="lg"
           label="Continue with Google"
           callbackURL={pathname}
-          className="mt-5 w-full"
+          className="mt-6 w-full"
         />
       </CenteredCard>
     )
@@ -295,9 +289,9 @@ function RequestAccessCard({
 
 function CenteredCard({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-[#f7f4ed] p-6 text-[#27241f]">
+    <div className="flex min-h-dvh flex-col items-center justify-center bg-[#f7f4ed] p-5 text-[#27241f] sm:p-6">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-center justify-center gap-2.5">
+        <div className="mb-7 flex items-center justify-center gap-2.5">
           <Image
             src="/logo.webp"
             alt=""
@@ -307,7 +301,7 @@ function CenteredCard({ children }: { children: ReactNode }) {
           />
           <span className="text-lg font-bold tracking-[-0.04em]">FamiKi</span>
         </div>
-        <div className="rounded-2xl border border-white/70 bg-white/90 p-8 text-center shadow-[0_35px_90px_rgba(47,39,27,0.12)] backdrop-blur">
+        <div className="rounded-[1.75rem] border border-white/80 bg-white/95 p-6 text-center shadow-[0_28px_70px_rgba(47,39,27,0.11)] backdrop-blur sm:p-7">
           {children}
         </div>
       </div>

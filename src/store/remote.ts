@@ -18,10 +18,10 @@ import type {
   UnionEventWire,
   UnionWire,
 } from "../sync/types"
+import { dirtyState } from "./dirty"
 import {
   type DirtyCollection,
   type DirtyState,
-  dirtyState,
   type GlobalState,
   remoteTombstoneClocks,
   type TreeMeta,

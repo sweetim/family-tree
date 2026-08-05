@@ -116,10 +116,7 @@ export function LandingPage() {
 
                 <div className="mt-8 sm:mt-10">
                   <GoogleSignInButton
-                    variant="landing"
-                    size="lg"
                     label="Continue with Google"
-                    className="focus-visible:ring-cobalt-300 focus-visible:ring-offset-[#101d46]"
                   />
                 </div>
 

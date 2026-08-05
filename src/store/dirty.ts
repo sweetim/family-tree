@@ -1,32 +1,89 @@
 /**
- * Per-record dirty tracking. These functions mutate the engine singletons
- * (`dirtyState`, `clearedDirtyTokens`, `pendingMutation`) imported as live
- * bindings from `state.ts`; reads and in-place mutation work directly, while
- * the `nextRevision` counter is bumped through `bumpRevision()` because
- * imported bindings cannot be reassigned.
+ * Outbox — the owned-state unit for per-record dirty tracking.
+ *
+ * Owns its singletons (`dirtyState`, `nextRevision`, `clearedDirtyTokens`)
+ * and exposes a lifecycle API (`serializeOutbox` / `hydrateOutbox` /
+ * `resetOutbox` / `replaceDirtyState` / `setNextRevision`) so the core
+ * lifecycle in `state.ts` never reaches in to reassign them. The in-flight
+ * mutation and device identity are owned by the sync coordinator and read
+ * here.
  */
 
+import type { PersistedStore } from "./persistence"
 import {
-  bumpRevision,
-  clearedDirtyTokens,
   type DirtyAction,
   type DirtyCollection,
   type DirtyIds,
   type DirtyRecord,
   type DirtyState,
-  dirtyState,
   type GlobalState,
-  pendingMutation,
-  schedulePersistence,
-  storeInstanceId,
 } from "./state"
+import { getPendingMutation, storeInstanceId } from "./coordinator"
+import { schedulePersistence } from "./persistence-coordinator"
 import {
   MAX_SYNC_BATCH_BYTES,
   MAX_SYNC_BATCH_RECORDS,
   MAX_SYNC_RECORDS_PER_COLLECTION,
+  emptyDirtyState,
   newId,
   RECORD_COLLECTIONS,
 } from "./state-internals"
+
+// ---------------------------------------------------------------------------
+// Owned outbox singletons + lifecycle.
+// ---------------------------------------------------------------------------
+
+export let dirtyState = emptyDirtyState()
+let nextRevision = 1
+export const clearedDirtyTokens = new Set<string>()
+
+/** Bump and return the next optimistic-concurrency revision. */
+export function bumpRevision(): number {
+  return nextRevision++
+}
+
+/** Replace the entire dirty map (used by the full-epoch reset/replay). */
+export function replaceDirtyState(next: DirtyState): void {
+  dirtyState = next
+}
+
+export function setNextRevision(value: number): void {
+  nextRevision = value
+}
+
+export function resetOutbox(): void {
+  dirtyState = emptyDirtyState()
+  nextRevision = 1
+  clearedDirtyTokens.clear()
+}
+
+/** Restore the dirty map, revision counter, and cleared tokens from disk. */
+export function hydrateOutbox(persisted: PersistedStore): void {
+  dirtyState = Object.fromEntries(
+    RECORD_COLLECTIONS.map((collection) => [
+      collection,
+      new Map(persisted.dirty[collection] ?? []),
+    ]),
+  ) as DirtyState
+  clearedDirtyTokens.clear()
+  for (const token of persisted.clearedDirtyTokens ?? []) {
+    clearedDirtyTokens.add(token)
+  }
+  nextRevision = Math.max(1, persisted.nextRevision)
+}
+
+export function serializeOutbox() {
+  return {
+    dirty: Object.fromEntries(
+      RECORD_COLLECTIONS.map((collection) => [
+        collection,
+        [...dirtyState[collection]],
+      ]),
+    ) as PersistedStore["dirty"],
+    nextRevision,
+    clearedDirtyTokens: [...clearedDirtyTokens],
+  }
+}
 
 export function markDirty(
   collection: DirtyCollection,
@@ -37,7 +94,7 @@ export function markDirty(
 ): void {
   const current = dirtyState[collection].get(id)
   const isPending = Boolean(
-    pendingMutation?.dirty[collection].some(
+    getPendingMutation()?.dirty[collection].some(
       ([pendingId, pending]) =>
         pendingId === id && pending.revision === current?.revision,
     ),
