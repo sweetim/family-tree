@@ -48,11 +48,14 @@ export function cropToAvatar(
 /**
  * Source URL for rendering a person's avatar through the auth-checked server
  * proxy (`/api/person-photo/[personId]`). The stored blob URL is never used
- * directly in the browser. `updatedAt` is appended as a cache-buster so a
- * changed photo is fetched even though the path stays stable.
+ * directly in the browser. `photoUpdatedAt` is appended as a cache-buster so
+ * a changed photo is fetched even though the path stays stable.
  */
-export function photoProxyUrl(personId: string, updatedAt?: string): string {
-  const query = updatedAt ? `?v=${encodeURIComponent(updatedAt)}` : ""
+export function photoProxyUrl(
+  personId: string,
+  photoUpdatedAt?: string,
+): string {
+  const query = photoUpdatedAt ? `?v=${encodeURIComponent(photoUpdatedAt)}` : ""
   return `/api/person-photo/${personId}${query}`
 }
 
@@ -65,10 +68,10 @@ export function photoProxyUrl(personId: string, updatedAt?: string): string {
 export function personPhotoSrc(person: {
   id: string
   photo?: string
-  updatedAt?: string
+  photoUpdatedAt?: string
 }): string | undefined {
   if (!person.photo) return undefined
   return person.photo.startsWith("data:")
     ? person.photo
-    : photoProxyUrl(person.id, person.updatedAt)
+    : photoProxyUrl(person.id, person.photoUpdatedAt)
 }

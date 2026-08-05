@@ -1,12 +1,27 @@
 import { Handle, type NodeProps, Position } from "@xyflow/react"
-import { ArrowLeftRight, MapPin, Network, Plus } from "lucide-react"
+import {
+  ArrowLeftRight,
+  CheckCircle2,
+  CircleAlert,
+  Clock3,
+  LoaderCircle,
+  Lock,
+  MapPin,
+  Network,
+  Plus,
+} from "lucide-react"
 import { useParams, useRouter } from "next/navigation"
 import { memo, useEffect, useState } from "react"
 import { personPhotoSrc } from "../lib/image"
 import { COUPLE_LINE_Y, type PersonNodeType } from "../lib/layout"
 import { useTreeActions } from "../lib/tree-actions"
 import { useViewSettings } from "../lib/view-settings"
-import { useAncestorTree, useMemberTrees } from "../store"
+import { useAccessRequest } from "../lib/access-requests"
+import {
+  useAncestorTree,
+  useMemberTrees,
+  useRequestableAncestor,
+} from "../store"
 import type { Gender } from "../types"
 import { PersonAvatar } from "./PersonAvatar"
 
@@ -65,7 +80,7 @@ const CARD_BORDER: Record<string, string> = {
 
 function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
   const { person, linkState, marriedIn, rootFounder, maleLine } = data
-  const { openChoose, readOnly } = useTreeActions()
+  const { openChoose, openRequestAccess, readOnly } = useTreeActions()
   const { settings } = useViewSettings()
   const router = useRouter()
   const navigate = (to: string) => router.push(to)
@@ -73,6 +88,10 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
   const otherTrees = useMemberTrees(person.id).filter((t) => t.id !== treeId)
   const ancestorTree = useAncestorTree(person.id, treeId)
   const showsAncestorBadge = !!ancestorTree && person.parents.length === 0
+  const requestableAncestor = useRequestableAncestor(person.id, treeId)
+  const accessRequest = useAccessRequest(requestableAncestor?.treeId)
+  const showsRequestableAncestorBadge =
+    !!requestableAncestor && person.parents.length === 0
   const deceased = !!person.dod
   const age = person.dob ? ageOf(person.dob, person.dod) : null
   const genderKey = person.gender ?? "unknown"
@@ -84,6 +103,45 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
     setPhotoError(false)
   }, [photoSrc])
   const showPhoto = photoSrc !== undefined && !photoError
+  const requestStatus =
+    accessRequest.status.kind === "present"
+      ? accessRequest.status.request.status
+      : accessRequest.status.kind
+  const requestBadge =
+    requestStatus === "pending"
+      ? {
+          label: "Request pending",
+          title: "Access request is pending",
+          className: "border-cobalt-300 bg-cobalt-50 text-cobalt-700 hover:bg-cobalt-100",
+          Icon: Clock3,
+        }
+      : requestStatus === "approved"
+        ? {
+            label: "Access approved",
+            title: "Access request was approved",
+            className: "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+            Icon: CheckCircle2,
+          }
+        : requestStatus === "denied"
+          ? {
+              label: "Request declined",
+              title: "Access request was declined",
+              className: "border-red-300 bg-red-50 text-red-700 hover:bg-red-100",
+              Icon: CircleAlert,
+            }
+          : requestStatus === "loading"
+            ? {
+                label: "Checking access",
+                title: "Checking access request status",
+                className: "border-slate-300 bg-slate-50 text-slate-600 hover:bg-slate-100",
+                Icon: LoaderCircle,
+              }
+            : {
+                label: "Request access",
+                title: "Request access",
+                className: "border-amber-400 bg-amber-50 text-amber-700 hover:bg-amber-100",
+                Icon: Lock,
+              }
   // Bloodline highlight only affects the resting state — an active click-to-
   // connect session or the selected card keep their own styling.
   const highlightBloodline = settings.highlightBloodline && !linkState
@@ -236,32 +294,60 @@ function PersonNodeBase({ data, selected }: NodeProps<PersonNodeType>) {
         </div>
       )}
 
+      {showsRequestableAncestorBadge && requestableAncestor && (
+        <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+          <button
+            type="button"
+            title={`${requestBadge.title}: ${requestableAncestor.treeName}`}
+            className={`nodrag nopan relative z-10 inline-flex max-w-[170px] cursor-pointer items-center gap-1 rounded-full border border-dashed px-2.5 py-1 text-[10px] font-semibold shadow-soft transition-colors before:absolute before:inset-x-[-10px] before:inset-y-[-11px] before:content-[''] ${requestBadge.className}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              openRequestAccess(
+                requestableAncestor.treeId,
+                requestableAncestor.treeName,
+                accessRequest.refresh,
+              )
+            }}
+          >
+            <requestBadge.Icon
+              className={`h-3 w-3 shrink-0 ${requestStatus === "loading" ? "animate-spin" : ""}`}
+            />
+            <span className="truncate">{requestableAncestor.treeName}</span>
+          </button>
+        </div>
+      )}
+
       {!linkState && !readOnly && (
         <>
-          {person.parents.length < 2 && !showsAncestorBadge && (
-            <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-              <button
-                type="button"
-                title="Add or connect parent"
-                className={addBtn}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  openChoose(
-                    "parent",
-                    person.id,
-                    {
-                      kind: "parent",
-                      childId: person.id,
-                      marryExisting: true,
-                    },
-                    { createFamily: marriedIn, alsoCreateFamily: rootFounder },
-                  )
-                }}
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            </div>
-          )}
+          {person.parents.length < 2
+            && !showsAncestorBadge
+            && !showsRequestableAncestorBadge && (
+              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                <button
+                  type="button"
+                  title="Add or connect parent"
+                  className={addBtn}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openChoose(
+                      "parent",
+                      person.id,
+                      {
+                        kind: "parent",
+                        childId: person.id,
+                        marryExisting: true,
+                      },
+                      {
+                        createFamily: marriedIn,
+                        alsoCreateFamily: rootFounder,
+                      },
+                    )
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           <div className="absolute -right-3.5 top-1/2 -translate-y-1/2">
             <button
               type="button"

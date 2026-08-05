@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react"
+import type { RequestableAncestorLink } from "../sync/types"
 import {
   descendantsOf,
   type FamilyData,
@@ -48,6 +49,7 @@ import {
   useAncestorTreeLinks,
   useParentChildRelationships,
   usePersons,
+  useRequestableAncestorLinks,
   useTreeMembers,
   useTreeParentChildRelationships,
   useTrees,
@@ -210,6 +212,26 @@ export function useAncestorTree(
     personId,
     currentTreeId,
   ])
+}
+
+/**
+ * An inaccessible ancestor family for a person — another tree (not the current
+ * one) that holds both them and a parent, but which the viewer lacks a role on
+ * — surfaced so the card can offer a "request access" badge. Returned only
+ * when there is no accessible ancestor, so a card shows at most one top badge
+ * (open it, or request access). Carries the tree name because the client has no
+ * index entry for trees it can't access.
+ */
+export function useRequestableAncestor(
+  personId: string,
+  currentTreeId: string,
+): RequestableAncestorLink | undefined {
+  const ancestorTree = useAncestorTree(personId, currentTreeId)
+  const links = useRequestableAncestorLinks(currentTreeId)
+  return useMemo(() => {
+    if (ancestorTree) return undefined
+    return links.get(personId)
+  }, [ancestorTree, links, personId])
 }
 
 const NO_PARENT_LINKS: { link: ParentLink; person: Person }[] = []

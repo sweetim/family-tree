@@ -52,6 +52,7 @@ export function personToWire(row: typeof persons.$inferSelect): PersonWire {
     gender: (row.gender as Gender | null) ?? undefined,
     birthplace: row.birthplace ?? undefined,
     hasPhoto: Boolean(row.photo),
+    photoUpdatedAt: row.photoUpdatedAt?.toISOString(),
     revision: row.revision,
     updatedAt: iso(row.updatedAt),
     ownerId: row.ownerId,

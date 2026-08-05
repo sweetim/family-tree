@@ -118,6 +118,10 @@ export async function fetchTreeSnapshot(
             ...(current.ancestorTrees ?? []),
             ...(page.ancestorTrees ?? []),
           ],
+          requestableAncestors: [
+            ...(current.requestableAncestors ?? []),
+            ...(page.requestableAncestors ?? []),
+          ],
           nextCursor: page.nextCursor,
         }
       } else {

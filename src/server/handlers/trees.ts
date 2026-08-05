@@ -3,6 +3,7 @@ import { getDB } from "../../db"
 import { trees, user } from "../../db/schema"
 import type {
   AncestorTreeLink,
+  RequestableAncestorLink,
   SyncRecordSet,
   TreeManifestItem,
   TreeManifestResponse,
@@ -21,6 +22,7 @@ import {
   loadActiveRecordsByTree,
   loadActiveRecordsForPeople,
   loadAncestorTreeLinks,
+  loadRequestableAncestorLinks,
 } from "../sync/pull"
 import { treeToWire } from "../sync/wire"
 import { isValidSyncId } from "../sync-validation"
@@ -52,6 +54,7 @@ type SnapshotPageItem =
       value: SnapshotRecords[SnapshotRecordCollection][number]
     }
   | { kind: "ancestor"; value: AncestorTreeLink }
+  | { kind: "requestableAncestor"; value: RequestableAncestorLink }
 
 const SNAPSHOT_COLLECTIONS = [
   "persons",
@@ -138,6 +141,14 @@ function paginateSnapshot(
   )) {
     items.push({ kind: "ancestor", value })
   }
+  for (const value of [...(body.requestableAncestors ?? [])].sort(
+    (first, second) =>
+      `${first.personId}\0${first.treeId}`.localeCompare(
+        `${second.personId}\0${second.treeId}`,
+      ),
+  )) {
+    items.push({ kind: "requestableAncestor", value })
+  }
 
   const offset = pageCursor?.offset ?? 0
   const pageItems: SnapshotPageItem[] = []
@@ -156,8 +167,11 @@ function paginateSnapshot(
 
   const records = emptySnapshotRecords()
   const ancestorTrees: AncestorTreeLink[] = []
+  const requestableAncestors: RequestableAncestorLink[] = []
   for (const item of pageItems) {
     if (item.kind === "ancestor") ancestorTrees.push(item.value)
+    else if (item.kind === "requestableAncestor")
+      requestableAncestors.push(item.value)
     else {
       ;(records[item.collection] as Array<typeof item.value>).push(item.value)
     }
@@ -167,6 +181,7 @@ function paginateSnapshot(
     ...body,
     records,
     ancestorTrees,
+    requestableAncestors,
     ...(nextOffset < items.length
       ? {
           nextCursor: encodeSnapshotCursor({
@@ -437,12 +452,11 @@ export async function getTreeSnapshot(
   }
 
   const records = (await loadActiveRecordsByTree(db, [treeId])).get(treeId)
-  const ancestorTrees = await loadAncestorTreeLinks(
-    db,
-    me.id,
-    treeId,
-    (records?.persons ?? []).map((person) => person.id),
-  )
+  const personIds = (records?.persons ?? []).map((person) => person.id)
+  const [ancestorTrees, requestableAncestors] = await Promise.all([
+    loadAncestorTreeLinks(db, me.id, treeId, personIds),
+    loadRequestableAncestorLinks(db, me.id, treeId, personIds),
+  ])
   const currentTree = await db.query.trees.findFirst({
     where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
   })
@@ -462,6 +476,7 @@ export async function getTreeSnapshot(
         treeParentChildRelationships: [],
       },
       ancestorTrees,
+      requestableAncestors,
       syncVersion: row.tree.syncVersion,
       cursor: encodeSyncCursor({
         treeId,
@@ -580,12 +595,10 @@ export async function getTreeGraph(
     return Response.json({ error: "person not found" }, { status: 404 })
   }
   const records = await loadActiveRecordsForPeople(db, treeId, personIds)
-  const ancestorTrees = await loadAncestorTreeLinks(
-    db,
-    me.id,
-    treeId,
-    personIds,
-  )
+  const [ancestorTrees, requestableAncestors] = await Promise.all([
+    loadAncestorTreeLinks(db, me.id, treeId, personIds),
+    loadRequestableAncestorLinks(db, me.id, treeId, personIds),
+  ])
   const maximumDepth = Math.max(...reachable.rows.map((row) => row.depth))
   const currentTree = await db.query.trees.findFirst({
     where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
@@ -602,6 +615,7 @@ export async function getTreeGraph(
       ) as TreeRecordWire,
       records,
       ancestorTrees,
+      requestableAncestors,
       syncVersion: treeRow.tree.syncVersion,
       cursor: encodeSyncCursor({
         treeId,

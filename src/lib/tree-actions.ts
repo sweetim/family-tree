@@ -32,6 +32,12 @@ export type TreeActions = {
   startLink: (kind: LinkKind, sourceId: string) => void
   /** Open the sidebar editor for a couple's marriage date (from a union-dot click). */
   editMarriage: (a: string, b: string) => void
+  /** Open the sidebar panel for requesting access to a linked private tree. */
+  openRequestAccess: (
+    treeId: string,
+    treeName: string,
+    onRequestUpdated: () => void,
+  ) => void
   /** Print the whole tree to a PDF via the browser's print dialog. */
   exportPdf: () => void
   /** True unless the current user has enabled edit mode on a writable tree. */

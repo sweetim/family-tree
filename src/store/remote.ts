@@ -135,6 +135,7 @@ export function applyRemote(remote: RemoteRecords): void {
               gender: wire.gender,
               birthplace: wire.birthplace,
               photo: wire.hasPhoto ? STORED_PHOTO_MARKER : wire.photo,
+              photoUpdatedAt: wire.photoUpdatedAt,
               revision: wire.revision,
               updatedAt: wire.updatedAt,
               ownerId: wire.ownerId,

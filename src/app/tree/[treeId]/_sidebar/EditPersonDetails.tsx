@@ -49,7 +49,7 @@ export function EditPersonDetails({
           onChange={setFields}
           existingPhotoUrl={
             person.photo
-              ? photoProxyUrl(person.id, person.updatedAt)
+              ? photoProxyUrl(person.id, person.photoUpdatedAt)
               : undefined
           }
         />

@@ -24,6 +24,7 @@ export type PersonRecordWire = {
   birthplace?: string
   photo?: string
   hasPhoto?: boolean
+  photoUpdatedAt?: string
   revision?: number
   updatedAt: string
   ownerId?: string
@@ -164,7 +165,7 @@ export type SyncPullResponse = {
 
 export type PersonPushRecordWire = Omit<
   PersonRecordWire,
-  "ownerId" | "photo" | "hasPhoto"
+  "ownerId" | "photo" | "hasPhoto" | "photoUpdatedAt"
 > & {
   /** Omitted keeps the stored photo; null removes it; a data URL replaces it. */
   photo?: string | null
@@ -261,12 +262,27 @@ export type TreeManifestResponse = {
 
 export type AncestorTreeLink = { personId: string; treeId: string }
 
+/**
+ * An ancestor-family tree the viewer cannot access (neither owns nor is shared
+ * on), surfaced only so the card can offer a "request access" badge. Carries
+ * the tree name because the client has no other way to resolve it — consistent
+ * with the public invite preview, which exposes a tree name by id.
+ */
+export type RequestableAncestorLink = {
+  personId: string
+  treeId: string
+  treeName: string
+}
+
 export type TreeSnapshotResponse = {
   tree: TreeRecordWire
   records: Omit<SyncRecordSet, "trees">
   /** Earliest accessible ancestor-family tree per visible person, so the
    *  client can show the "ancestor family" label without loading every tree. */
   ancestorTrees?: AncestorTreeLink[]
+  /** Earliest inaccessible ancestor-family tree per visible person (when no
+   *  accessible one exists), so the card can offer a "request access" badge. */
+  requestableAncestors?: RequestableAncestorLink[]
   syncVersion: number
   cursor: string
   partial?: boolean

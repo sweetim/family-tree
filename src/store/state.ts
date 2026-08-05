@@ -1,4 +1,5 @@
 import type {
+  RequestableAncestorLink,
   LocalRole as SyncLocalRole,
   SyncPullResponse,
   SyncPushRequest,
@@ -50,6 +51,7 @@ import {
   newId,
   now,
   RECORD_COLLECTIONS,
+  requestableAncestorLinksFor,
   takeDirtyBatch,
   treeMemberKey,
   treeParentChildRelationshipKey,
@@ -82,6 +84,7 @@ export {
   useHydrated,
   useParentChildRelationships,
   usePersons,
+  useRequestableAncestorLinks,
   useSyncConflictCount,
   useSyncStatus,
   useTreeFreshlyLoaded,
@@ -199,6 +202,17 @@ let storeGeneration = 0
 let ancestorTreeLinks = new Map<string, Map<string, string>>()
 
 /**
+ * Inaccessible ancestor-family trees per snapshot tree, keyed by person id,
+ * so a card can offer a "request access" badge. Carries the tree name since
+ * the client has no index entry for trees it can't access. Mirrors
+ * {@link ancestorTreeLinks} but for trees the viewer lacks a role on.
+ */
+let requestableAncestorLinks = new Map<
+  string,
+  Map<string, RequestableAncestorLink>
+>()
+
+/**
  * Tree ids that have received a fresh server snapshot during the current store
  * generation. Unlike `TreeMeta.loaded` (which is persisted and so can already
  * be true on reload), this set only fills as `applyTreeSnapshot` runs this
@@ -226,6 +240,7 @@ export function notifyListeners(): void {
     syncConflicts: getSyncConflicts(),
     operationConflicts: getOperationConflicts(),
     ancestorTreeLinks,
+    requestableAncestorLinks,
     blockedChangesVersion,
   })
   if (pendingGraph === graph) pendingGraph = undefined
@@ -426,6 +441,20 @@ export function applyTreeSnapshot(snapshot: TreeSnapshotResponse): void {
   }
   nextLinks.set(snapshot.tree.id, linksForTree)
   ancestorTreeLinks = nextLinks
+  const nextRequestable = new Map(requestableAncestorLinks)
+  const requestableForTree = snapshot.partial
+    ? new Map(nextRequestable.get(snapshot.tree.id))
+    : new Map<string, RequestableAncestorLink>()
+  if (snapshot.partial) {
+    for (const person of snapshot.records.persons) {
+      requestableForTree.delete(person.id)
+    }
+  }
+  for (const link of snapshot.requestableAncestors ?? []) {
+    requestableForTree.set(link.personId, link)
+  }
+  nextRequestable.set(snapshot.tree.id, requestableForTree)
+  requestableAncestorLinks = nextRequestable
   update(
     (previous) => ({
       ...previous,
@@ -463,6 +492,7 @@ export function applyFullPull(pull: SyncPullResponse): void {
     pendingGraph = emptyState()
     replaceDirtyState(emptyDirtyState())
     ancestorTreeLinks = new Map()
+    requestableAncestorLinks = new Map()
     remoteTombstoneClocks = emptyTombstoneClocks()
     applyRemote(pull.own)
     for (const shared of pull.shared) applyRemote(sharedRemoteRecords(shared))
@@ -614,6 +644,12 @@ export function getAncestorTreeLinks(treeId: string): Map<string, string> {
   return ancestorTreeLinksFor(ancestorTreeLinks, treeId)
 }
 
+export function getRequestableAncestorLinks(
+  treeId: string,
+): Map<string, RequestableAncestorLink> {
+  return requestableAncestorLinksFor(requestableAncestorLinks, treeId)
+}
+
 export function subscribe(listener: () => void): () => void {
   return useStore.subscribe(listener)
 }
@@ -630,6 +666,7 @@ export function resetStore(): void {
   resetOutbox()
   remoteTombstoneClocks = emptyTombstoneClocks()
   ancestorTreeLinks = new Map()
+  requestableAncestorLinks = new Map()
   freshlyLoadedTrees = new Set()
   resetCoordinator()
   resetConflicts()

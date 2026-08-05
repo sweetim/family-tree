@@ -917,6 +917,7 @@ async function resolveBlockedOnDevice(
               photo: serverPerson.hasPhoto
                 ? STORED_PHOTO_MARKER
                 : serverPerson.photo,
+              photoUpdatedAt: serverPerson.photoUpdatedAt,
               revision: serverPerson.revision,
               updatedAt: serverPerson.updatedAt,
               ownerId: serverPerson.ownerId,

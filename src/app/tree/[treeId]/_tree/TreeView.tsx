@@ -467,6 +467,11 @@ function TreeCanvas({
         setDrawerOpen(true)
         setSidebarHidden(false)
       },
+      openRequestAccess: (treeId, treeName, onRequestUpdated) => {
+        setSidebar({ mode: "requestAccess", treeId, treeName, onRequestUpdated })
+        setDrawerOpen(true)
+        setSidebarHidden(false)
+      },
       readOnly: !canEdit,
       exportPdf,
     }),

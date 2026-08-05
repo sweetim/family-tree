@@ -19,12 +19,15 @@ export type RequestStatus =
  * the request card: `loading` while fetching, `none` when no request exists
  * (show the form), or `present` to show the pending/denied state.
  */
-export function useAccessRequest(treeId: string) {
+export function useAccessRequest(treeId: string | undefined) {
   const toast = useToast()
-  const [status, setStatus] = useState<RequestStatus>({ kind: "loading" })
+  const [status, setStatus] = useState<RequestStatus>(() =>
+    treeId ? { kind: "loading" } : { kind: "none" },
+  )
   const [submitting, setSubmitting] = useState(false)
 
   const refresh = useCallback(async () => {
+    if (!treeId) return
     setStatus({ kind: "loading" })
     try {
       const res = await fetch(`/api/trees/${treeId}/access-request`, {
@@ -49,6 +52,7 @@ export function useAccessRequest(treeId: string) {
 
   const submit = useCallback(
     async (comment: string): Promise<boolean> => {
+      if (!treeId) return false
       setSubmitting(true)
       try {
         const res = await fetch(`/api/trees/${treeId}/access-request`, {

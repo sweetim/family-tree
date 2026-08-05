@@ -21,6 +21,7 @@ export const sidebarFormIds = {
   createFamily: "sidebar-create-family-form",
   shareInvite: "sidebar-share-invite-form",
   marriage: "sidebar-marriage-form",
+  accessRequest: "sidebar-access-request-form",
 } as const
 
 export type SidebarState =
@@ -54,6 +55,12 @@ export type SidebarState =
     }
   | { mode: "settings" }
   | { mode: "share" }
+  | {
+      mode: "requestAccess"
+      treeId: string
+      treeName: string
+      onRequestUpdated: () => void
+    }
   | { mode: "reviewChanges" }
 
 export type Fields = {

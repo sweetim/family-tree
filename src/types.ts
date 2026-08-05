@@ -22,6 +22,8 @@ export type PersonIdentity = {
   photo?: string
   /** ISO timestamp of the last edit. Set by the sync seam. */
   updatedAt?: string
+  /** ISO timestamp of the last stored photo change. */
+  photoUpdatedAt?: string
   /** Server-owned optimistic concurrency revision. */
   revision?: number
   /** Owner user id when the record came from the server. */

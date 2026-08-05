@@ -4,6 +4,7 @@ import { ensureParentChildRelationship } from "./store/parent-child"
 import {
   emptyState,
   getAncestorTreeLinks,
+  getRequestableAncestorLinks,
   isTreeFreshlyLoaded,
   subscribe,
   update,
@@ -2939,6 +2940,118 @@ describe("dirty tracking and push wires", () => {
 
     expect(getAncestorTreeLinks("ho").get("wai-keen")).toBe("yong")
     expect(getAncestorTreeLinks("other-family").get("wai-keen")).toBe("loh")
+  })
+
+  test("stores requestable ancestor links from a snapshot", async () => {
+    const store = await freshStore()
+    store.applyTreeSnapshot({
+      tree: {
+        id: "tree",
+        name: "Ho",
+        ownerId: "owner",
+        role: "owner",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        revision: 1,
+      },
+      records: {
+        persons: [
+          {
+            id: "wai-keen",
+            name: "Wai Keen",
+            revision: 1,
+            updatedAt: timestamp,
+          },
+        ],
+        treeMembers: [
+          {
+            treeId: "tree",
+            personId: "wai-keen",
+            revision: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+        unions: [],
+        unionEvents: [],
+        treeUnions: [],
+        parentChildRelationships: [],
+        treeParentChildRelationships: [],
+      },
+      requestableAncestors: [
+        { personId: "wai-keen", treeId: "loh", treeName: "Loh Family" },
+      ],
+      syncVersion: 1,
+      cursor: "cursor",
+    })
+
+    expect(getRequestableAncestorLinks("tree").get("wai-keen")).toEqual({
+      personId: "wai-keen",
+      treeId: "loh",
+      treeName: "Loh Family",
+    })
+  })
+
+  test("keeps requestable ancestor links scoped to their snapshot tree", async () => {
+    const store = await freshStore()
+    const snapshot = (
+      treeId: string,
+      ancestorTreeId: string,
+      ancestorTreeName: string,
+    ): TreeSnapshotResponse => ({
+      tree: {
+        id: treeId,
+        name: treeId,
+        ownerId: "owner",
+        role: "owner",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        revision: 1,
+      },
+      records: {
+        persons: [
+          {
+            id: "wai-keen",
+            name: "Wai Keen",
+            revision: 1,
+            updatedAt: timestamp,
+          },
+        ],
+        treeMembers: [
+          {
+            treeId,
+            personId: "wai-keen",
+            revision: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+        unions: [],
+        unionEvents: [],
+        treeUnions: [],
+        parentChildRelationships: [],
+        treeParentChildRelationships: [],
+      },
+      requestableAncestors: [
+        {
+          personId: "wai-keen",
+          treeId: ancestorTreeId,
+          treeName: ancestorTreeName,
+        },
+      ],
+      syncVersion: 1,
+      cursor: "cursor",
+    })
+
+    store.applyTreeSnapshot(snapshot("ho", "yong", "Yong Family"))
+    store.applyTreeSnapshot(snapshot("other-family", "loh", "Loh Family"))
+
+    expect(getRequestableAncestorLinks("ho").get("wai-keen")?.treeId).toBe(
+      "yong",
+    )
+    expect(
+      getRequestableAncestorLinks("other-family").get("wai-keen")?.treeId,
+    ).toBe("loh")
   })
 
   test("fresh tree synchronization replaces cursor sync with a snapshot", async () => {

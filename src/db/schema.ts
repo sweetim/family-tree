@@ -115,6 +115,7 @@ export const persons = pgTable(
     gender: text("gender"),
     birthplace: text("birthplace"),
     photo: text("photo"),
+    photoUpdatedAt: timestamp("photo_updated_at", { withTimezone: true }),
     revision: integer("revision").notNull().default(1),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()

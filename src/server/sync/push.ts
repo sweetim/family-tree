@@ -1524,6 +1524,7 @@ export async function runSyncMutation(
                 familyName: wire.familyName ?? "",
                 birthplace: wire.birthplace ?? null,
                 photo,
+                photoUpdatedAt: photo ? serverTime : null,
                 updatedAt: serverTime,
               })
               .onConflictDoNothing()
@@ -1577,9 +1578,14 @@ export async function runSyncMutation(
               "dod" = ${wire.dod ?? null},
               "gender" = ${wire.gender ?? null},
               "family_name" = ${wire.familyName ?? ""},
-              "birthplace" = ${wire.birthplace ?? null},
-              "photo" = ${photo},
-              "updated_at" = ${serverTime},
+               "birthplace" = ${wire.birthplace ?? null},
+               "photo" = ${photo},
+               "photo_updated_at" = CASE
+                 WHEN ${photo} IS NULL THEN NULL
+                 WHEN "photo" IS DISTINCT FROM ${photo} THEN ${serverTime}
+                 ELSE "photo_updated_at"
+               END,
+               "updated_at" = ${serverTime},
               "revision" = "revision" + 1
           WHERE ${persons.id} IN (SELECT id FROM target_person)
           RETURNING ${persons.id} AS id

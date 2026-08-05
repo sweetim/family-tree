@@ -14,6 +14,7 @@ import {
   user,
 } from "../../db/schema"
 import type {
+  RequestableAncestorLink,
   SharedTreeWire,
   SyncPullResponse,
   SyncRecordSet,
@@ -693,7 +694,89 @@ export async function loadAncestorTreeLinks(
   }))
 }
 
-/** GET /api/sync?since=<iso> with query count independent of tree count. */
+type RequestableAncestorLinkRow = {
+  personId: string
+  treeId: string
+  treeName: string
+  treeCreatedAt: string
+}
+
+/**
+ * The earliest INaccessible "ancestor family" tree for each visible person —
+ * one the viewer neither owns nor is shared on — so the card can offer a
+ * "request access" badge. Mirrors {@link loadAncestorTreeLinks} with the access
+ * predicate negated, and additionally returns the tree name (the client has no
+ * index entry for trees it can't access). Only surfaces a link per person; the
+ * client suppresses it entirely when an accessible ancestor exists.
+ */
+export async function loadRequestableAncestorLinks(
+  db: DB,
+  userId: string,
+  treeId: string,
+  personIds: string[],
+): Promise<RequestableAncestorLink[]> {
+  if (personIds.length === 0) return []
+  const result = await db.execute<RequestableAncestorLinkRow>(sql`
+    SELECT
+      rel.child_person_id AS "personId",
+      tpr.tree_id AS "treeId",
+      at.name AS "treeName",
+      at.created_at AS "treeCreatedAt"
+    FROM parent_child_relationships rel
+    INNER JOIN tree_parent_child_relationships tpr
+      ON tpr.parent_child_relationship_id = rel.id
+      AND tpr.deleted_at IS NULL
+    INNER JOIN tree_members child_member
+      ON child_member.tree_id = tpr.tree_id
+      AND child_member.person_id = rel.child_person_id
+      AND child_member.deleted_at IS NULL
+    INNER JOIN tree_members parent_member
+      ON parent_member.tree_id = tpr.tree_id
+      AND parent_member.person_id = rel.parent_person_id
+      AND parent_member.deleted_at IS NULL
+    INNER JOIN trees at
+      ON at.id = tpr.tree_id
+      AND at.deleted_at IS NULL
+    WHERE rel.deleted_at IS NULL
+      AND rel.child_person_id IN (${sql.join(
+        personIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})
+      AND tpr.tree_id <> ${treeId}
+      AND at.owner_id <> ${userId}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM tree_shares ats
+        WHERE ats.tree_id = at.id AND ats.user_id = ${userId}
+      )
+  `)
+  if (result.rows.length === 0) return []
+  const earliest = new Map<
+    string,
+    { treeId: string; treeName: string; treeCreatedAt: string }
+  >()
+  for (const row of result.rows) {
+    const existing = earliest.get(row.personId)
+    if (
+      !existing
+      || row.treeCreatedAt < existing.treeCreatedAt
+      || (row.treeCreatedAt === existing.treeCreatedAt
+        && row.treeId < existing.treeId)
+    ) {
+      earliest.set(row.personId, {
+        treeId: row.treeId,
+        treeName: row.treeName,
+        treeCreatedAt: row.treeCreatedAt,
+      })
+    }
+  }
+  return [...earliest.entries()].map(([personId, { treeId, treeName }]) => ({
+    personId,
+    treeId,
+    treeName,
+  }))
+}
+
 export async function getSync(request: Request): Promise<Response> {
   const searchParams = new URL(request.url).searchParams
   const sinceParam = searchParams.get("since")

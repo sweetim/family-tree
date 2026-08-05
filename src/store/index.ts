@@ -15,6 +15,7 @@ export {
   useMemberTrees,
   usePersonIdentity,
   usePersonSearch,
+  useRequestableAncestor,
   useTreeIndex,
   useTreePeople,
 } from "./hooks"

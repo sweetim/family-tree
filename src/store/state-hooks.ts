@@ -1,10 +1,15 @@
 import { create } from "zustand"
+import type { RequestableAncestorLink } from "../sync/types"
 import type {
   PersistedConflict,
   PersistedOperationConflict,
 } from "./persistence"
 import type { GlobalState, SyncStatus } from "./state"
-import { ancestorTreeLinksFor, emptyState } from "./state-internals"
+import {
+  ancestorTreeLinksFor,
+  emptyState,
+  requestableAncestorLinksFor,
+} from "./state-internals"
 
 // ---------------------------------------------------------------------------
 // Reactive store (Zustand). Mirrors the engine's reactive singletons in
@@ -23,6 +28,7 @@ export type ReactiveState = {
   syncConflicts: PersistedConflict[]
   operationConflicts: PersistedOperationConflict[]
   ancestorTreeLinks: Map<string, Map<string, string>>
+  requestableAncestorLinks: Map<string, Map<string, RequestableAncestorLink>>
   blockedChangesVersion: number
 }
 
@@ -34,6 +40,7 @@ export const useStore = create<ReactiveState>(() => ({
   syncConflicts: [],
   operationConflicts: [],
   ancestorTreeLinks: new Map(),
+  requestableAncestorLinks: new Map(),
   blockedChangesVersion: 0,
 }))
 
@@ -71,6 +78,14 @@ export const useTreeParentChildRelationships = graphCollectionHook(
 export function useAncestorTreeLinks(treeId: string): Map<string, string> {
   return useStore((selector) =>
     ancestorTreeLinksFor(selector.ancestorTreeLinks, treeId),
+  )
+}
+
+export function useRequestableAncestorLinks(
+  treeId: string,
+): Map<string, RequestableAncestorLink> {
+  return useStore((selector) =>
+    requestableAncestorLinksFor(selector.requestableAncestorLinks, treeId),
   )
 }
 

@@ -10,6 +10,7 @@
 import type {
   ParentChildRelationshipWire,
   PersonPushWire,
+  RequestableAncestorLink,
   SyncPullResponse,
   SyncPushRequest,
   SyncPushResponse,
@@ -130,6 +131,15 @@ export function ancestorTreeLinksFor(
   treeId: string,
 ): Map<string, string> {
   return links.get(treeId) ?? emptyAncestorTreeLinks
+}
+
+const emptyRequestableAncestorLinks = new Map<string, RequestableAncestorLink>()
+
+export function requestableAncestorLinksFor(
+  links: Map<string, Map<string, RequestableAncestorLink>>,
+  treeId: string,
+): Map<string, RequestableAncestorLink> {
+  return links.get(treeId) ?? emptyRequestableAncestorLinks
 }
 
 // ---------------------------------------------------------------------------

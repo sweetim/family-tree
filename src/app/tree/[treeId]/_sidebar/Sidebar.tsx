@@ -15,6 +15,7 @@ import {
   Pencil,
   Save,
   Search,
+  Send,
   Settings,
   Share2,
   Trash2,
@@ -27,6 +28,11 @@ import Link from "next/link"
 import { useState } from "react"
 import { AccountMenu } from "@/components/AccountMenu"
 import { useConfirm } from "@/components/Confirm"
+import {
+  AccessRequestPanel,
+  type AccessRequestFormState,
+} from "@/components/AccessRequestPanel"
+import { useSession } from "@/lib/auth-client"
 import { useTreeActions } from "@/lib/tree-actions"
 import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import {
@@ -104,6 +110,13 @@ export function Sidebar({
 }: Props) {
   const count = Object.keys(family.people).length
   const readOnly = family.readOnly
+  const { data: session } = useSession()
+  const [accessRequestForm, setAccessRequestForm] =
+    useState<AccessRequestFormState>({
+      active: false,
+      canSubmit: false,
+      submitting: false,
+    })
   const confirm = useConfirm()
   const { getEditingSession } = useTreeEditMode()
   const blockedChanges = useBlockedChanges(treeId)
@@ -132,6 +145,7 @@ export function Sidebar({
     editingPerson,
     editingIdentity,
     onAddRoot,
+    accessRequestForm,
     isMarriageActive:
       state.mode === "marriage"
       && family.people[state.a]?.unionStatus?.[state.b]?.type !== "divorced",
@@ -213,9 +227,10 @@ export function Sidebar({
 
       <div className="scroll-area flex-1 overflow-y-auto px-5 py-4">
         {!loading
-          && !editable
-          && state.mode !== "settings"
-          && state.mode !== "share" && (
+           && !editable
+           && state.mode !== "settings"
+           && state.mode !== "share"
+           && state.mode !== "requestAccess" && (
             <div className="mb-4">
               <MemberSearch
                 family={family}
@@ -225,6 +240,16 @@ export function Sidebar({
           )}
         {loading ? (
           <SidebarSkeleton />
+        ) : state.mode === "requestAccess" ? (
+          <AccessRequestPanel
+            treeId={state.treeId}
+            treeName={state.treeName}
+            email={session?.user.email ?? ""}
+            onRequestUpdated={state.onRequestUpdated}
+            sidebar
+            formId={sidebarFormIds.accessRequest}
+            onFormStateChange={setAccessRequestForm}
+          />
         ) : state.mode === "share" ? (
           <SharePanel
             treeId={treeId}
@@ -497,9 +522,15 @@ export function Sidebar({
             type={footerAction.formId ? "submit" : "button"}
             form={footerAction.formId}
             onClick={footerAction.onClick}
+            disabled={footerAction.disabled}
+            aria-busy={footerAction.spinning || undefined}
             className={`${primaryBtn} w-full ${footerAction.className ?? ""}`}
           >
-            {FooterActionIcon && <FooterActionIcon className="h-4 w-4" />}
+            {FooterActionIcon && (
+              <FooterActionIcon
+                className={`h-4 w-4 ${footerAction.spinning ? "animate-spin" : ""}`}
+              />
+            )}
             {footerAction.label}
           </button>
         )}
@@ -621,6 +652,8 @@ type FooterAction = {
   formId?: string
   onClick?: () => void
   className?: string
+  disabled?: boolean
+  spinning?: boolean
 }
 
 function getFooterAction({
@@ -630,6 +663,7 @@ function getFooterAction({
   editingIdentity,
   onAddRoot,
   isMarriageActive,
+  accessRequestForm,
 }: {
   state: SidebarState
   editable: boolean
@@ -637,6 +671,7 @@ function getFooterAction({
   editingIdentity: unknown
   onAddRoot: () => void
   isMarriageActive: boolean
+  accessRequestForm: AccessRequestFormState
 }): FooterAction | undefined {
   if (state.mode === "idle" && editable)
     return { label: "Add person", icon: UserPlus, onClick: onAddRoot }
@@ -663,6 +698,14 @@ function getFooterAction({
       label: "Add invite",
       icon: MailPlus,
       formId: sidebarFormIds.shareInvite,
+    }
+  if (state.mode === "requestAccess" && accessRequestForm.active)
+    return {
+      label: "Send request",
+      icon: accessRequestForm.submitting ? LoaderCircle : Send,
+      formId: sidebarFormIds.accessRequest,
+      disabled: !accessRequestForm.canSubmit,
+      spinning: accessRequestForm.submitting,
     }
   if (state.mode === "marriage" && editable && isMarriageActive)
     return {
