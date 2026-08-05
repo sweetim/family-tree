@@ -104,6 +104,9 @@ describe("notifyRequesterOfResolution", () => {
     expect(mail.html).toContain("Open your tree")
     expect(mail.html).toContain("https://tree.example.com/tree/tree_123")
     expect(mail.html).toContain("FamiKi")
+    expect(mail.html).toContain("data:image/png;base64,")
+    expect(mail.html).toContain("The owner approved your request.<br>")
+    expect(mail.html).not.toContain("A private home for family history")
   })
 
   test("denial message says the request was declined", async () => {
@@ -121,5 +124,8 @@ describe("notifyRequesterOfResolution", () => {
     expect(mail.text).toContain("declined")
     expect(mail.html).toContain("Your access request was declined.")
     expect(mail.html).toContain("Request again")
+    expect(mail.html).toContain(
+      "The owner declined your request to view this family tree.<br>",
+    )
   })
 })

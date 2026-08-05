@@ -243,6 +243,8 @@ function TreeCard({
   return (
     <div
       className={`group flex flex-col rounded-xl border p-4 transition-all hover:shadow-soft sm:p-5 ${
+        deleting ? "animate-fade-out " : ""
+      }${
         isShared
           ? "border-cobalt-200 bg-cobalt-50/40 hover:border-cobalt-300"
           : "border-slate-200 bg-white hover:border-cobalt-300"
@@ -330,6 +332,7 @@ function TreeCard({
                   setDeleting(true)
                   try {
                     await onDelete()
+                    toast(`Deleted "${tree.name}".`, "success")
                   } catch (error) {
                     console.error(error)
                     toast("Couldn't delete tree.", "error")
