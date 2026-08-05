@@ -14,6 +14,17 @@ export type RequestStatus =
   | { kind: "none" }
   | { kind: "present"; request: MyAccessRequest }
 
+const accessRequestCache = new Map<string, MyAccessRequest | null>()
+
+function cachedRequestStatus(treeId: string): RequestStatus {
+  const request = accessRequestCache.get(treeId)
+  return request === undefined
+    ? { kind: "loading" }
+    : request
+      ? { kind: "present", request }
+      : { kind: "none" }
+}
+
 /**
  * A requester's view of their own access request for a tree. `status` drives
  * the request card: `loading` while fetching, `none` when no request exists
@@ -22,7 +33,7 @@ export type RequestStatus =
 export function useAccessRequest(treeId: string | undefined) {
   const toast = useToast()
   const [status, setStatus] = useState<RequestStatus>(() =>
-    treeId ? { kind: "loading" } : { kind: "none" },
+    treeId ? cachedRequestStatus(treeId) : { kind: "none" },
   )
   const [submitting, setSubmitting] = useState(false)
 
@@ -35,6 +46,7 @@ export function useAccessRequest(treeId: string | undefined) {
       })
       if (!res.ok) throw new Error(`load failed: ${res.status}`)
       const data = (await res.json()) as { request: MyAccessRequest | null }
+      accessRequestCache.set(treeId, data.request)
       setStatus(
         data.request
           ? { kind: "present", request: data.request }
@@ -47,8 +59,13 @@ export function useAccessRequest(treeId: string | undefined) {
   }, [treeId])
 
   useEffect(() => {
+    if (!treeId) return
+    if (accessRequestCache.has(treeId)) {
+      setStatus(cachedRequestStatus(treeId))
+      return
+    }
     void refresh()
-  }, [refresh])
+  }, [refresh, treeId])
 
   const submit = useCallback(
     async (comment: string): Promise<boolean> => {

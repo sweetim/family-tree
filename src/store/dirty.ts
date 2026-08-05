@@ -235,14 +235,15 @@ export function stampAndEnqueue(
         persons = { ...next.persons }
         cloned = true
       }
-      persons[id] = { ...person, updatedAt: now }
-      markDirty(
-        "persons",
-        id,
-        "upsert",
-        previous.persons[id]?.revision,
-        operationId,
-      )
+      const previousPerson = previous.persons[id]
+      persons[id] = {
+        ...person,
+        updatedAt: now,
+        ...(person.photo !== previousPerson?.photo
+          ? { photoUpdatedAt: person.photo ? now : undefined }
+          : {}),
+      }
+      markDirty("persons", id, "upsert", previousPerson?.revision, operationId)
     }
     for (const id of Object.keys(previous.persons)) {
       if (!next.persons[id]) {

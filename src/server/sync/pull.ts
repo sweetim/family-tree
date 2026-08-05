@@ -223,6 +223,7 @@ const personSyncSelection = {
   photo: sql<
     string | null
   >`CASE WHEN ${persons.photo} IS NULL THEN NULL ELSE 'stored' END`,
+  photoUpdatedAt: persons.photoUpdatedAt,
   revision: persons.revision,
   updatedAt: persons.updatedAt,
   deletedAt: persons.deletedAt,

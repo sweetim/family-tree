@@ -1581,7 +1581,7 @@ export async function runSyncMutation(
                "birthplace" = ${wire.birthplace ?? null},
                "photo" = ${photo},
                "photo_updated_at" = CASE
-                 WHEN ${photo} IS NULL THEN NULL
+                 WHEN ${photo}::text IS NULL THEN NULL
                  WHEN "photo" IS DISTINCT FROM ${photo} THEN ${serverTime}
                  ELSE "photo_updated_at"
                END,

@@ -707,6 +707,31 @@ describe("normalized relationship mutations", () => {
     expect(request.parentChildRelationships).toEqual([])
   })
 
+  test("preserves an avatar version for a non-photo person update", async () => {
+    const store = await freshStore()
+    const previous = relationshipState()
+    const tim = previous.persons.tim
+    if (!tim) throw new Error("expected Tim fixture")
+    previous.persons.tim = {
+      ...tim,
+      photo: "stored-photo",
+      photoUpdatedAt: "2023-01-01T00:00:00.000Z",
+    }
+    const storedTim = previous.persons.tim
+    if (!storedTim) throw new Error("expected stored Tim fixture")
+    const next = {
+      ...previous,
+      persons: {
+        ...previous.persons,
+        tim: { ...storedTim, name: "Updated Tim" },
+      },
+    }
+
+    const stamped = store.stampAndEnqueue(previous, next)
+
+    expect(stamped.persons.tim?.photoUpdatedAt).toBe("2023-01-01T00:00:00.000Z")
+  })
+
   test("global parent facts enforce cycle and two-parent limits", async () => {
     const store = await freshStore()
     const graph = relationshipState()
@@ -1571,6 +1596,7 @@ describe("dirty tracking and push wires", () => {
             id: "person",
             name: "Person",
             hasPhoto: true,
+            photoUpdatedAt: "2024-01-01T00:00:00.000Z",
             updatedAt: timestamp,
           },
         ],
@@ -1579,6 +1605,7 @@ describe("dirty tracking and push wires", () => {
     const snapshot = store.getSnapshot()
     const person = snapshot.persons.person
     if (!person) throw new Error("expected pulled person")
+    expect(person.photoUpdatedAt).toBe("2024-01-01T00:00:00.000Z")
     const dirty = store.snapshotDirty()
     dirty.persons.set("person", { action: "upsert", revision: 1 })
 
@@ -1628,6 +1655,55 @@ describe("dirty tracking and push wires", () => {
     expect(
       store.buildPushWires(snapshot, dirty, timestamp).persons[0],
     ).toMatchObject({ id: "person", revision: 2 })
+  })
+
+  test("reports an empty failed mutation response by status", async () => {
+    const store = await freshStore()
+    store.applyFullPull(
+      fullPull({
+        persons: [
+          {
+            id: "person",
+            name: "Person",
+            revision: 1,
+            updatedAt: timestamp,
+          },
+        ],
+      }),
+    )
+    const originalFetch = globalThis.fetch
+    const originalConsoleError = console.error
+    let loggedError: unknown
+    globalThis.fetch = (async (input) => {
+      expect(input).toBe("/api/mutations")
+      return new Response(null, { status: 500 })
+    }) as typeof fetch
+    console.error = (...arguments_) => {
+      loggedError = arguments_[1]
+    }
+
+    try {
+      update((previous) => {
+        const person = previous.persons.person
+        if (!person) return previous
+        return {
+          ...previous,
+          persons: {
+            ...previous.persons,
+            person: { ...person, name: "Updated" },
+          },
+        }
+      })
+
+      await store.synchronizePending()
+
+      expect((loggedError as Error).message).toBe("push failed: 500")
+      expect(store.getSyncStatus()).toBe("offline")
+      expect(store.snapshotDirty().persons.has("person")).toBe(true)
+    } finally {
+      globalThis.fetch = originalFetch
+      console.error = originalConsoleError
+    }
   })
 
   test("keeps a tree visible until server deletion succeeds", async () => {

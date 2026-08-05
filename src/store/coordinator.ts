@@ -219,10 +219,10 @@ async function runPushLoop(generation: number): Promise<void> {
           records: request,
         }),
       })
-      const result = (await response.json()) as SyncMutationResponse
       if (!response.ok && response.status !== 409) {
         throw new Error(`push failed: ${response.status}`)
       }
+      const result = (await response.json()) as SyncMutationResponse
       if (generation !== getStoreGeneration()) return
       pendingMutation = undefined
       clearedMutationIds.add(mutationId)

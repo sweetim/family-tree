@@ -587,6 +587,40 @@ test("uploads a photo data URL and stores a blob URL", async () => {
   expect(row?.photo).toMatch(
     /^https:\/\/test\.public\.blob\.vercel-storage\.com\/photos\//,
   )
+  expect(row?.photoUpdatedAt?.toISOString()).toBe(result.serverTime)
+})
+
+test("preserves a photo version when updating other person details", async () => {
+  const id = `${RUN}-person-photo-version`
+  const dataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+  await mutate(owner, {
+    ...emptyBody(),
+    persons: [{ id, name: "Original", photo: dataUrl, updatedAt: now() }],
+  })
+  const before = await db.query.persons.findFirst({
+    where: eq(schema.persons.id, id),
+  })
+  if (!before?.photoUpdatedAt) throw new Error("expected photo version")
+
+  await mutate(owner, {
+    ...emptyBody(),
+    persons: [
+      {
+        id,
+        name: "Renamed",
+        revision: before.revision,
+        updatedAt: now(),
+      },
+    ],
+  })
+  const after = await db.query.persons.findFirst({
+    where: eq(schema.persons.id, id),
+  })
+  expect(after?.photo).toBe(before.photo)
+  expect(after?.photoUpdatedAt?.toISOString()).toBe(
+    before.photoUpdatedAt.toISOString(),
+  )
 })
 
 test("skips a person whose photo data URL is malformed", async () => {
@@ -647,6 +681,7 @@ test("replaces a stored photo on update and records a new blob URL", async () =>
     /^https:\/\/test\.public\.blob\.vercel-storage\.com\/photos\//,
   )
   expect(after?.photo).not.toBe(before?.photo)
+  expect(after?.photoUpdatedAt?.toISOString()).toBe(result.serverTime)
   // The replaced blob is deleted only after the transaction commits. `del`
   // receives `([url], options)`, so inspect the first argument of each call.
   const previousPhoto = before?.photo ?? ""
