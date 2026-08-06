@@ -6,17 +6,17 @@ type FeatureKind = "tree" | "memory" | "family"
 const productFeatures = [
   {
     title: "Build Your Tree",
-    description: "Map your family history beautifully.",
+    description: "Map your family history.",
     kind: "tree" as const,
   },
   {
     title: "Save Your Memories",
-    description: "Add photos, stories, and special moments.",
+    description: "Preserve photos and stories.",
     kind: "memory" as const,
   },
   {
     title: "Inspire Generations",
-    description: "Pass down your legacy and inspire the future.",
+    description: "Pass your legacy forward.",
     kind: "family" as const,
   },
 ]
@@ -125,21 +125,21 @@ export function LandingPage() {
               </div>
             </div>
 
-            <ul className="landing-feature-list grid w-full max-w-none sm:grid-cols-3 lg:max-w-[65rem]">
+            <ul className="landing-feature-list grid w-full max-w-none sm:grid-cols-3 lg:max-w-[50rem]">
               {productFeatures.map((feature) => (
                 <li
                   key={feature.title}
                   data-feature-kind={feature.kind}
-                  className="landing-feature-item flex gap-4 px-6 py-5 sm:flex-col sm:items-center sm:gap-3 sm:px-8 sm:py-7 sm:text-center lg:px-10"
+                  className="landing-feature-item flex gap-4 px-6 py-5 sm:flex-col sm:items-center sm:gap-2 sm:px-6 sm:py-5 sm:text-center lg:px-8"
                 >
-                  <div className="landing-feature-illustration mt-0.5 h-11 w-11 shrink-0 sm:mt-0 sm:h-14 sm:w-14">
+                  <div className="landing-feature-illustration mt-0.5 h-11 w-11 shrink-0 sm:mt-0 sm:h-12 sm:w-12">
                     <FeatureIllustration kind={feature.kind} />
                   </div>
                   <div>
                     <h2 className="text-[0.98rem] font-bold leading-tight tracking-[-0.035em] text-[#f8faff] sm:text-base">
                       {feature.title}
                     </h2>
-                    <p className="mt-1.5 max-w-[15rem] text-[0.8rem] font-medium leading-5 text-[#c6d2e4] sm:text-[0.85rem]">
+                    <p className="mt-1.5 whitespace-nowrap text-[0.8rem] font-medium leading-5 text-[#c6d2e4] sm:text-[0.85rem]">
                       {feature.description}
                     </p>
                   </div>
