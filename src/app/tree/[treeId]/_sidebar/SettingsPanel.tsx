@@ -293,7 +293,7 @@ export function SettingsPanel({
                 <SettingNumber
                   icon={<Hash className="h-4 w-4" />}
                   title="Generation offset"
-                  description="Shift every row's number. 0: top is Gen 1. -1: top is Gen 0. -3: top is Gen -2. 4: top is Gen 5."
+                  description="Number of the top generation row."
                   value={settings.generationOffset}
                   onChange={(value) => update({ generationOffset: value })}
                 />

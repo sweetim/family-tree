@@ -438,7 +438,7 @@ export function buildFlow(
   linking?: { sourceId: string; eligible: Set<string> },
   highlightBloodline = false,
   showGenerations = false,
-  generationOffset = 0,
+  generationOffset = 1,
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
   const { couples } = layout
   const pos = layout.positions
@@ -536,7 +536,7 @@ export function buildFlow(
           zIndex: Z_INDEX.generationBand,
           position: { x: bandLeft, y: y - BAND_HEIGHT / 2 },
           data: {
-            generation: index + 1 + generationOffset,
+            generation: index + generationOffset,
             width: bandWidth,
             height: BAND_HEIGHT,
             even: index % 2 === 0,

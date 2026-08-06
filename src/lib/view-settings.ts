@@ -50,9 +50,9 @@ export type ViewSettings = {
    */
   showGenerations: boolean
   /**
-   * Integer added to every generation row's number when "Generation labels"
-   * is on. 0 (default): top row is Gen 1; -1: top row is Gen 0; -3: top row
-   * is Gen -2; 4: top row is Gen 5. Shifts all rows together.
+   * The number of the topmost generation row when "Generation labels" is on;
+   * each row below adds one. 1 (default): top is Gen 1; 10: top is Gen 10;
+   * 0: top is Gen 0.
    */
   generationOffset: number
 }
@@ -70,7 +70,7 @@ const DEFAULTS: ViewSettings = {
   hideAmberBloodline: false,
   showOtherTrees: false,
   showGenerations: false,
-  generationOffset: 0,
+  generationOffset: 1,
 }
 
 type StoredViewSettings = Partial<ViewSettings> & {

@@ -84,15 +84,15 @@ When `showGenerations` is on, `buildFlow` emits one `generation` node per
 distinct row: a full-width zebra-striped band behind the cards (`BAND_HEIGHT`
 tall, so adjacent stripes are contiguous), with the "Gen N" pill at its left
 edge. Distinct row y-centres are already one-per-generation (partners share a
-row), so sorting them top-to-bottom yields rank order, numbered `Gen 1` at the
-top down to `Gen N`, shifted by `generationOffset` (`index + 1 + generationOffset`,
-so 0 = top is Gen 1, -1 = top is Gen 0). The band spans the whole content width so a row's
+row), so sorting them top-to-bottom yields rank order; the topmost row's number
+is `generationOffset` (`index + generationOffset`, so the default 1 = Gen 1, 2,
+3… and 10 = Gen 10, 11, 12…). The band spans the whole content width so a row's
 generation is visible wherever you pan — no scrolling to the left to find it.
 Bands paint below lines and cards (`Z_INDEX.generationBand`, the lowest tier)
 and are non-interactive (`selectable`/`deletable`/`draggable` off,
 `pointer-events-none`) so clicks pass through to the pane. Toggled by the
-"Generation labels" view setting (off by default); its number is shifted by the
-"Generation offset" view setting.
+"Generation labels" view setting (off by default); the starting number is set by
+the "Generation offset" view setting.
 
 ## Rendering the graph
 
