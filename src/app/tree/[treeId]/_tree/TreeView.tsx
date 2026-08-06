@@ -203,6 +203,7 @@ function TreeCanvas({
   } = useConnectionTarget(sidebar, family.people, setSidebar, setDrawerOpen)
   const [sidebarHidden, setSidebarHidden] = useState(false)
   const [startingEditMode, setStartingEditMode] = useState(false)
+  const [stoppingEditMode, setStoppingEditMode] = useState(false)
   const editModeRequest = useRef(0)
   const editModeAbort = useRef<AbortController | null>(null)
   const editMode = editingTreeId === tree.id
@@ -281,8 +282,19 @@ function TreeCanvas({
 
   const toggleEditMode = async () => {
     if (editMode) {
+      if (stoppingEditMode) return
       editModeRequest.current += 1
       editModeAbort.current?.abort()
+      // Flush pending edits before leaving edit mode so "Done" reflects that
+      // the user's changes have been pushed to the server. If the push can't
+      // reach the server it resolves quickly (offline); changes stay queued
+      // and retry in the background.
+      setStoppingEditMode(true)
+      try {
+        await synchronizePending()
+      } finally {
+        setStoppingEditMode(false)
+      }
       setEditingTreeId(null)
       return
     }
@@ -606,6 +618,7 @@ function TreeCanvas({
           open={drawerOpen}
           editable={canEdit}
           startingEditMode={startingEditMode}
+          stoppingEditMode={stoppingEditMode}
           loading={sidebarLoading}
           collapsed={sidebarHidden}
           onToggleEditMode={() => void toggleEditMode()}

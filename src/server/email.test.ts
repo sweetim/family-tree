@@ -18,8 +18,11 @@ mock.module("nodemailer", () => ({
   createTransport,
 }))
 
-const { notifyOwnerOfAccessRequest, notifyRequesterOfResolution, notifyShareChange } =
-  await import("./email")
+const {
+  notifyOwnerOfAccessRequest,
+  notifyRequesterOfResolution,
+  notifyShareChange,
+} = await import("./email")
 
 function lastMail(): MailArgs {
   const mail = sendMail.mock.calls.at(0)?.at(0)
@@ -105,7 +108,7 @@ describe("notifyRequesterOfResolution", () => {
     expect(mail.html).toContain("https://tree.example.com/tree/tree_123")
     expect(mail.html).toContain("FamiKi")
     expect(mail.html).not.toContain("<img")
-    expect(mail.html).toContain("The owner approved your request.<br>")
+    expect(mail.html).toContain("The owner approved your request.<br/>")
     expect(mail.html).not.toContain("A private home for family history")
   })
 
@@ -125,7 +128,7 @@ describe("notifyRequesterOfResolution", () => {
     expect(mail.html).toContain("Your access request was declined.")
     expect(mail.html).toContain("Request again")
     expect(mail.html).toContain(
-      "The owner declined your request to view this family tree.<br>",
+      "The owner declined your request to view this family tree.<br/>",
     )
   })
 })
@@ -146,9 +149,9 @@ describe("notifyShareChange", () => {
     expect(mail.to).toBe("alice@example.com")
     expect(mail.subject).toBe('You\'ve been invited to "Smith Family"')
     expect(mail.text).toContain("Hi Alice,")
-    expect(mail.text).toContain("invited you to \"Smith Family\" as a Editor")
+    expect(mail.text).toContain('invited you to "Smith Family" as a Editor')
     expect(mail.text).toContain("https://tree.example.com/tree/tree_123")
-    expect(mail.html).toContain("You're now a Editor.")
+    expect(mail.html).toContain("You&#x27;re now a Editor.")
     expect(mail.html).toContain("Open your tree")
     expect(mail.html).toContain("FamiKi")
   })
@@ -165,7 +168,7 @@ describe("notifyShareChange", () => {
 
     const mail = lastMail()
     expect(mail.subject).toBe('Your access to "Smith Family" changed')
-    expect(mail.html).toContain("You're now a Viewer.")
+    expect(mail.html).toContain("You&#x27;re now a Viewer.")
     expect(mail.html).toContain("changed your role on")
     expect(mail.html).toContain("Open your tree")
   })

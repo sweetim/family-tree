@@ -25,7 +25,7 @@ import {
   X,
 } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AccountMenu } from "@/components/AccountMenu"
 import { useConfirm } from "@/components/Confirm"
 import {
@@ -74,6 +74,7 @@ interface Props {
   open: boolean
   editable: boolean
   startingEditMode: boolean
+  stoppingEditMode: boolean
   loading: boolean
   onSelect: (id: string) => void
   onAddRoot: () => void
@@ -96,6 +97,7 @@ export function Sidebar({
   open,
   editable,
   startingEditMode,
+  stoppingEditMode,
   loading,
   onSelect,
   onAddRoot,
@@ -117,6 +119,30 @@ export function Sidebar({
       canSubmit: false,
       submitting: false,
     })
+  const [savedFlash, setSavedFlash] = useState(false)
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flashSaved = () => {
+    setSavedFlash(true)
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    savedTimerRef.current = setTimeout(() => setSavedFlash(false), 1600)
+  }
+  useEffect(
+    () => () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
+    },
+    [],
+  )
+  // A "Saved" flash belongs to the person who was just saved. Clear it the
+  // moment the edit target changes so the confirmation never bleeds onto a
+  // different person's Save button.
+  const editTargetId = state.mode === "edit" ? state.personId : undefined
+  useEffect(() => {
+    setSavedFlash(false)
+    if (savedTimerRef.current) {
+      clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = null
+    }
+  }, [editTargetId])
   const confirm = useConfirm()
   const { getEditingSession } = useTreeEditMode()
   const blockedChanges = useBlockedChanges(treeId)
@@ -139,7 +165,7 @@ export function Sidebar({
   const choosePerson =
     state.mode === "choose" ? family.people[state.sourceId] : undefined
   const { backToChoose } = useTreeActions()
-  const footerAction = getFooterAction({
+  const baseFooterAction = getFooterAction({
     state,
     editable,
     editingPerson,
@@ -150,6 +176,16 @@ export function Sidebar({
       state.mode === "marriage"
       && family.people[state.a]?.unionStatus?.[state.b]?.type !== "divorced",
   })
+  const savedFlashActive =
+    savedFlash && state.mode === "edit" && editable && !!baseFooterAction
+  const footerAction = savedFlashActive
+    ? {
+        ...baseFooterAction,
+        label: "Saved",
+        icon: Check,
+        className: `${baseFooterAction.className ?? ""} bg-emerald-600! hover:bg-emerald-700!`,
+      }
+    : baseFooterAction
   const FooterActionIcon = footerAction?.icon
   const selectionAction = getSelectionAction(state)
   const hasSidebarAction =
@@ -330,11 +366,13 @@ export function Sidebar({
             person={editingPerson}
             onSelect={onSelect}
             onClose={onClose}
+            onSaved={flashSaved}
           />
         ) : editingIdentity && editable ? (
           <EditPersonDetails
             family={family}
             person={editingIdentity}
+            onSaved={flashSaved}
           />
         ) : editingPerson ? (
           <ReadonlyDetails
@@ -582,12 +620,14 @@ export function Sidebar({
                   startingEditMode
                     ? "Refreshing tree before editing"
                     : editable
-                      ? "Done editing"
+                      ? stoppingEditMode
+                        ? "Saving changes before leaving"
+                        : "Done editing"
                       : "Edit tree"
                 }
-                aria-busy={startingEditMode}
+                aria-busy={startingEditMode || stoppingEditMode}
                 type="button"
-                disabled={startingEditMode}
+                disabled={startingEditMode || stoppingEditMode}
                 onClick={onToggleEditMode}
                 className={`inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium shadow-soft ring-1 transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-70 ${
                   editable
@@ -595,14 +635,20 @@ export function Sidebar({
                     : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
                 }`}
               >
-                {startingEditMode ? (
+                {startingEditMode || stoppingEditMode ? (
                   <LoaderCircle className="h-4 w-4 animate-spin" />
                 ) : editable ? (
                   <Check className="h-4 w-4" />
                 ) : (
                   <Pencil className="h-4 w-4" />
                 )}
-                {startingEditMode ? "Syncing" : editable ? "Done" : "Edit"}
+                {startingEditMode
+                  ? "Syncing"
+                  : stoppingEditMode
+                    ? "Saving…"
+                    : editable
+                      ? "Done"
+                      : "Edit"}
               </button>
               <div
                 aria-hidden="true"

@@ -14,9 +14,11 @@ import { fieldsFrom, sidebarFormIds, toInput } from "./shared"
 export function EditPersonDetails({
   family,
   person,
+  onSaved,
 }: {
   family: FamilyStore
   person: PersonIdentity
+  onSaved?: () => void
 }) {
   const [fields, setFields] = useState(fieldsFrom(person))
 
@@ -25,6 +27,7 @@ export function EditPersonDetails({
     const input = toInput(fields)
     if (!input.name) return
     family.updatePerson(person.id, input)
+    onSaved?.()
   }
 
   return (

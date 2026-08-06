@@ -53,6 +53,7 @@ export function EditForm({
   person,
   onSelect,
   onClose,
+  onSaved,
 }: {
   family: FamilyStore
   treeId: string
@@ -60,6 +61,7 @@ export function EditForm({
   person: Person
   onSelect: (id: string) => void
   onClose: () => void
+  onSaved?: () => void
 }) {
   const { people } = family
   const [fields, setFields] = useState<Fields>(fieldsFrom(person))
@@ -124,6 +126,7 @@ export function EditForm({
     const input = toInput(fields)
     if (!input.name) return
     family.updatePerson(person.id, input)
+    onSaved?.()
   }
 
   function openCreateFamily() {

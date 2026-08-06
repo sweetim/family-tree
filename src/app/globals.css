@@ -109,63 +109,74 @@
     linear-gradient(to bottom, #f8fafc 0%, #eef2f7 100%);
 }
 
-/* The landing page treats the family graph as the visual identity. */
+/* The landing page uses an open botanical composition around the illustration. */
 .landing-display {
-  font-family: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
-}
-
-.landing-utility {
-  font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+  font-family: var(--font-dm-serif-display), Georgia, serif;
 }
 
 .landing-page {
-  background: #101d46;
+  background: #f8f1e6;
 }
 
-.landing-scrim {
-  background:
-    radial-gradient(
-      ellipse at 63% 50%,
-      transparent 16%,
-      rgb(13 20 46 / 0.22) 57%,
-      rgb(9 14 34 / 0.68) 100%
-    ),
-    linear-gradient(
-      90deg,
-      rgb(16 24 54 / 0.97) 0%,
-      rgb(16 24 54 / 0.88) 34%,
-      rgb(17 25 52 / 0.42) 55%,
-      rgb(17 25 52 / 0.06) 76%,
-      transparent 100%
-    );
+.landing-wordmark {
+  font-family: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
 }
 
-.landing-photo {
-  filter: saturate(0.78) sepia(0.12) brightness(0.86) contrast(0.94);
-}
-
-.landing-grain {
-  opacity: 0.16;
-  background-image: radial-gradient(rgb(244 239 228 / 0.9) 0.6px, transparent 0.8px);
-  background-size: 4px 4px;
-  mix-blend-mode: soft-light;
+.landing-hero::before {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  content: "";
+  background: linear-gradient(90deg, rgb(255 253 248 / 0.48) 0%, rgb(255 253 248 / 0.08) 45%, transparent 69%);
   pointer-events: none;
 }
 
-.landing-feature-card {
-  position: relative;
-  overflow: hidden;
-  box-shadow: inset 0 1px rgb(244 239 228 / 0.14), 0 12px 30px rgb(2 6 23 / 0.16);
+.landing-photo {
+  animation: landing-photo-arrive 1.2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-.landing-feature-card::after {
+.landing-intro {
+  animation: landing-rise 0.8s 0.08s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.landing-google-button {
+  min-height: 2.75rem;
+  border-color: #173860;
+  background: #173860;
+  color: #ffffff;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.landing-google-button:hover {
+  border-color: #0f2d51;
+  background: #0f2d51;
+  box-shadow: 0 12px 24px rgb(23 56 96 / 0.24);
+  transform: translateY(-1px);
+}
+
+.landing-google-button:focus-visible {
+  outline-color: #173860;
+}
+
+.landing-feature-list {
+  border: 1px solid rgb(43 77 118 / 0.15);
+  border-radius: 1.25rem;
+  background: rgb(255 253 249 / 0.94);
+  box-shadow: 0 8px 24px rgb(60 72 76 / 0.08);
+  animation: landing-rise 0.8s 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.landing-feature-item {
+  position: relative;
+}
+
+.landing-feature-item + .landing-feature-item::before {
   position: absolute;
-  top: 0.35rem;
-  right: 0.35rem;
-  width: 0.55rem;
-  height: 0.55rem;
-  border-top: 1px solid rgb(244 239 228 / 0.45);
-  border-right: 1px solid rgb(244 239 228 / 0.45);
+  top: 0;
+  left: 1rem;
+  width: calc(100% - 2rem);
+  height: 1px;
+  background: rgb(43 77 118 / 0.14);
   content: "";
 }
 
@@ -173,26 +184,58 @@
   width: 100%;
   height: 100%;
   stroke: currentColor;
-  stroke-width: 1.25;
+  stroke-width: 1.35;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-@media (max-width: 1023px) {
-  .landing-scrim {
-    background:
-      radial-gradient(
-        ellipse at 50% 60%,
-        transparent 12%,
-        rgb(9 14 34 / 0.54) 100%
-      ),
-      linear-gradient(
-        180deg,
-        rgb(16 24 54 / 0.97) 0%,
-        rgb(16 24 54 / 0.88) 44%,
-        rgb(17 25 52 / 0.56) 70%,
-        rgb(17 25 52 / 0.18) 100%
-      );
+@media (min-width: 640px) {
+  .landing-feature-item + .landing-feature-item::before {
+    top: 1rem;
+    bottom: 1rem;
+    left: 0;
+    width: 1px;
+    height: auto;
+  }
+}
+
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-photo-arrive {
+  from {
+    opacity: 0;
+    transform: scale(1.025);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 639px) {
+  .landing-hero::before {
+    background: linear-gradient(180deg, rgb(255 253 248 / 0.3) 0%, rgb(255 253 248 / 0.14) 44%, rgb(255 253 248 / 0.72) 100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-photo,
+  .landing-intro,
+  .landing-feature-list {
+    animation: none;
+  }
+
+  .landing-google-button {
+    transition: none;
   }
 }
 
