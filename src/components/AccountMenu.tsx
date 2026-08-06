@@ -1,19 +1,8 @@
-import {
-  Check,
-  ChevronDown,
-  CloudOff,
-  LoaderCircle,
-  LogOut,
-  TriangleAlert,
-} from "lucide-react"
+import { ChevronDown, LogOut } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 import { authClient, useSession } from "../lib/auth-client"
-import {
-  resolveNextSyncConflict,
-  useSyncConflictCount,
-  useSyncStatus,
-} from "../store"
+import { resolveNextSyncConflict, useSyncConflictCount } from "../store"
 import { GoogleSignInButton } from "./GoogleSignInButton"
 
 /**
@@ -24,7 +13,6 @@ export function AccountMenu() {
   const { data: session, isPending } = useSession()
   const router = useRouter()
   const [open, setOpen] = useState(false)
-  const syncStatus = useSyncStatus()
   const conflictCount = useSyncConflictCount()
   const ref = useRef<HTMLDivElement>(null)
 
@@ -53,27 +41,6 @@ export function AccountMenu() {
 
   const initial = session.user.name?.[0]?.toUpperCase() ?? "?"
 
-  const syncState = {
-    saved: {
-      icon: <Check className="h-3.5 w-3.5 text-emerald-500" />,
-      label: "All changes saved",
-    },
-    saving: {
-      icon: (
-        <LoaderCircle className="h-3.5 w-3.5 animate-spin text-slate-400" />
-      ),
-      label: "Saving…",
-    },
-    offline: {
-      icon: <CloudOff className="h-3.5 w-3.5 text-slate-400" />,
-      label: "Offline",
-    },
-    conflict: {
-      icon: <TriangleAlert className="h-3.5 w-3.5 text-red-500" />,
-      label: "Sync conflict",
-    },
-  }[syncStatus]
-
   return (
     <div
       ref={ref}
@@ -84,30 +51,18 @@ export function AccountMenu() {
         onClick={() => setOpen((o) => !o)}
         className="inline-flex items-center gap-2 rounded-full bg-white py-1 pl-1 pr-2 shadow-soft ring-1 ring-slate-200 transition-all hover:bg-slate-50 active:scale-95"
       >
-        <span className="relative inline-block">
-          {session.user.image ? (
-            // biome-ignore lint/performance/noImgElement: external OAuth avatar URL with unknown dimensions
-            <img
-              src={session.user.image}
-              alt=""
-              className="h-7 w-7 rounded-full object-cover"
-            />
-          ) : (
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-cobalt-600 text-xs font-semibold text-white">
-              {initial}
-            </span>
-          )}
-          <span
-            title={`Sync: ${syncStatus}`}
-            className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white ${
-              syncStatus === "saved"
-                ? "bg-emerald-500"
-                : syncStatus === "saving"
-                  ? "bg-amber-400"
-                  : "bg-red-500"
-            }`}
+        {session.user.image ? (
+          // biome-ignore lint/performance/noImgElement: external OAuth avatar URL with unknown dimensions
+          <img
+            src={session.user.image}
+            alt=""
+            className="h-7 w-7 rounded-full object-cover"
           />
-        </span>
+        ) : (
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-cobalt-600 text-xs font-semibold text-white">
+            {initial}
+          </span>
+        )}
         <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
       </button>
 
@@ -134,10 +89,6 @@ export function AccountMenu() {
                 {session.user.email}
               </p>
             </div>
-          </div>
-          <div className="flex items-center gap-2 px-3 pb-2 text-xs text-slate-500">
-            {syncState.icon}
-            <span>{syncState.label}</span>
           </div>
           {conflictCount > 0 ? (
             <div className="mx-1 mb-1 rounded-xl bg-amber-50 p-2 text-xs text-amber-900">
