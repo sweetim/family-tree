@@ -38,6 +38,10 @@ const SIBLING_GAP = 48
 const RANK_GAP = 92
 /** Gap between disconnected root subtrees. */
 const ROOT_GAP = 120
+/** Width of the "Gen N" pill at the left edge of a generation row band. */
+const GEN_LABEL_WIDTH = 64
+/** Height of a generation row band — the full row pitch so stripes are contiguous. */
+const BAND_HEIGHT = NODE_HEIGHT + RANK_GAP
 
 /** How a card participates in click-to-connect mode. */
 type LinkState = "source" | "eligible" | "blocked"
@@ -61,7 +65,11 @@ export type UnionNodeType = Node<
   },
   "union"
 >
-export type FlowNode = PersonNodeType | UnionNodeType
+export type GenerationNodeType = Node<
+  { generation: number; width: number; height: number; even: boolean },
+  "generation"
+>
+export type FlowNode = PersonNodeType | UnionNodeType | GenerationNodeType
 
 /** Attached to every edge so clicks can resolve which relationship to remove. */
 export interface RelEdgeData extends Record<string, unknown> {
@@ -429,6 +437,8 @@ export function buildFlow(
   selectedId?: string,
   linking?: { sourceId: string; eligible: Set<string> },
   highlightBloodline = false,
+  showGenerations = false,
+  generationOffset = 0,
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
   const { couples } = layout
   const pos = layout.positions
@@ -489,6 +499,51 @@ export function buildFlow(
         divorceDate: status?.type === "divorced" ? status.date : undefined,
       },
     })
+  }
+
+  // Generation row bands: a full-width zebra-striped highlight per
+  // generation row, with the "Gen N" pill at its left edge. Distinct
+  // y-centres are already one-per-generation (partners share a row), so
+  // sorting them ascending yields rank order. The band spans the whole
+  // content width so a row's generation is visible wherever you pan — no
+  // scrolling to the left to find the label.
+  if (showGenerations) {
+    const rowYs = Array.from(
+      new Set(
+        Object.values(people)
+          .map((person) => pos.get(person.id)?.y)
+          .filter((y): y is number => y !== undefined),
+      ),
+    ).sort((a, b) => a - b)
+    let leftEdgeX = Infinity
+    let rightEdgeX = -Infinity
+    for (const person of Object.values(people)) {
+      const position = pos.get(person.id)
+      if (!position) continue
+      leftEdgeX = Math.min(leftEdgeX, position.x - NODE_WIDTH / 2)
+      rightEdgeX = Math.max(rightEdgeX, position.x + NODE_WIDTH / 2)
+    }
+    if (Number.isFinite(leftEdgeX) && Number.isFinite(rightEdgeX)) {
+      const bandLeft = leftEdgeX - GEN_LABEL_WIDTH - 24
+      const bandWidth = rightEdgeX - bandLeft + 24
+      rowYs.forEach((y, index) => {
+        nodes.push({
+          id: `gen:${index}`,
+          type: "generation",
+          selectable: false,
+          deletable: false,
+          draggable: false,
+          zIndex: Z_INDEX.generationBand,
+          position: { x: bandLeft, y: y - BAND_HEIGHT / 2 },
+          data: {
+            generation: index + 1 + generationOffset,
+            width: bandWidth,
+            height: BAND_HEIGHT,
+            even: index % 2 === 0,
+          },
+        })
+      })
+    }
   }
 
   const edges: FlowEdge[] = []

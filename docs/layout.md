@@ -30,7 +30,7 @@ overlap.
   - Children are grouped by their "unit" (`pairKey` for two visible parents, the
     lone parent id otherwise), sorted eldest-first then insertion order.
 
-`buildFlow(people, layout, selectedId?, linking?)` — `src/lib/layout.ts`. Turns
+`buildFlow(people, layout, selectedId?, linking?, highlightBloodline?, showGenerations?, generationOffset?)` — `src/lib/layout.ts`. Turns
 the positioned tree into React Flow nodes + edges. The expensive positioning is
 split into `computeTreeLayout(people)` (couple detection + the recursive
 positioner), memoized on `people` alone so selecting a card or toggling
@@ -52,6 +52,8 @@ click-to-connect re-runs only the cheap node/edge decoration here:
 | `SIBLING_GAP` | `:18` | `48` | Gap between adjacent sibling subtrees. |
 | `RANK_GAP` | `:20` | `92` | Vertical gap between generations. |
 | `ROOT_GAP` | `:22` | `120` | Gap between disconnected root subtrees. |
+| `GEN_LABEL_WIDTH` | `:42` | `64` | Width of the "Gen N" pill at the left edge of a generation band. |
+| `BAND_HEIGHT` | `:43` | `312` | Height of a generation row band (NODE_HEIGHT + RANK_GAP), so adjacent stripes are contiguous. |
 
 ## Node and edge types
 
@@ -61,7 +63,8 @@ Defined at `src/lib/layout.ts:25`–`43`:
   in click-to-connect mode.
 - `PersonNodeType` (`:26`) — a React Flow node carrying `{ person, linkState? }`.
 - `UnionNodeType` (`:30`) — the junction dot node, carrying the couple's ids and marriage date (`{ a?, b?, date? }`).
-- `FlowNode` (`:31`) — union of the two.
+- `GenerationNodeType` (`:33`) — a generation row band node, carrying `{ generation, width, height, even }`.
+- `FlowNode` (`:34`) — union of the three.
 - `RelEdgeData` (`:34`) — edge payload: `kind: "couple" | "child"`, with `a`/`b`
   for couple partners, or `childId`/`parentIds` for child edges. Attached to every
   edge so clicks can resolve which relationship to remove.
@@ -75,10 +78,26 @@ Defined at `src/lib/layout.ts:25`–`43`:
   between siblings); dashed and labeled "adopted" when any parent link is adoptive.
 - The `linking` argument paints `linkState` on cards for click-to-connect mode.
 
+## Generation labels
+
+When `showGenerations` is on, `buildFlow` emits one `generation` node per
+distinct row: a full-width zebra-striped band behind the cards (`BAND_HEIGHT`
+tall, so adjacent stripes are contiguous), with the "Gen N" pill at its left
+edge. Distinct row y-centres are already one-per-generation (partners share a
+row), so sorting them top-to-bottom yields rank order, numbered `Gen 1` at the
+top down to `Gen N`, shifted by `generationOffset` (`index + 1 + generationOffset`,
+so 0 = top is Gen 1, -1 = top is Gen 0). The band spans the whole content width so a row's
+generation is visible wherever you pan — no scrolling to the left to find it.
+Bands paint below lines and cards (`Z_INDEX.generationBand`, the lowest tier)
+and are non-interactive (`selectable`/`deletable`/`draggable` off,
+`pointer-events-none`) so clicks pass through to the pane. Toggled by the
+"Generation labels" view setting (off by default); its number is shifted by the
+"Generation offset" view setting.
+
 ## Rendering the graph
 
 `buildFlow` output is consumed by `<ReactFlow>` in `TreeView`
-(`src/app/tree/[treeId]/_tree/TreeView.tsx:39`), which registers `PersonNode` and
-`UnionNode` (see [components.md](./components.md)) as the node renderers. The
-optional `selectedId`/`linking` parameters drive click-to-connect
-highlighting.
+(`src/app/tree/[treeId]/_tree/TreeView.tsx:39`), which registers `PersonNode`,
+`UnionNode`, and `GenerationNode` (see [components.md](./components.md)) as the
+node renderers. The optional `selectedId`/`linking` parameters drive
+click-to-connect highlighting.

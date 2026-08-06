@@ -13,6 +13,7 @@ import {
 import { ChevronRight, Menu } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useConfirm } from "@/components/Confirm"
+import { GenerationNode } from "@/components/GenerationNode"
 import { PersonNode } from "@/components/PersonNode"
 import { useToast } from "@/components/Toast"
 import { UnionNode } from "@/components/UnionNode"
@@ -44,7 +45,11 @@ import { ConnectBanner } from "./ConnectBanner"
 import { useConnectionTarget } from "./useConnectionTarget"
 import { usePdfExport } from "./usePdfExport"
 
-const nodeTypes = { person: PersonNode, union: UnionNode }
+const nodeTypes = {
+  person: PersonNode,
+  union: UnionNode,
+  generation: GenerationNode,
+}
 
 export function TreeView({
   tree,
@@ -359,6 +364,8 @@ function TreeCanvas({
       selectedId,
       linking,
       settings.highlightBloodline,
+      settings.showGenerations,
+      settings.generationOffset,
     )
   }, [
     renderPeople,
@@ -367,6 +374,8 @@ function TreeCanvas({
     targetSourceId,
     linkEligible,
     settings.highlightBloodline,
+    settings.showGenerations,
+    settings.generationOffset,
   ])
 
   useEffect(() => {

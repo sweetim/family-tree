@@ -6,8 +6,10 @@ import {
   FileDown,
   Focus,
   GitBranch,
+  Hash,
   Heart,
   Layers,
+  ListOrdered,
   Map as MapIcon,
   Printer,
   SlidersHorizontal,
@@ -83,6 +85,45 @@ function SettingToggle({
         <span className="pointer-events-none absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5" />
       </span>
     </label>
+  )
+}
+
+function SettingNumber({
+  icon,
+  title,
+  description,
+  value,
+  onChange,
+}: {
+  icon: ReactNode
+  title: string
+  description: string
+  value: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-slate-50">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 transition-colors group-hover:bg-slate-200">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-slate-700">
+          {title}
+        </span>
+        <span className="block text-xs leading-relaxed text-slate-500">
+          {description}
+        </span>
+      </span>
+      <input
+        type="number"
+        className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-right text-sm text-slate-700 focus:border-cobalt-400 focus:outline-none focus:ring-2 focus:ring-cobalt-200"
+        value={value}
+        onChange={(e) => {
+          const parsed = Number.parseInt(e.target.value, 10)
+          onChange(Number.isNaN(parsed) ? 0 : parsed)
+        }}
+      />
+    </div>
   )
 }
 
@@ -240,6 +281,24 @@ export function SettingsPanel({
               checked={settings.showAllFamilies}
               onChange={(checked) => update({ showAllFamilies: checked })}
             />
+            <SettingToggle
+              icon={<ListOrdered className="h-4 w-4" />}
+              title="Generation labels"
+              description="Show a Gen N label on the left margin of each generation row, numbered from the top down."
+              checked={settings.showGenerations}
+              onChange={(checked) => update({ showGenerations: checked })}
+            />
+            {settings.showGenerations && (
+              <div className="border-t border-slate-100 bg-slate-50/50 pl-5">
+                <SettingNumber
+                  icon={<Hash className="h-4 w-4" />}
+                  title="Generation offset"
+                  description="Shift every row's number. 0: top is Gen 1. -1: top is Gen 0. -3: top is Gen -2. 4: top is Gen 5."
+                  value={settings.generationOffset}
+                  onChange={(value) => update({ generationOffset: value })}
+                />
+              </div>
+            )}
             <SettingToggle
               icon={<GitBranch className="h-4 w-4" />}
               title="Highlight bloodline"

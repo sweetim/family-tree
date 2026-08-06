@@ -12,6 +12,8 @@
  * `--z-edge-hovered` custom property — keep the two in sync.
  */
 export const Z_INDEX = {
+  /** Full-width generation row band — paints behind lines and cards. */
+  generationBand: -10,
   /** Default relationship lines (marriage, parent→child). */
   edgeBase: 0,
   /** Animated father-to-son male-line connection. */

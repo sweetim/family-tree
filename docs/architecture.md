@@ -84,8 +84,8 @@ The normalized protocol transports exactly `persons`, `trees`, `treeMembers`,
 ```text
 GlobalState normalized maps
     -> projectTree(persons, relationships, treeId)
-    -> computeTreeLayout(people) -> buildFlow(people, layout, selectedId?, linking?)
-    -> React Flow with PersonNode and UnionNode
+    -> computeTreeLayout(people) -> buildFlow(people, layout, selectedId?, linking?, highlightBloodline?, showGenerations?)
+    -> React Flow with PersonNode, UnionNode, and GenerationNode
 ```
 
 `projectTree` is the persistence/UI seam. It derives the existing `FamilyData`

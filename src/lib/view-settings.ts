@@ -44,6 +44,17 @@ export type ViewSettings = {
    * belong to. Off (default): the badges are hidden on the canvas.
    */
   showOtherTrees: boolean
+  /**
+   * Show a "Gen N" label on the left margin of each generation row,
+   * numbered from the topmost row down. Off (default): no labels.
+   */
+  showGenerations: boolean
+  /**
+   * Integer added to every generation row's number when "Generation labels"
+   * is on. 0 (default): top row is Gen 1; -1: top row is Gen 0; -3: top row
+   * is Gen -2; 4: top row is Gen 5. Shifts all rows together.
+   */
+  generationOffset: number
 }
 
 const STORAGE_KEY = "family-tree:view-settings"
@@ -58,6 +69,8 @@ const DEFAULTS: ViewSettings = {
   hideNonDescendants: false,
   hideAmberBloodline: false,
   showOtherTrees: false,
+  showGenerations: false,
+  generationOffset: 0,
 }
 
 type StoredViewSettings = Partial<ViewSettings> & {

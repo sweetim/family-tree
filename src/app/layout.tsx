@@ -2,7 +2,6 @@ import { GoogleAnalytics } from "@next/third-parties/google"
 import type { Metadata } from "next"
 import {
   Bricolage_Grotesque,
-  DM_Serif_Display,
   IBM_Plex_Mono,
   Inter,
 } from "next/font/google"
@@ -15,11 +14,6 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const bricolage = Bricolage_Grotesque({
   subsets: ["latin"],
   variable: "--font-bricolage",
-})
-const dmSerifDisplay = DM_Serif_Display({
-  subsets: ["latin"],
-  variable: "--font-dm-serif-display",
-  weight: "400",
 })
 const ibmPlexMono = IBM_Plex_Mono({
   subsets: ["latin"],
@@ -71,7 +65,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${bricolage.variable} ${dmSerifDisplay.variable} ${ibmPlexMono.variable}`}
+      className={`${inter.variable} ${bricolage.variable} ${ibmPlexMono.variable}`}
     >
       <body className={inter.className}>
         <Providers>{children}</Providers>

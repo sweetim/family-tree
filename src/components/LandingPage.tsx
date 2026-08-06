@@ -24,33 +24,12 @@ const productFeatures = [
 function FeatureIllustration({ kind }: { kind: FeatureKind }) {
   if (kind === "tree") {
     return (
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 32 32"
-        fill="none"
-      >
-        <circle
-          cx="16"
-          cy="5"
-          r="2.5"
-        />
-        <circle
-          cx="7"
-          cy="26"
-          r="2.5"
-        />
-        <circle
-          cx="16"
-          cy="26"
-          r="2.5"
-        />
-        <circle
-          cx="25"
-          cy="26"
-          r="2.5"
-        />
-        <path d="M16 7.5v7M7 23.5v-4h18v4M16 14.5v5" />
-      </svg>
+      <Image
+        src="/logo.webp"
+        alt=""
+        width={32}
+        height={32}
+      />
     )
   }
 
@@ -73,33 +52,10 @@ function FeatureIllustration({ kind }: { kind: FeatureKind }) {
       viewBox="0 0 32 32"
       fill="none"
     >
-      <rect
-        x="4"
-        y="4"
-        width="24"
-        height="24"
-        rx="4"
-      />
-      <path d="m16 9 7 7-7 7-7-7zM16 9V6M23 16h3M16 23v3M9 16H6" />
-      <circle
-        cx="16"
-        cy="9"
-        r="1.5"
-      />
-      <circle
-        cx="23"
-        cy="16"
-        r="1.5"
-      />
-      <circle
-        cx="16"
-        cy="23"
-        r="1.5"
-      />
-      <circle
-        cx="9"
-        cy="16"
-        r="1.5"
+      <path
+        fill="currentColor"
+        stroke="none"
+        d="M16 25.5S7 20.3 7 13.9c0-2.8 2.1-4.9 4.8-4.9 1.7 0 3.3.9 4.2 2.3.9-1.4 2.5-2.3 4.2-2.3 2.7 0 4.8 2.1 4.8 4.9 0 6.4-9 11.6-9 11.6Z"
       />
     </svg>
   )
@@ -113,13 +69,13 @@ export function LandingPage() {
           <div className="flex items-center gap-2.5">
             <Image
               src="/logo.webp"
-              alt=""
+              alt="FamiKi"
               width={44}
               height={44}
               priority
               className="h-9 w-9 object-cover sm:h-10 sm:w-10"
             />
-            <span className="landing-display text-xl font-bold tracking-[-0.04em] text-[#173860]">
+            <span className="landing-wordmark text-xl font-bold tracking-[-0.04em] text-[#173860]">
               FamiKi
             </span>
           </div>
@@ -139,16 +95,22 @@ export function LandingPage() {
             />
           </div>
 
-          <div className="relative z-20 grid min-h-dvh grid-rows-[1fr_auto] px-6 pb-3 pt-24 sm:px-8 sm:pb-6 sm:pt-28 lg:h-dvh lg:min-h-0 lg:px-7 lg:pb-4 lg:pt-24">
-            <div className="flex items-start pt-14 sm:pt-16 lg:pt-16">
-              <div className="landing-intro max-w-[31rem]">
-                <h1 className="landing-display text-[clamp(3rem,11vw,5.25rem)] leading-[0.94] tracking-[-0.045em] text-[#173860] lg:text-[clamp(3.5rem,4.5vw,5.25rem)]">
-                  <span className="block">Your Family.</span>
-                  <span className="block">Your History.</span>
-                  <span className="block">Their Tomorrow.</span>
+          <div className="relative z-20 grid min-h-dvh grid-rows-[1fr_auto] px-6 pb-3 pt-24 sm:px-8 sm:pb-6 sm:pt-28 lg:h-dvh lg:min-h-0 lg:px-7 lg:pb-6 lg:pt-0">
+            <div className="flex items-start pt-14 sm:pt-16 lg:pt-[31vh]">
+              <div className="landing-intro max-w-[50rem]">
+                <h1 className="landing-wordmark text-[clamp(2.3rem,9.5vw,4rem)] font-extrabold leading-[1.02] tracking-[-0.07em] text-[#10213f] lg:text-[clamp(3.75rem,4.8vw,5.5rem)] lg:leading-[0.9]">
+                  <span className="block whitespace-nowrap">
+                    Your <span className="text-[#4e7fe8]">Family.</span>
+                  </span>
+                  <span className="block whitespace-nowrap">
+                    Your <span className="text-[#4e7fe8]">History.</span>
+                  </span>
+                  <span className="block whitespace-nowrap">
+                    Their <span className="text-[#4e7fe8]">Tomorrow.</span>
+                  </span>
                 </h1>
 
-                <p className="mt-7 max-w-[22rem] text-[0.96rem] font-medium leading-7 text-[#405672] sm:text-base">
+                <p className="mt-7 max-w-[24rem] text-[0.96rem] font-medium leading-7 text-[#294b75] sm:text-base lg:text-[1.15rem] lg:leading-8">
                   Create your family tree, save stories and photos, and give
                   future generations a legacy to be proud of.
                 </p>
@@ -162,20 +124,21 @@ export function LandingPage() {
               </div>
             </div>
 
-            <ul className="landing-feature-list grid w-full max-w-none overflow-hidden sm:grid-cols-3">
+            <ul className="landing-feature-list grid w-full max-w-none sm:grid-cols-3 lg:max-w-[65rem]">
               {productFeatures.map((feature) => (
                 <li
                   key={feature.title}
-                  className="landing-feature-item flex gap-5 px-7 py-7 sm:px-8 sm:py-8 lg:px-12"
+                  data-feature-kind={feature.kind}
+                  className="landing-feature-item flex gap-4 px-6 py-5 sm:flex-col sm:items-center sm:gap-3 sm:px-8 sm:py-7 sm:text-center lg:px-10"
                 >
-                  <div className="landing-feature-illustration mt-0.5 h-11 w-11 shrink-0 text-[#315d98] sm:h-12 sm:w-12">
+                  <div className="landing-feature-illustration mt-0.5 h-11 w-11 shrink-0 sm:mt-0 sm:h-14 sm:w-14">
                     <FeatureIllustration kind={feature.kind} />
                   </div>
                   <div>
-                    <h2 className="text-[1.02rem] font-bold leading-tight tracking-[-0.035em] text-[#243b5d] sm:text-[1.1rem]">
+                    <h2 className="text-[0.98rem] font-bold leading-tight tracking-[-0.035em] text-[#f8faff] sm:text-base">
                       {feature.title}
                     </h2>
-                    <p className="mt-1.5 max-w-[15rem] text-[0.82rem] font-medium leading-6 text-[#667789] sm:text-[0.88rem]">
+                    <p className="mt-1.5 max-w-[15rem] text-[0.8rem] font-medium leading-5 text-[#c6d2e4] sm:text-[0.85rem]">
                       {feature.description}
                     </p>
                   </div>
