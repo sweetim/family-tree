@@ -117,6 +117,27 @@
   font-family: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
 }
 
+.landing-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #294b75;
+  font-family: var(--font-bricolage), ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  line-height: 2;
+  text-transform: uppercase;
+}
+
+.landing-eyebrow::before {
+  width: 2rem;
+  height: 1px;
+  flex: none;
+  background: #4e7fe8;
+  content: "";
+}
+
 .landing-hero::before {
   position: absolute;
   z-index: 1;

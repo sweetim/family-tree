@@ -98,6 +98,7 @@ export function LandingPage() {
           <div className="relative z-20 grid min-h-dvh grid-rows-[1fr_auto] px-6 pb-3 pt-24 sm:px-8 sm:pb-6 sm:pt-28 lg:h-dvh lg:min-h-0 lg:px-7 lg:pb-6 lg:pt-0">
             <div className="flex items-start pt-14 sm:pt-16 lg:pt-[31vh]">
               <div className="landing-intro max-w-[50rem]">
+                <p className="landing-eyebrow mb-4">A private family record</p>
                 <h1 className="landing-wordmark text-[clamp(2.3rem,9.5vw,4rem)] font-extrabold leading-[1.02] tracking-[-0.07em] text-[#10213f] lg:text-[clamp(3.75rem,4.8vw,5.5rem)] lg:leading-[0.9]">
                   <span className="block whitespace-nowrap">
                     Your <span className="text-[#4e7fe8]">Family.</span>
@@ -110,9 +111,9 @@ export function LandingPage() {
                   </span>
                 </h1>
 
-                <p className="mt-7 max-w-[24rem] text-[0.96rem] font-medium leading-7 text-[#294b75] sm:text-base lg:text-[1.15rem] lg:leading-8">
-                  Create your family tree, save stories and photos, and give
-                  future generations a legacy to be proud of.
+                <p className="mt-7 max-w-xl text-[0.96rem] font-medium leading-7 text-[#294b75] sm:text-base lg:text-[1.15rem] lg:leading-8">
+                  Build your family tree, preserve the stories and photos behind
+                  every branch, and pass your legacy on to the people you love.
                 </p>
 
                 <div className="mt-7">
