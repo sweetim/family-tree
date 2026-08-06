@@ -242,8 +242,16 @@ function TreeCanvas({
     }
   }, [settings.showAllFamilies, fitView])
 
-  // Follow cross-tree jumps that land on this already-mounted tree.
+  // Follow in-tree jumps to a person. Skipped on the initial mount so that
+  // landing directly on /tree/:id/p/:person (e.g. via a cross-tree badge)
+  // doesn't auto-open the sidebar drawer on mobile; only genuine in-tree
+  // jumps open it.
+  const followedOpenPerson = useRef(true)
   useEffect(() => {
+    if (followedOpenPerson.current) {
+      followedOpenPerson.current = false
+      return
+    }
     if (openPersonId) {
       setSidebar({ mode: "edit", personId: openPersonId })
       setDrawerOpen(true)
