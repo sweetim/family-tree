@@ -848,12 +848,15 @@ export function HomePage({ index }: { index: TreeIndexStore }) {
     [index.trees],
   )
 
+  if (isPending) {
+    return <div className="min-h-dvh bg-slate-50" />
+  }
   if (!session?.user) {
     return <LandingPage />
   }
 
   let body: ReactNode
-  if (isPending || !hydrated || accessLoading) {
+  if (!hydrated || accessLoading) {
     body = <HomeSkeleton />
   } else {
     body = (
