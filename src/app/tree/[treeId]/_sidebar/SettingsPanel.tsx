@@ -13,13 +13,18 @@ import {
   Map as MapIcon,
   Printer,
   SlidersHorizontal,
+  Sparkles,
   Trees,
   Upload,
   User,
+  X,
 } from "lucide-react"
-import { type ReactNode, useRef } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
+import { Modal } from "@/components/Modal"
+import { PersonAvatar } from "@/components/PersonAvatar"
 import { useToast } from "@/components/Toast"
 import { familyToGedcom } from "@/lib/gedcom"
+import { personPhotoSrc } from "@/lib/image"
 import { useTreeActions } from "@/lib/tree-actions"
 import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import { useViewSettings } from "@/lib/view-settings"
@@ -46,6 +51,10 @@ function fileStamp(date: Date): string {
     pad(date.getMinutes()),
     pad(date.getSeconds()),
   ].join("-")
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 function SettingToggle({
@@ -183,6 +192,19 @@ export function SettingsPanel({
   const toast = useToast()
   const { getEditingSession } = useTreeEditMode()
   const { exportPdf } = useTreeActions()
+  const [generatingPhoto, setGeneratingPhoto] = useState(false)
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
+  const [selectingPhoto, setSelectingPhoto] = useState(false)
+  const [selectedPersonIds, setSelectedPersonIds] = useState<Set<string>>(
+    new Set(),
+  )
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   function exportJson() {
     const people = Object.fromEntries(
@@ -199,7 +221,7 @@ export function SettingsPanel({
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = "family-tree.json"
+    a.download = `${kebabName(treeName)}-${fileStamp(new Date())}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -239,6 +261,98 @@ export function SettingsPanel({
       console.error(err)
       toast("That file doesn't look like an exported family tree.", "error")
     }
+  }
+
+  function openPhotoPicker() {
+    setSelectedPersonIds(new Set(Object.keys(family.people)))
+    setSelectingPhoto(true)
+  }
+
+  function toggleSelectedPerson(id: string) {
+    setSelectedPersonIds((previous) => {
+      const next = new Set(previous)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function startGenerationFromPicker() {
+    const personIds = [...selectedPersonIds]
+    setSelectingPhoto(false)
+    void generateFamilyPhoto(personIds)
+  }
+
+  async function generateFamilyPhoto(personIds: string[]) {
+    if (generatingPhoto) return
+    if (personIds.length === 0) {
+      toast("Select at least one family member.", "error")
+      return
+    }
+    setGeneratingPhoto(true)
+    try {
+      const start = await fetch(`/api/trees/${treeId}/family-photo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personIds }),
+      })
+      if (!start.ok) {
+        const data = (await start.json().catch(() => null)) as {
+          error?: string
+        } | null
+        throw new Error(
+          data?.error ?? "Could not start generating the family photo.",
+        )
+      }
+      const { id } = (await start.json()) as { id: string }
+      await pollFamilyPhoto(id)
+    } catch (err) {
+      toast(
+        err instanceof Error
+          ? err.message
+          : "Could not generate the family photo.",
+        "error",
+      )
+    } finally {
+      setGeneratingPhoto(false)
+    }
+  }
+
+  async function pollFamilyPhoto(jobId: string) {
+    const pollIntervalMilliseconds = 3000
+    const maxAttempts = 60
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (!mountedRef.current) return
+      const response = await fetch(`/api/trees/${treeId}/family-photo/${jobId}`)
+      if (response.status === 202) {
+        await delay(pollIntervalMilliseconds)
+        continue
+      }
+      if (response.ok) {
+        const blob = await response.blob()
+        if (!mountedRef.current) return
+        setPhotoPreviewUrl(URL.createObjectURL(blob))
+        return
+      }
+      const data = (await response.json().catch(() => null)) as {
+        error?: string
+      } | null
+      throw new Error(data?.error ?? "Image generation failed.")
+    }
+    throw new Error("Image generation timed out. Please try again.")
+  }
+
+  function closePhotoPreview() {
+    if (photoPreviewUrl) URL.revokeObjectURL(photoPreviewUrl)
+    setPhotoPreviewUrl(null)
+  }
+
+  function downloadPhotoPreview() {
+    if (!photoPreviewUrl) return
+    const anchor = document.createElement("a")
+    anchor.href = photoPreviewUrl
+    anchor.download = "family-photo.png"
+    anchor.click()
   }
 
   return (
@@ -420,6 +534,184 @@ export function SettingsPanel({
           />
         </div>
       </section>
+
+      <section
+        aria-labelledby="family-photo-heading"
+        className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+      >
+        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <h3
+            id="family-photo-heading"
+            className="text-sm font-semibold text-slate-800"
+          >
+            Family photo
+          </h3>
+        </div>
+        <div className="divide-y divide-slate-100">
+          <DataAction
+            icon={<Sparkles className="h-4 w-4" />}
+            title="Generate family photo"
+            description="Choose members, then combine their photos into one AI-generated, multi-generational portrait."
+            onClick={openPhotoPicker}
+            disabled={generatingPhoto}
+            disabledTitle={generatingPhoto ? "Generating…" : undefined}
+          />
+        </div>
+        {generatingPhoto && (
+          <p className="px-4 pb-3 text-xs leading-relaxed text-slate-500">
+            Generating… This uses the selected members' photos and
+            relationships, and can take a minute or two.
+          </p>
+        )}
+      </section>
+
+      {selectingPhoto && (
+        <Modal
+          onClose={() => setSelectingPhoto(false)}
+          backdropClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"
+        >
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-lift">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">
+                  Choose family members
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {selectedPersonIds.size} of{" "}
+                  {Object.keys(family.people).length} selected
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectingPhoto(false)}
+                aria-label="Close"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="overflow-auto py-1">
+              {Object.values(family.people)
+                .sort((a, b) =>
+                  `${a.familyName} ${a.name}`.localeCompare(
+                    `${b.familyName} ${b.name}`,
+                  ),
+                )
+                .map((person) => {
+                  const photoSrc = personPhotoSrc(person)
+                  const checked = selectedPersonIds.has(person.id)
+                  return (
+                    <label
+                      key={person.id}
+                      className="flex cursor-pointer items-center gap-3 px-4 py-2 transition-colors hover:bg-slate-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSelectedPerson(person.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-cobalt-600 focus:ring-cobalt-300"
+                      />
+                      {photoSrc ? (
+                        <PersonAvatar
+                          src={photoSrc}
+                          alt={person.name}
+                          className="h-8 w-8 bg-slate-100"
+                        />
+                      ) : (
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">
+                          {(person.name[0] ?? "?").toUpperCase()}
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-slate-700">
+                          {person.familyName
+                            ? `${person.name} ${person.familyName}`
+                            : person.name}
+                        </span>
+                        {!person.photo && (
+                          <span className="block text-xs text-slate-400">
+                            No photo
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  )
+                })}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setSelectingPhoto(false)}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={startGenerationFromPicker}
+                disabled={selectedPersonIds.size === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-cobalt-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-cobalt-500 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <Sparkles className="h-4 w-4" />
+                Generate
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {photoPreviewUrl && (
+        <Modal
+          onClose={closePhotoPreview}
+          backdropClassName="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 p-4 sm:p-8"
+          portal
+        >
+          <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-lift">
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <h3 className="text-base font-semibold text-slate-800">
+                Family photo
+              </h3>
+              <button
+                type="button"
+                onClick={closePhotoPreview}
+                aria-label="Close"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="overflow-auto bg-slate-100 p-6">
+              {/* biome-ignore lint/performance/noImgElement: generated preview, no Next image pipeline */}
+              <img
+                src={photoPreviewUrl}
+                alt="Generated family portrait"
+                className="mx-auto max-h-[80vh] w-auto rounded-xl shadow-md"
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+              <button
+                type="button"
+                onClick={closePhotoPreview}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={downloadPhotoPreview}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-cobalt-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-cobalt-500"
+              >
+                <Download className="h-4 w-4" />
+                Download
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       <input
         ref={importRef}
         type="file"

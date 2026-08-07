@@ -33,6 +33,27 @@ bounded query; the main tree canvas uses the selected-tree snapshot.
 searches accessible identities without loading their trees, and returns at most
 eight results.
 
+`POST /api/trees/[treeId]/family-photo` requires a session and read access to
+the tree. It starts a **background** job that generates a multi-generational
+family portrait with the `gpt-image-2` image-edits model and returns its id
+immediately as `202 { id }` — the generation itself runs outside the request so
+it cannot time out the client. Members' photos are fetched server-side from the
+private Blob store and sent as up to 16 reference images. The prompt only asks
+the model to analyze the attached images and build a family photo without
+altering anyone's facial appearance — no member details (names, ages,
+relationships) are sent. The optional JSON body `{ personIds?: string[] }` limits the
+portrait to a subset of members; omit it to include everyone. The job lives in an in-memory registry (one per server process), so
+this is reliable on a persistent server but not across serverless instances. It
+returns `503` when `OPEN_AI_TOKEN` is not configured, `401` unauthenticated,
+`400` invalid id, and `404` for an unknown tree.
+
+`GET /api/trees/[treeId]/family-photo/[jobId]` polls a job started above. It
+returns `202 { status: "pending" }` while the generation is running, the
+generated PNG (`content-type: image/png`) when complete, or `500 { error }` on
+failure. `404` for an unknown job or one belonging to another user/tree. Clients
+poll every few seconds. The OpenAI token and the underlying photo Blob URLs
+never reach the browser.
+
 `GET /api/trees/[treeId]/invite` is the one unauthenticated tree endpoint. It
 returns just the tree's public name (`{ name }`) for share-link previews and
 invite landing pages, or `404` for a missing/deleted tree. The response is
