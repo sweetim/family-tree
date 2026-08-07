@@ -41,6 +41,11 @@ run `bun run db:migrate` followed by `bun run db:validate`. Never substitute
 `db:push`; it skips the committed one-time baseline, normalization preflight,
 data copy, and round-trip checks. See [database.md](./database.md).
 
+Tombstoned rows are purged automatically by the `0 0 */7 * *` cron in
+`vercel.json` (`/api/cron/purge-tombstones`, gated by `CRON_SECRET`). The same
+cascade-safe logic is available on demand via
+`bun run db:purge-tombstones [--apply]`.
+
 Run `bun run typecheck` and relevant tests after non-trivial source changes.
 Biome has no separate package script; its configured file set currently covers
 TypeScript and TSX, not Markdown.
@@ -53,6 +58,7 @@ TypeScript and TSX, not Markdown.
 | `BETTER_AUTH_SECRET` | Better Auth secret. |
 | `BETTER_AUTH_URL` | Deployed base URL without a trailing slash; use `http://localhost:3000` locally. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth credentials. Redirect URIs end in `/api/auth/callback/google`. |
+| `CRON_SECRET` | Bearer secret that authorizes the weekly `/api/cron/purge-tombstones` job. Required in production; omitted locally (the route returns 401 without it). |
 
 Local setup: create `.env.local` from the provided example, fill in the values,
 then run `bun run db:migrate` and `bun run db:validate` against the intended
@@ -63,14 +69,16 @@ database.
 | File | Summary |
 |---|---|
 | `next.config.ts` | React strict mode. |
+| `vercel.json` | Weekly `0 0 */7 * *` cron that calls `/api/cron/purge-tombstones` (authorized by `CRON_SECRET`). |
 | `biome.json` | Recommended linter and formatter rules for TypeScript/TSX. |
 | `tsconfig.json` | Strict bundler-mode TypeScript with Bun/React types and `@/*` path alias. |
 | `postcss.config.mjs` | Tailwind CSS v4 PostCSS plugin. |
 | `global.d.ts` | CSS module declaration for side-effect imports. |
 | `drizzle.config.ts` | PostgreSQL schema path, migration output, and `DATABASE_URL`. |
 
-Vercel auto-detects Next.js; no `vercel.json` is required. Environment values
-must be configured for each deployment environment.
+Vercel auto-detects Next.js; `vercel.json` only declares the weekly
+tombstone-purge cron. Environment values must be configured for each deployment
+environment.
 
 Tailwind tokens and React Flow overrides live in `src/app/globals.css`,
 including the Inter font, cobalt palette, shadows, animations, application

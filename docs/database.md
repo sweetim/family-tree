@@ -61,6 +61,12 @@ is the exception at the protocol level: one atomic server statement tombstones
 the person and every membership, union, union event, parent/child fact, and tree
 association involving that person.
 
+Tombstoned rows are retained so other clients learn of the deletion via the
+change log and so stale pushes cannot resurrect them. They are hard-deleted
+automatically by the `0 0 */7 * *` cron in `vercel.json`
+(`/api/cron/purge-tombstones`, gated by `CRON_SECRET`); the same cascade-safe
+logic is runnable on demand via `bun run db:purge-tombstones [--apply]`.
+
 ## One-time normalization migration
 
 The committed migration sequence is intentionally one-time:

@@ -300,3 +300,28 @@ export type SyncChangePage = {
   cursor: string
   hasMore: boolean
 }
+
+/**
+ * Human-readable recent-activity feed for a tree, derived from the same
+ * `sync_changes` rows the sync protocol writes. Unlike {@link SyncChangePage}
+ * this is a simple newest-first recent-N read (no cursor, no "reset required"
+ * semantics) intended for the settings "Activity" panel.
+ */
+export type TreeActivityChange = {
+  version: number
+  mutationId: string
+  createdAt: string
+  records: SyncRecordSet
+  /**
+   * Who made this change, resolved by joining `mutation_receipts` → `user` on
+   * the change's `mutationId`. `null` when no receipt survives (the change is
+   * older than the 30-day retention window or was made without a mutation id).
+   * The server resolves the requester's own edits to the name "You".
+   */
+  author: { name: string } | null
+}
+
+export type TreeActivityResponse = {
+  treeId: string
+  changes: TreeActivityChange[]
+}

@@ -30,6 +30,7 @@ import { useTreeActions } from "@/lib/tree-actions"
 import { useTreeEditMode } from "@/lib/tree-edit-mode"
 import { useViewSettings } from "@/lib/view-settings"
 import { type FamilyStore, isStoredPhotoMarker, normalizeImport } from "@/store"
+import { ActivitySection } from "./ActivitySection"
 
 /** Lowercase, kebab-case form of a tree name for use in a download filename,
  *  falling back to "family-tree" when the name has no usable characters. */
@@ -473,9 +474,7 @@ export function SettingsPanel({
               title="Focus selected person"
               description="Center the selected person's card in view mode."
               checked={settings.focusSelectedPerson}
-              onChange={(checked) =>
-                update({ focusSelectedPerson: checked })
-              }
+              onChange={(checked) => update({ focusSelectedPerson: checked })}
             />
             <SettingToggle
               icon={<User className="h-4 w-4" />}
@@ -578,6 +577,11 @@ export function SettingsPanel({
           </p>
         )}
       </details>
+
+      <ActivitySection
+        family={family}
+        treeId={treeId}
+      />
 
       {selectingPhoto && (
         <Modal
