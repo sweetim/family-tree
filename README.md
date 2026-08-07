@@ -36,7 +36,8 @@ trees, link the same person across them, and share each tree with others.
 - **Manage trees** — create a sample tree, rename or delete trees, and review
   sharing and access requests across every tree you own.
 - **Export & import** — back up or transfer a tree as a single JSON file,
-  export it as GEDCOM, or print the whole tree to a PDF.
+  export it as GEDCOM, print the whole tree to a PDF, or start a new tree by
+  importing a JSON or GEDCOM file.
 - **Sign in with Google** — your trees are private to your account.
 - **Try it instantly** — create a sample tree with one click.
 

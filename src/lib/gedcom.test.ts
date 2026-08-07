@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { seedData } from "../store/seed"
 import type { FamilyData, Person } from "../types"
-import { familyToGedcom } from "./gedcom"
+import { familyToGedcom, gedcomToFamily } from "./gedcom"
 
 const EXPORT_DATE = new Date(Date.UTC(2026, 7, 2))
 
@@ -252,5 +252,138 @@ describe("familyToGedcom — families", () => {
     ]
     kidIndi = block(linesOf(people), `0 ${kidPointer} INDI`).join("\n")
     expect(kidIndi).toContain("2 PEDI adopted")
+  })
+})
+
+describe("gedcomToFamily", () => {
+  /** Index a family by display name so round-trip assertions can ignore the
+   *  freshly generated ids. */
+  function byName(family: FamilyData): Map<string, Person> {
+    return new Map(Object.values(family).map((person) => [person.name, person]))
+  }
+
+  test("round-trips an exported tree back to the same people and links", () => {
+    const { people } = seedData()
+    const reparsed = gedcomToFamily(familyToGedcom(people))
+    const byName = new Map(
+      Object.values(reparsed).map((person) => [person.name, person]),
+    )
+    const nameById = (id: string): string => reparsed[id]?.name ?? ""
+    const idOf = (name: string): string => byName.get(name)?.id ?? ""
+
+    // All five people survive the round trip.
+    expect(byName.size).toBe(5)
+    const henry = byName.get("Henry Tan")
+    const david = byName.get("David Tan")
+    const alex = byName.get("Alex Tan")
+    expect(henry).toBeDefined()
+    expect(david).toBeDefined()
+    expect(alex).toBeDefined()
+
+    // Identity fields are preserved.
+    expect(henry?.gender).toBe("male")
+    expect(henry?.dob).toBe("1948-03-02")
+    expect(henry?.dod).toBe("2019-05-20")
+    expect(henry?.birthplace).toBe("Penang")
+    expect(henry?.familyName).toBe("Tan")
+
+    // Spouse links line up by name.
+    expect(henry?.spouseIds.map(nameById)).toContain("Mei Ling")
+    expect(byName.get("Mei Ling")?.spouseIds.map(nameById)).toContain(
+      "Henry Tan",
+    )
+    expect(david?.spouseIds.map(nameById)).toContain("Sarah Lim")
+
+    // Marriage dates round-trip exactly on both sides of each couple.
+    expect(henry?.marriageDates[idOf("Mei Ling")]).toBe("1971-09-14")
+    expect(byName.get("Mei Ling")?.marriageDates[idOf("Henry Tan")]).toBe(
+      "1971-09-14",
+    )
+    expect(david?.marriageDates[idOf("Sarah Lim")]).toBe("2001-06-20")
+
+    // Parent links line up by name.
+    const parentNames = (name: string): string[] =>
+      (byName.get(name)?.parents ?? []).map((link) => nameById(link.id)).sort()
+    expect(parentNames("David Tan")).toEqual(["Henry Tan", "Mei Ling"])
+    expect(parentNames("Alex Tan")).toEqual(["David Tan", "Sarah Lim"])
+
+    // Alex has no spouse, so no marriage dates and empty spouse list.
+    expect(alex?.spouseIds).toEqual([])
+    expect(alex?.marriageDates).toEqual({})
+  })
+
+  test("parses names with and without a surname", () => {
+    const ged = [
+      "0 HEAD",
+      "1 CHAR UTF-8",
+      "0 @I1@ INDI",
+      "1 NAME John /Smith/",
+      "0 @I2@ INDI",
+      "1 NAME Madonna",
+      "0 TRLR",
+      "",
+    ].join("\n")
+    const family = byName(gedcomToFamily(ged))
+    expect(family.get("John Smith")?.familyName).toBe("Smith")
+    expect(family.get("Madonna")?.familyName).toBe("")
+  })
+
+  test("maps PEDI adopted onto a child's parent links", () => {
+    const ged = [
+      "0 HEAD",
+      "1 CHAR UTF-8",
+      "0 @I1@ INDI",
+      "1 NAME Bio Dad",
+      "0 @I2@ INDI",
+      "1 NAME Kid",
+      "1 FAMC @F1@",
+      "2 PEDI adopted",
+      "0 @F1@ FAM",
+      "1 HUSB @I1@",
+      "1 CHIL @I2@",
+      "0 TRLR",
+      "",
+    ].join("\n")
+    const family = byName(gedcomToFamily(ged))
+    const kid = family.get("Kid")
+    expect(kid?.parents).toEqual([{ id: expect.any(String), type: "adoptive" }])
+  })
+
+  test("keeps full marriage dates and drops partial ones", () => {
+    const ged = [
+      "0 HEAD",
+      "1 CHAR UTF-8",
+      "0 @I1@ INDI",
+      "1 NAME Full",
+      "0 @I2@ INDI",
+      "1 NAME Partner",
+      "0 @I3@ INDI",
+      "1 NAME Partial",
+      "0 @I4@ INDI",
+      "1 NAME Mate",
+      "0 @F1@ FAM",
+      "1 HUSB @I1@",
+      "1 WIFE @I2@",
+      "1 MARR",
+      "2 DATE 12 APR 1985",
+      "0 @F2@ FAM",
+      "1 HUSB @I3@",
+      "1 WIFE @I4@",
+      "1 MARR",
+      "2 DATE APR 1985",
+      "0 TRLR",
+      "",
+    ].join("\n")
+    const family = byName(gedcomToFamily(ged))
+    const full = family.get("Full")
+    const partnerId = family.get("Partner")?.id ?? ""
+    // Exact date is recorded…
+    expect(full?.marriageDates[partnerId]).toBe("1985-04-12")
+    // …the partial couple is still linked, but without a recorded date.
+    expect(Object.keys(family.get("Partial")?.marriageDates ?? {})).toEqual([])
+  })
+
+  test("throws when there are no individuals", () => {
+    expect(() => gedcomToFamily("0 HEAD\n1 CHAR UTF-8\n0 TRLR\n")).toThrow()
   })
 })

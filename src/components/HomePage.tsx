@@ -12,6 +12,7 @@ import {
   Sparkles,
   Trash2,
   TriangleAlert,
+  Upload,
   Users,
   X,
 } from "lucide-react"
@@ -34,15 +35,20 @@ import {
   useOwnedAccessRequestCount,
 } from "../lib/access-requests"
 import { useSession } from "../lib/auth-client"
+import { gedcomToFamily } from "../lib/gedcom"
 import {
   countMembers,
+  normalizeImport,
   type SyncStatus,
   seedData,
   type TreeIndexStore,
   type TreeMeta,
+  type TreeSeed,
   useHydrated,
   useSyncStatus,
+  validateImportedFamily,
 } from "../store"
+import type { FamilyData } from "../types"
 import { AccountMenu } from "./AccountMenu"
 import { useConfirm } from "./Confirm"
 import { LandingPage } from "./LandingPage"
@@ -588,15 +594,37 @@ function PersonSearch({
   )
 }
 
+/** Tree name fallback for an import: the filename without its extension, or a
+ *  generic label when the filename has no usable characters. */
+function deriveTreeName(filename: string): string {
+  const stripped = filename.replace(/\.(json|ged|gedcom)$/i, "").trim()
+  return stripped || "Imported tree"
+}
+
+/** Read an imported family from a file's contents. JSON uses the app's own
+ *  export format (validated by `normalizeImport`); anything else is parsed as
+ *  GEDCOM and validated with the same invariants. Throws on unrecognised or
+ *  malformed input. */
+function parseImport(filename: string, text: string): FamilyData {
+  const lower = filename.toLowerCase()
+  const looksLikeJson =
+    lower.endsWith(".json") || text.trimStart().startsWith("{")
+  if (looksLikeJson) return normalizeImport(JSON.parse(text))
+  return validateImportedFamily(gedcomToFamily(text))
+}
+
 function NewTreeDialog({
   onClose,
   onCreate,
 }: {
   onClose: () => void
-  onCreate: (name: string) => void
+  onCreate: (name: string, seed?: TreeSeed) => void
 }) {
   const [name, setName] = useState("")
+  const [importing, setImporting] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const importRef = useRef<HTMLInputElement>(null)
+  const toast = useToast()
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -607,6 +635,23 @@ function NewTreeDialog({
     const trimmed = name.trim()
     if (!trimmed) return
     onCreate(trimmed)
+  }
+
+  async function handleImport(file: File | undefined) {
+    if (!file || importing) return
+    setImporting(true)
+    try {
+      const text = await file.text()
+      const people = parseImport(file.name, text)
+      onCreate(name.trim() || deriveTreeName(file.name), { people })
+    } catch (err) {
+      console.error(err)
+      toast(
+        "Couldn't read that file. Make sure it's a valid .json or .ged export.",
+        "error",
+      )
+      setImporting(false)
+    }
   }
 
   return (
@@ -661,13 +706,44 @@ function NewTreeDialog({
             </button>
             <button
               type="submit"
-              disabled={!name.trim()}
+              disabled={!name.trim() || importing}
               className={primaryBtn}
             >
               Create tree
             </button>
           </div>
         </form>
+
+        <div className="mt-4 flex items-center gap-3">
+          <div className="h-px flex-1 bg-slate-200" />
+          <span className="text-xs text-slate-400">or</span>
+          <div className="h-px flex-1 bg-slate-200" />
+        </div>
+
+        <button
+          type="button"
+          onClick={() => importRef.current?.click()}
+          disabled={importing}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {importing ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="h-4 w-4" />
+          )}
+          Import from a file (.json or .ged)
+        </button>
+
+        <input
+          ref={importRef}
+          type="file"
+          accept=".json,.ged,.gedcom,application/json"
+          className="hidden"
+          onChange={(e) => {
+            handleImport(e.target.files?.[0])
+            e.target.value = ""
+          }}
+        />
       </div>
     </Modal>
   )
@@ -713,9 +789,9 @@ function HomeDashboard({
     [trees],
   )
 
-  function createWithName(trimmed: string) {
+  function createFromDialog(name: string, seed?: TreeSeed) {
     setNewTreeOpen(false)
-    navigate(`/tree/${createTree(trimmed)}`)
+    navigate(`/tree/${createTree(name, seed)}`)
   }
 
   return (
@@ -829,7 +905,7 @@ function HomeDashboard({
       {newTreeOpen && (
         <NewTreeDialog
           onClose={() => setNewTreeOpen(false)}
-          onCreate={createWithName}
+          onCreate={createFromDialog}
         />
       )}
     </>

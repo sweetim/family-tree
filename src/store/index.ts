@@ -20,7 +20,7 @@ export {
   useTreePeople,
 } from "./hooks"
 
-export { normalizeImport } from "./import"
+export { normalizeImport, validateImportedFamily } from "./import"
 export {
   addMemberWithSpousesRecords,
   deletePersonRecords,

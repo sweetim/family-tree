@@ -1,4 +1,4 @@
-import type { FamilyData, Gender } from "../types"
+import type { FamilyData, Gender, ParentChildRelationshipType } from "../types"
 
 const MONTHS = [
   "JAN",
@@ -282,4 +282,350 @@ function isoDate(date: Date): string {
     Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()),
   )
   return utc.toISOString().slice(0, 10)
+}
+
+const MONTH_INDEX: Record<string, number> = {
+  JAN: 1,
+  FEB: 2,
+  MAR: 3,
+  APR: 4,
+  MAY: 5,
+  JUN: 6,
+  JUL: 7,
+  AUG: 8,
+  SEP: 9,
+  OCT: 10,
+  NOV: 11,
+  DEC: 12,
+}
+
+/** Map a GEDCOM FAMC PEDI value to the app's parent-relationship type.
+ *  Biological (or any unrecognized value, including "birth"/"sealed") is the
+ *  default. */
+const PEDI_TYPE: Record<string, ParentChildRelationshipType> = {
+  adopted: "adoptive",
+  foster: "foster",
+  guardian: "guardian",
+  step: "step",
+}
+
+/** True only for an exact `YYYY-MM-DD` with a valid month/day, mirroring the
+ *  JSON import invariant: marriage dates must be exact, so partial GEDCOM
+ *  dates are dropped rather than carried as non-conformant values. */
+function isExactIsoDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const daysInMonth = [
+    31,
+    leap ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ]
+  return day <= (daysInMonth[month - 1] ?? 0)
+}
+
+/** Parse a GEDCOM date phrase into an ISO date string, tolerating the common
+ *  qualifiers (ABT, EST, BEF, AFT, …) and Gregorian calendar markers.
+ *  "12 APR 1985" -> "1985-04-12", "APR 1985" -> "1985-04", "1985" -> "1985". */
+function parseGedcomDate(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  const cleaned = value.replace(/\([^)]*\)/g, " ").trim()
+  if (!cleaned) return undefined
+  let day = 0
+  let month = 0
+  let year = ""
+  for (const token of cleaned.split(/\s+/)) {
+    const upper = token.replace(/\.+$/, "").toUpperCase()
+    if (upper in MONTH_INDEX) {
+      month = MONTH_INDEX[upper] ?? 0
+    } else if (/^\d{3,4}$/.test(token)) {
+      year = token
+    } else if (/^\d{1,2}$/.test(token) && !day) {
+      day = Number(token)
+    }
+  }
+  if (!year) return undefined
+  if (month) {
+    const monthString = String(month).padStart(2, "0")
+    if (day >= 1 && day <= 31) {
+      return `${year}-${monthString}-${String(day).padStart(2, "0")}`
+    }
+    return `${year}-${monthString}`
+  }
+  return year
+}
+
+/** Split a GEDCOM NAME value "<given> /<surname>/" into the app's display name
+ *  (which already includes the surname) and the standalone family name. Names
+ *  without slashes are treated as a display name with no family name. */
+function parseName(value: string): { name: string; familyName: string } {
+  const open = value.indexOf("/")
+  const close = value.lastIndexOf("/")
+  if (open === -1 || close <= open) {
+    return { name: value.trim() || "?", familyName: "" }
+  }
+  const familyName = value.slice(open + 1, close).trim()
+  const given = `${value.slice(0, open)} ${value.slice(close + 1)}`.trim()
+  const name =
+    [given, familyName].filter(Boolean).join(" ") || familyName || "?"
+  return { name, familyName }
+}
+
+function parseGender(sex: string | undefined): Gender | undefined {
+  const value = sex?.trim().toUpperCase()
+  if (value === "M") return "male"
+  if (value === "F") return "female"
+  return undefined
+}
+
+type RawLine = { level: number; xref?: string; tag: string; value: string }
+
+type RawRecord = { tag: string; xref?: string; lines: RawLine[] }
+
+/** Parse GEDCOM text into flat lines, splitting each into level, optional
+ *  pointer (`@xref@`), tag, and value. */
+function parseRawLines(text: string): RawLine[] {
+  const out: RawLine[] = []
+  for (const raw of text.split(/\r?\n/)) {
+    if (!raw.trim()) continue
+    const match = /^(\d+)\s+(.*)$/.exec(raw)
+    if (!match) continue
+    const level = Number(match[1])
+    let rest = match[2] ?? ""
+    let xref: string | undefined
+    const xrefMatch = /^(@[^@]+@)\s+(.*)$/.exec(rest)
+    if (xrefMatch) {
+      xref = xrefMatch[1]
+      rest = xrefMatch[2] ?? ""
+    }
+    const space = rest.indexOf(" ")
+    out.push({
+      level,
+      xref,
+      tag: space === -1 ? rest : rest.slice(0, space),
+      value: space === -1 ? "" : rest.slice(space + 1),
+    })
+  }
+  return out
+}
+
+/** Group flat lines into level-0 records (INDI/FAM/HEAD/…), each carrying its
+ *  nested sub-lines. */
+function readRecords(text: string): RawRecord[] {
+  const records: RawRecord[] = []
+  let current: RawRecord | null = null
+  for (const line of parseRawLines(text)) {
+    if (line.level === 0) {
+      if (current) records.push(current)
+      current = { tag: line.tag, xref: line.xref, lines: [] }
+    } else if (current) {
+      current.lines.push(line)
+    }
+  }
+  if (current) records.push(current)
+  return records
+}
+
+type IndiRecord = {
+  name?: string
+  sex?: string
+  birthDate?: string
+  birthPlace?: string
+  deathDate?: string
+  /** The FAMC pointer currently being read, so its `2 PEDI` can be attached. */
+  famcFamily?: string
+  /** Each child-of family pointer -> its PEDI type (or undefined/biological). */
+  famc: Map<string, string | undefined>
+}
+
+function parseIndi(record: RawRecord): IndiRecord {
+  const result: IndiRecord = { famc: new Map() }
+  let context: string | null = null
+  for (const line of record.lines) {
+    if (line.level === 1) {
+      context = line.tag
+      switch (line.tag) {
+        case "NAME":
+          result.name = line.value
+          break
+        case "SEX":
+          result.sex = line.value
+          break
+        case "FAMC":
+          if (line.value) {
+            result.famcFamily = line.value
+            result.famc.set(line.value, undefined)
+          }
+          break
+      }
+    } else if (line.level === 2 && context) {
+      if (context === "BIRT" && line.tag === "DATE") {
+        result.birthDate = parseGedcomDate(line.value)
+      } else if (context === "BIRT" && line.tag === "PLAC") {
+        result.birthPlace = line.value.trim() || undefined
+      } else if (context === "DEAT" && line.tag === "DATE") {
+        result.deathDate = parseGedcomDate(line.value)
+      } else if (
+        context === "FAMC"
+        && line.tag === "PEDI"
+        && result.famcFamily
+      ) {
+        result.famc.set(
+          result.famcFamily,
+          line.value.trim().toLowerCase() || undefined,
+        )
+      }
+    }
+  }
+  return result
+}
+
+type FamRecord = {
+  xref: string
+  parents: string[]
+  children: string[]
+  marriageDate?: string
+}
+
+function parseFam(record: RawRecord): FamRecord {
+  const result: FamRecord = {
+    xref: record.xref ?? "",
+    parents: [],
+    children: [],
+  }
+  let context: string | null = null
+  for (const line of record.lines) {
+    if (line.level === 1) {
+      context = line.tag
+      if (
+        (line.tag === "HUSB" || line.tag === "WIFE")
+        && line.value
+        && !result.parents.includes(line.value)
+      ) {
+        result.parents.push(line.value)
+      } else if (
+        line.tag === "CHIL"
+        && line.value
+        && !result.children.includes(line.value)
+      ) {
+        result.children.push(line.value)
+      }
+    } else if (line.level === 2 && context === "MARR" && line.tag === "DATE") {
+      result.marriageDate = parseGedcomDate(line.value)
+    }
+  }
+  return result
+}
+
+function dedupePreservingOrder(values: string[]): string[] {
+  return [...new Set(values)]
+}
+
+/** Record a spouse link between two people, with the marriage date set on both
+ *  sides only when it is an exact ISO date (the app's stored invariant). */
+function linkSpouses(
+  family: FamilyData,
+  firstId: string,
+  secondId: string,
+  marriageDate: string | undefined,
+): void {
+  if (firstId === secondId) return
+  const first = family[firstId]
+  const second = family[secondId]
+  if (!first || !second) return
+  if (!first.spouseIds.includes(secondId)) first.spouseIds.push(secondId)
+  if (!second.spouseIds.includes(firstId)) second.spouseIds.push(firstId)
+  if (marriageDate && isExactIsoDate(marriageDate)) {
+    first.marriageDates[secondId] = marriageDate
+    second.marriageDates[firstId] = marriageDate
+  }
+}
+
+/** Parse a GEDCOM 5.5.1 document into {@link FamilyData}. Assigns fresh,
+ *  URL-safe ids to each individual (GEDCOM pointers like `@I1@` are not used as
+ *  ids). Relationships come from FAM records; the app's create/seed path does
+ *  not model divorce, so DIV events are intentionally ignored. Throws when the
+ *  document contains no individuals. The result still needs invariant
+ *  validation (e.g. `validateImportedFamily`) before it is stored. */
+export function gedcomToFamily(text: string): FamilyData {
+  const individuals = new Map<string, IndiRecord>()
+  const families = new Map<string, FamRecord>()
+  for (const record of readRecords(text)) {
+    if (record.tag === "INDI" && record.xref) {
+      individuals.set(record.xref, parseIndi(record))
+    } else if (record.tag === "FAM" && record.xref) {
+      families.set(record.xref, parseFam(record))
+    }
+  }
+  if (individuals.size === 0) {
+    throw new Error("GEDCOM file contains no individuals")
+  }
+
+  const idByXref = new Map<string, string>()
+  for (const xref of individuals.keys()) {
+    idByXref.set(xref, crypto.randomUUID())
+  }
+
+  const family: FamilyData = {}
+  for (const [xref, record] of individuals) {
+    const id = idByXref.get(xref)
+    if (!id) continue
+    const { name, familyName } = parseName(record.name ?? "")
+    family[id] = {
+      id,
+      name,
+      familyName,
+      gender: parseGender(record.sex),
+      dob: record.birthDate,
+      birthplace: record.birthPlace,
+      dod: record.deathDate,
+      parents: [],
+      spouseIds: [],
+      marriageDates: {},
+    }
+  }
+
+  for (const fam of families.values()) {
+    const parentIds = dedupePreservingOrder(
+      fam.parents
+        .map((xref) => idByXref.get(xref))
+        .filter((id): id is string => !!id),
+    )
+    for (const childXref of fam.children) {
+      const childId = idByXref.get(childXref)
+      const child = childId ? family[childId] : undefined
+      if (!child) continue
+      const pedi = individuals.get(childXref)?.famc.get(fam.xref)
+      const type: ParentChildRelationshipType = pedi
+        ? (PEDI_TYPE[pedi] ?? "biological")
+        : "biological"
+      for (const parentId of parentIds) {
+        if (parentId === childId || child.parents.length >= 2) break
+        if (child.parents.some((link) => link.id === parentId)) continue
+        child.parents.push({ id: parentId, type })
+      }
+    }
+    if (parentIds.length === 2) {
+      const firstParentId = parentIds[0]
+      const secondParentId = parentIds[1]
+      if (firstParentId && secondParentId) {
+        linkSpouses(family, firstParentId, secondParentId, fam.marriageDate)
+      }
+    }
+  }
+
+  return family
 }
