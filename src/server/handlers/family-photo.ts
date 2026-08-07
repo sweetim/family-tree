@@ -22,12 +22,15 @@ const PHOTO_FETCH_TIMEOUT_MS = 10_000
 /** Completed/failed jobs are kept for this long before being pruned. */
 const JOB_TTL_MS = 30 * 60 * 1000
 
-const FAMILY_PHOTO_PROMPT = [
-  "Analyze all the attached images and create a single family photo from exactly those people.",
-  "There is one person per attached image: include exactly as many people as there are images, and do not add, invent, merge, or duplicate anyone.",
-  "Keep every person's face identical to their source image — do not change facial features, age, or expression; each generated person must look the same as the original so the result is recognizable.",
-  "You may change clothing, hairstyle, and pose to suit a group photo, but never the face.",
-].join(" ")
+function familyPhotoPrompt(peopleCount: number): string {
+  return [
+    "Analyze all the attached images and create a single black-and-white family photo from exactly those people.",
+    `Generate exactly ${peopleCount} people in the photo: there is one person per attached image, and you must not add, invent, merge, or duplicate anyone.`,
+    "Keep every person's face identical to their source image — do not change facial features, age, or expression; each generated person must look the same as the original so the result is recognizable.",
+    "You may change clothing, hairstyle, and pose to suit a group photo, but never the face.",
+    "Render the photo in black and white with a vintage, nostalgic old-time look: aged film grain, soft contrast, and an antique tonality, as though it were a treasured photograph taken long ago.",
+  ].join(" ")
+}
 
 type FamilyPerson = {
   id: string
@@ -227,13 +230,15 @@ async function renderFamilyPhoto(
     throw new Error("Could not load any member photos.")
   }
 
+  const prompt = familyPhotoPrompt(referenceDataUrls.length)
+
   console.info(
     "[family-photo] gpt-image-2 request",
     JSON.stringify({
       treeId,
       referenceImageCount: referenceDataUrls.length,
-      promptLength: FAMILY_PHOTO_PROMPT.length,
-      prompt: FAMILY_PHOTO_PROMPT,
+      promptLength: prompt.length,
+      prompt,
     }),
   )
 
@@ -247,7 +252,7 @@ async function renderFamilyPhoto(
       },
       body: JSON.stringify({
         model: OPEN_AI_IMAGE_MODEL,
-        prompt: FAMILY_PHOTO_PROMPT,
+        prompt,
         images: referenceDataUrls.map((dataUrl) => ({ image_url: dataUrl })),
         size: "1536x1024",
         quality: "medium",
