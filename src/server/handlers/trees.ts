@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm"
-import { getDB } from "../../db"
-import { trees, user } from "../../db/schema"
+import { type DB, getDB } from "../../db"
+import { treeShares, trees, user } from "../../db/schema"
 import type {
   AncestorTreeLink,
   RequestableAncestorLink,
@@ -10,7 +10,7 @@ import type {
   TreeRecordWire,
   TreeSnapshotResponse,
 } from "../../sync/types"
-import { treeRole } from "../acl"
+import { type Role, resolveTreeRole } from "../acl"
 import { MAX_RESPONSE_PAGE_BYTES } from "../limits"
 import { requireSession } from "../session"
 import {
@@ -418,6 +418,57 @@ export async function getTreeInviteInfo(treeId: string): Promise<Response> {
   )
 }
 
+/**
+ * Loads the tree row plus the owner's email and the viewer's resolved role in a
+ * single query, instead of separate `treeRole` and owner-join round-trips.
+ * Returns null when the tree is missing, deleted, or the viewer has no access.
+ */
+async function loadTreeForViewer(
+  db: DB,
+  userId: string,
+  treeId: string,
+): Promise<{
+  tree: typeof trees.$inferSelect
+  ownerEmail: string | null
+  role: Role
+} | null> {
+  const rows = await db
+    .select({ tree: trees, ownerEmail: user.email, shareRole: treeShares.role })
+    .from(trees)
+    .innerJoin(user, eq(user.id, trees.ownerId))
+    .leftJoin(
+      treeShares,
+      and(eq(treeShares.treeId, trees.id), eq(treeShares.userId, userId)),
+    )
+    .where(and(eq(trees.id, treeId), isNull(trees.deletedAt)))
+  const row = rows[0]
+  if (!row) return null
+  const role = resolveTreeRole(
+    userId,
+    row.tree,
+    rows
+      .map((record) => record.shareRole)
+      .filter(
+        (shareRole): shareRole is "viewer" | "editor" => shareRole !== null,
+      ),
+  )
+  if (!role) return null
+  return { tree: row.tree, ownerEmail: row.ownerEmail, role }
+}
+
+/** Reads only `sync_version` for the post-load concurrency re-check. */
+async function loadTreeSyncVersion(
+  db: DB,
+  treeId: string,
+): Promise<number | null> {
+  const rows = await db
+    .select({ syncVersion: trees.syncVersion })
+    .from(trees)
+    .where(and(eq(trees.id, treeId), isNull(trees.deletedAt)))
+    .limit(1)
+  return rows[0]?.syncVersion ?? null
+}
+
 /** Loads one selected tree instead of every tree accessible to the account. */
 export async function getTreeSnapshot(
   request: Request,
@@ -437,17 +488,9 @@ export async function getTreeSnapshot(
   }
 
   const db = getDB()
-  const role = await treeRole(db, me.id, treeId)
-  if (!role) return Response.json({ error: "tree not found" }, { status: 404 })
-  const rows = await db
-    .select({ tree: trees, ownerEmail: user.email })
-    .from(trees)
-    .innerJoin(user, eq(user.id, trees.ownerId))
-    .where(and(eq(trees.id, treeId), isNull(trees.deletedAt)))
-    .limit(1)
-  const row = rows[0]
-  if (!row) return Response.json({ error: "tree not found" }, { status: 404 })
-  if (pageCursor && pageCursor.syncVersion !== row.tree.syncVersion) {
+  const view = await loadTreeForViewer(db, me.id, treeId)
+  if (!view) return Response.json({ error: "tree not found" }, { status: 404 })
+  if (pageCursor && pageCursor.syncVersion !== view.tree.syncVersion) {
     return snapshotChanged()
   }
 
@@ -457,15 +500,16 @@ export async function getTreeSnapshot(
     loadAncestorTreeLinks(db, me.id, treeId, personIds),
     loadRequestableAncestorLinks(db, me.id, treeId, personIds),
   ])
-  const currentTree = await db.query.trees.findFirst({
-    where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
-  })
-  if (!currentTree || currentTree.syncVersion !== row.tree.syncVersion) {
+  const currentSyncVersion = await loadTreeSyncVersion(db, treeId)
+  if (
+    currentSyncVersion === null
+    || currentSyncVersion !== view.tree.syncVersion
+  ) {
     return snapshotChanged()
   }
   const body = paginateSnapshot(
     {
-      tree: treeToWire(row.tree, role, row.ownerEmail) as TreeRecordWire,
+      tree: treeToWire(view.tree, view.role, view.ownerEmail) as TreeRecordWire,
       records: records ?? {
         persons: [],
         treeMembers: [],
@@ -477,10 +521,10 @@ export async function getTreeSnapshot(
       },
       ancestorTrees,
       requestableAncestors,
-      syncVersion: row.tree.syncVersion,
+      syncVersion: view.tree.syncVersion,
       cursor: encodeSyncCursor({
         treeId,
-        version: row.tree.syncVersion,
+        version: view.tree.syncVersion,
       }),
     },
     pageCursor,
@@ -521,19 +565,11 @@ export async function getTreeGraph(
   }
 
   const db = getDB()
-  const role = await treeRole(db, me.id, treeId)
-  if (!role) return Response.json({ error: "tree not found" }, { status: 404 })
-  const treeRows = await db
-    .select({ tree: trees, ownerEmail: user.email })
-    .from(trees)
-    .innerJoin(user, eq(user.id, trees.ownerId))
-    .where(and(eq(trees.id, treeId), isNull(trees.deletedAt)))
-    .limit(1)
-  const treeRow = treeRows[0]
-  if (!treeRow) {
+  const view = await loadTreeForViewer(db, me.id, treeId)
+  if (!view) {
     return Response.json({ error: "tree not found" }, { status: 404 })
   }
-  if (pageCursor && pageCursor.syncVersion !== treeRow.tree.syncVersion) {
+  if (pageCursor && pageCursor.syncVersion !== view.tree.syncVersion) {
     return snapshotChanged()
   }
 
@@ -600,26 +636,23 @@ export async function getTreeGraph(
     loadRequestableAncestorLinks(db, me.id, treeId, personIds),
   ])
   const maximumDepth = Math.max(...reachable.rows.map((row) => row.depth))
-  const currentTree = await db.query.trees.findFirst({
-    where: and(eq(trees.id, treeId), isNull(trees.deletedAt)),
-  })
-  if (!currentTree || currentTree.syncVersion !== treeRow.tree.syncVersion) {
+  const currentSyncVersion = await loadTreeSyncVersion(db, treeId)
+  if (
+    currentSyncVersion === null
+    || currentSyncVersion !== view.tree.syncVersion
+  ) {
     return snapshotChanged()
   }
   const body = paginateSnapshot(
     {
-      tree: treeToWire(
-        treeRow.tree,
-        role,
-        treeRow.ownerEmail,
-      ) as TreeRecordWire,
+      tree: treeToWire(view.tree, view.role, view.ownerEmail) as TreeRecordWire,
       records,
       ancestorTrees,
       requestableAncestors,
-      syncVersion: treeRow.tree.syncVersion,
+      syncVersion: view.tree.syncVersion,
       cursor: encodeSyncCursor({
         treeId,
-        version: treeRow.tree.syncVersion,
+        version: view.tree.syncVersion,
       }),
       partial: true,
       boundaryPersonIds: reachable.rows

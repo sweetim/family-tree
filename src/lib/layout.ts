@@ -405,17 +405,27 @@ function collectCouples(people: FamilyData): Map<string, [string, string]> {
 export type TreeLayout = {
   couples: Map<string, [string, string]>
   positions: Map<string, { x: number; y: number }>
+  marriedIn: Set<string>
+  rootFounders: Set<string>
 }
 
 /**
- * Expensive, people-only layout: couple detection plus the recursive
- * positioner (which runs the generation-rank fixpoint). Memoize on `people`
- * alone so selecting a card or toggling click-to-connect never re-runs it.
+ * Expensive, people-only layout: couple detection, the recursive positioner
+ * (which runs the generation-rank fixpoint), and the per-card bloodline flags
+ * (`marriedIn`, `rootFounders`) that depend only on the graph. Memoize on
+ * `people` alone so selecting a card or toggling click-to-connect never
+ * re-runs it.
  */
 export function computeTreeLayout(people: FamilyData): TreeLayout {
   const couples = collectCouples(people)
   const positions = computePositions(people, couples)
-  return { couples, positions }
+  const marriedIn = new Set<string>()
+  const rootFounders = new Set<string>()
+  for (const person of Object.values(people)) {
+    if (isMarriedInSpouse(people, person.id)) marriedIn.add(person.id)
+    if (isRootFounder(people, person.id)) rootFounders.add(person.id)
+  }
+  return { couples, positions, marriedIn, rootFounders }
 }
 
 /**
@@ -439,10 +449,16 @@ export function buildFlow(
   highlightBloodline = false,
   showGenerations = false,
   generationOffset = 1,
+  precomputedMaleLine?: ReadonlySet<string>,
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
-  const { couples } = layout
+  const { couples, marriedIn, rootFounders } = layout
   const pos = layout.positions
-  const maleLine = maleLineIds(people)
+  // `maleLine` is graph-derived, not selection-derived. Callers (the tree
+  // view) memoize it on the people graph so a card click never recomputes it;
+  // the fallback keeps `buildFlow` self-contained for tests and direct callers.
+  const maleLine =
+    precomputedMaleLine
+    ?? (highlightBloodline ? maleLineIds(people) : new Set<string>())
 
   const unionId = (a: string, b: string) => `u:${pairKey(a, b)}`
 
@@ -459,8 +475,8 @@ export function buildFlow(
       selected: p.id === selectedId,
       data: {
         person: p,
-        marriedIn: isMarriedInSpouse(people, p.id),
-        rootFounder: isRootFounder(people, p.id),
+        marriedIn: marriedIn.has(p.id),
+        rootFounder: rootFounders.has(p.id),
         maleLine: maleLine.has(p.id),
         linkState: linking
           ? p.id === linking.sourceId

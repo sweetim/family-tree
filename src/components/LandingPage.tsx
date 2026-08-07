@@ -1,5 +1,51 @@
 import Image from "next/image"
+import type { CSSProperties } from "react"
 import { GoogleSignInButton } from "./GoogleSignInButton"
+
+type SakuraPetal = {
+  id: number
+  left: number
+  size: number
+  height: number
+  fall: number
+  delay: number
+  sway: number
+  spin: number
+  reverse: boolean
+  opacity: number
+}
+
+// Deterministic petal set (seeded LCG) so server and client markup match and
+// no hydration mismatch can occur.
+function buildPetals(count: number): SakuraPetal[] {
+  let seed = 20240807
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296
+    return seed / 4294967296
+  }
+  return Array.from({ length: count }, (_, index) => {
+    const size = 10 + rand() * 12
+    return {
+      id: index,
+      left: rand() * 100,
+      size,
+      height: size * 1.2,
+      fall: 9 + rand() * 7,
+      // Negative delay starts each petal mid-fall so the field looks populated.
+      delay: -(rand() * 14),
+      sway: 12 + rand() * 24,
+      spin: 4 + rand() * 6,
+      reverse: rand() > 0.5,
+      opacity: 0.7 + rand() * 0.3,
+    }
+  })
+}
+
+const PETALS = buildPetals(16)
+
+// A single cherry-blossom petal (pointed base, notched tip).
+const PETAL_PATH =
+  "M10 1 C 16 5 19 14 13 22 C 12 23.5 10 20 10 17.5 C 10 20 8 23.5 7 22 C 1 14 4 5 10 1 Z"
 
 export function LandingPage() {
   return (
@@ -24,6 +70,67 @@ export function LandingPage() {
 
       <main>
         <section className="landing-hero relative isolate min-h-dvh overflow-hidden lg:h-dvh">
+          <div
+            className="landing-petals"
+            aria-hidden="true"
+          >
+            {PETALS.map((petal) => (
+              <span
+                key={petal.id}
+                className="landing-petal"
+                style={
+                  {
+                    left: `${petal.left}%`,
+                    width: `${petal.size}px`,
+                    height: `${petal.height}px`,
+                    animationDuration: `${petal.fall}s`,
+                    animationDelay: `${petal.delay}s`,
+                    "--sway": `${petal.sway}px`,
+                    "--o": petal.opacity,
+                  } as CSSProperties
+                }
+              >
+                <svg
+                  className="landing-petal-shape"
+                  viewBox="0 0 20 24"
+                  aria-hidden="true"
+                  style={{
+                    animationDuration: `${petal.spin}s`,
+                    animationDirection: petal.reverse ? "reverse" : "normal",
+                  }}
+                >
+                  <path
+                    d={PETAL_PATH}
+                    fill="url(#sakuraPetalGrad)"
+                  />
+                </svg>
+              </span>
+            ))}
+            <svg
+              className="landing-petal-defs"
+              aria-hidden="true"
+            >
+              <defs>
+                <linearGradient
+                  id="sakuraPetalGrad"
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="1"
+                >
+                  <stop
+                    offset="0%"
+                    stopColor="#ec6fa0"
+                  />
+                  <stop
+                    offset="100%"
+                    stopColor="#ffe1ec"
+                  />
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+
           <div className="relative h-[27rem] sm:h-[34rem] lg:absolute lg:inset-0 lg:h-auto">
             <Image
               src="/landing-page.webp"

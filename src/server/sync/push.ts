@@ -1,34 +1,25 @@
-import { and, eq, inArray, isNull, lt, or, type SQL, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, or, type SQL, sql } from "drizzle-orm"
 import type { DB } from "../../db"
 import { getDB } from "../../db/index"
 import {
   mutationReceipts,
   parentChildRelationships,
   persons,
-  syncChanges,
   treeMembers,
   treeParentChildRelationships,
-  treeShares,
   trees,
   treeUnions,
   unionEvents,
   unions,
 } from "../../db/schema"
 import type {
-  SyncAppliedIds,
   SyncMutationResponse,
   SyncPushRequest,
   SyncPushResponse,
-  SyncRecordSet,
 } from "../../sync/types"
 import type { ParentChildRelationshipType } from "../../types"
 import { canWrite, personRole, type Role, treeRole } from "../acl"
 import { deletePhoto, isPhotoDataUrl } from "../blob"
-import {
-  MAX_RESPONSE_PAGE_BYTES,
-  MAX_TREE_MEMBERS,
-  MAX_TREE_RELATED_RECORDS,
-} from "../limits"
 import { MAX_SYNC_BODY_BYTES, readJsonBody } from "../request"
 import { requireSession, type SessionUser } from "../session"
 import {
@@ -54,6 +45,8 @@ import {
   hasWritableTreeContaining,
   type RoleForTree,
 } from "./push-authorize"
+import { emitChangeLog, emptyRecordSet } from "./push-changes"
+import { collectAuthoritativeConflictRecords } from "./push-conflict"
 import {
   discardStagedPhotos,
   finalizeCommittedPhotos,
@@ -63,150 +56,23 @@ import {
   resolvePreuploadedPhotoUpdate,
 } from "./push-photos"
 import {
+  classify,
+  createMutationApplicationState,
+  emptyAppliedIds,
+  hasClassifiedRecords,
+  type MutationContext,
+  type MutationOutcome,
+  type RoleForPerson,
+  requestIds,
+  wireCreatedAt,
+  wireRevision,
+  wireTimestamp,
+} from "./push-state"
+import {
   tombstonePersonCascade,
   tombstonePersonReferencesInTrees,
 } from "./push-tombstone"
-import {
-  parentRelationshipToWire,
-  personToWire,
-  treeMemberToWire,
-  treeParentRelationshipToWire,
-  treeToWire,
-  treeUnionToWire,
-  unionEventToWire,
-  unionToWire,
-} from "./wire"
-
-type SyncCollection = keyof SyncAppliedIds
-type CascadedTreeReferences = {
-  unionIds: Set<string>
-  parentRelationshipIds: Set<string>
-  treeUnionKeys: Set<string>
-  treeParentRelationshipKeys: Set<string>
-}
-type RoleForPerson = (personId: string) => Promise<Role | null>
-type MutationContext = {
-  db: DB
-  me: SessionUser
-  body: SyncPushRequest
-  mutationId: string | null
-  serverTime: Date
-  quotaTreeIds: string[]
-  usageBefore: Map<string, TreeUsage>
-  roleForTree: RoleForTree
-  roleForPerson: RoleForPerson
-  treeRoleCache: Map<string, Promise<Role | null>>
-  personRoleCache: Map<string, Promise<Role | null>>
-  activePeopleExistForRequest: ActivePeopleExist
-  ownedPersonIds: Set<string>
-  photoLifecycle: PhotoLifecycle
-}
-type MutationApplicationState = {
-  applied: SyncAppliedIds
-  skipped: SyncAppliedIds
-  missingParentRelationshipIds: Set<string>
-  cascadedReferences: CascadedTreeReferences
-  orphanCandidateRelationshipIds: Set<string>
-  parentRelationshipIdAlias: Map<
-    string,
-    { id: string; revision: number; type: ParentChildRelationshipType }
-  >
-  parentAssociationAliases: Map<
-    string,
-    { parentChildRelationshipId: string; revision: number }
-  >
-}
-type MutationConflict = {
-  mutationId: string
-  serverTime: string
-  skipped: SyncAppliedIds
-  retryable: boolean
-  reason: NonNullable<SyncMutationResponse["conflict"]>["reason"]
-  missingDependencies?: NonNullable<
-    SyncMutationResponse["conflict"]
-  >["missingDependencies"]
-  limit?: NonNullable<SyncMutationResponse["conflict"]>["limit"]
-}
-
-type MutationOutcome = {
-  conflict?: MutationConflict
-}
-
-function emptyAppliedIds(): SyncAppliedIds {
-  return {
-    persons: [],
-    trees: [],
-    treeMembers: [],
-    unions: [],
-    unionEvents: [],
-    treeUnions: [],
-    parentChildRelationships: [],
-    treeParentChildRelationships: [],
-  }
-}
-
-function createMutationApplicationState(): MutationApplicationState {
-  return {
-    applied: emptyAppliedIds(),
-    skipped: emptyAppliedIds(),
-    missingParentRelationshipIds: new Set(),
-    cascadedReferences: emptyCascadedTreeReferences(),
-    orphanCandidateRelationshipIds: new Set(),
-    parentRelationshipIdAlias: new Map(),
-    parentAssociationAliases: new Map(),
-  }
-}
-
-function requestIds(body: SyncPushRequest): SyncAppliedIds {
-  return {
-    persons: body.persons.map((wire) => wire.id),
-    trees: body.trees.map((wire) => wire.id),
-    treeMembers: body.treeMembers.map((wire) =>
-      associationKey(wire.treeId, wire.personId),
-    ),
-    unions: body.unions.map((wire) => wire.id),
-    unionEvents: body.unionEvents.map((wire) => wire.id),
-    treeUnions: body.treeUnions.map((wire) =>
-      associationKey(wire.treeId, wire.unionId),
-    ),
-    parentChildRelationships: body.parentChildRelationships.map(
-      (wire) => wire.id,
-    ),
-    treeParentChildRelationships: body.treeParentChildRelationships.map(
-      (wire) => associationKey(wire.treeId, wire.parentChildRelationshipId),
-    ),
-  }
-}
-
-function classify(
-  applied: SyncAppliedIds,
-  skipped: SyncAppliedIds,
-  collection: SyncCollection,
-  id: string,
-  wasApplied: boolean,
-): void {
-  ;(wasApplied ? applied : skipped)[collection].push(id)
-}
-
-function wireTimestamp(wire: { updatedAt: string }): Date | null {
-  const value = new Date(wire.updatedAt)
-  return Number.isFinite(value.getTime()) ? value : null
-}
-
-function wireCreatedAt(wire: { createdAt: string }): Date | null {
-  const value = new Date(wire.createdAt)
-  return Number.isFinite(value.getTime()) ? value : null
-}
-
-function wireRevision(wire: { revision?: number }): number | null {
-  return Number.isSafeInteger(wire.revision) && (wire.revision ?? 0) > 0
-    ? (wire.revision as number)
-    : null
-}
-
-function hasClassifiedRecords(ids: SyncAppliedIds): boolean {
-  return Object.values(ids).some((records) => records.length > 0)
-}
+import { enforceQuota, loadTreeUsage } from "./push-usage"
 
 function isValidMutationId(value: string | null): value is string {
   return Boolean(value && isValidSyncId(value))
@@ -293,405 +159,6 @@ async function lockMutationGraph(
     )
   }
   return treeIds
-}
-
-type TreeUsage = { members: number; relatedRecords: number }
-
-async function loadTreeUsage(
-  db: DB,
-  treeIds: string[],
-): Promise<Map<string, TreeUsage>> {
-  if (treeIds.length === 0) return new Map()
-  const values = sql.join(
-    treeIds.map((treeId) => sql`${treeId}`),
-    sql`, `,
-  )
-  const result = await db.execute<{
-    treeId: string
-    members: string | number
-    relatedRecords: string | number
-  }>(sql`
-    SELECT scope.tree_id AS "treeId",
-      (
-        SELECT count(*)
-        FROM tree_members AS membership
-        WHERE membership.tree_id = scope.tree_id
-          AND membership.deleted_at IS NULL
-      ) AS members,
-      (
-        2 * (
-          SELECT count(*)
-          FROM tree_unions AS association
-          INNER JOIN unions AS relationship
-            ON relationship.id = association.union_id
-            AND relationship.deleted_at IS NULL
-          WHERE association.tree_id = scope.tree_id
-            AND association.deleted_at IS NULL
-        )
-        + (
-          SELECT count(*)
-          FROM tree_unions AS association
-          INNER JOIN unions AS relationship
-            ON relationship.id = association.union_id
-            AND relationship.deleted_at IS NULL
-          INNER JOIN union_events AS event
-            ON event.union_id = relationship.id
-            AND event.deleted_at IS NULL
-          WHERE association.tree_id = scope.tree_id
-            AND association.deleted_at IS NULL
-        )
-        + 2 * (
-          SELECT count(*)
-          FROM tree_parent_child_relationships AS association
-          INNER JOIN parent_child_relationships AS relationship
-            ON relationship.id = association.parent_child_relationship_id
-            AND relationship.deleted_at IS NULL
-          WHERE association.tree_id = scope.tree_id
-            AND association.deleted_at IS NULL
-        )
-      ) AS "relatedRecords"
-    FROM unnest(ARRAY[${values}]::text[]) AS scope(tree_id)
-  `)
-  return new Map(
-    result.rows.map((row) => [
-      row.treeId,
-      {
-        members: Number(row.members),
-        relatedRecords: Number(row.relatedRecords),
-      },
-    ]),
-  )
-}
-
-async function collectAuthoritativeConflictRecords(
-  db: DB,
-  userId: string,
-  body: SyncPushRequest,
-): Promise<SyncRecordSet> {
-  const changes = await collectMutationChanges(db, body, new Map())
-  const result = emptyRecordSet()
-  const treeIds = [...changes.keys()]
-  const readableTreeIds = new Set<string>()
-  if (treeIds.length > 0) {
-    const rows = await db
-      .select({ id: trees.id })
-      .from(trees)
-      .leftJoin(
-        treeShares,
-        and(eq(treeShares.treeId, trees.id), eq(treeShares.userId, userId)),
-      )
-      .where(
-        and(
-          inArray(trees.id, treeIds),
-          isNull(trees.deletedAt),
-          or(eq(trees.ownerId, userId), eq(treeShares.userId, userId)),
-        ),
-      )
-    for (const row of rows) readableTreeIds.add(row.id)
-  }
-
-  const append = (records: SyncRecordSet) => {
-    for (const collection of Object.keys(result) as Array<
-      keyof SyncRecordSet
-    >) {
-      const existing = new Set(
-        result[collection].map((wire) => JSON.stringify(wire)),
-      )
-      for (const wire of records[collection]) {
-        const key = JSON.stringify(wire)
-        if (!existing.has(key)) {
-          result[collection].push(wire as never)
-          existing.add(key)
-        }
-      }
-    }
-  }
-
-  for (const [treeId, records] of changes) {
-    if (readableTreeIds.has(treeId)) append(records)
-  }
-
-  const requestedPersonIds = [...new Set(body.persons.map((wire) => wire.id))]
-  const requestedTreeIds = [...new Set(body.trees.map((wire) => wire.id))]
-  const [ownedPeople, ownedTrees] = await Promise.all([
-    requestedPersonIds.length > 0
-      ? db
-          .select()
-          .from(persons)
-          .where(
-            and(
-              inArray(persons.id, requestedPersonIds),
-              eq(persons.ownerId, userId),
-            ),
-          )
-      : [],
-    requestedTreeIds.length > 0
-      ? db
-          .select()
-          .from(trees)
-          .where(
-            and(inArray(trees.id, requestedTreeIds), eq(trees.ownerId, userId)),
-          )
-      : [],
-  ])
-  append({
-    ...emptyRecordSet(),
-    persons: ownedPeople.map(personToWire),
-    trees: ownedTrees.map((tree) => treeToWire(tree, "owner")),
-  })
-  return result
-}
-
-function emptyRecordSet(): SyncRecordSet {
-  return {
-    persons: [],
-    trees: [],
-    treeMembers: [],
-    unions: [],
-    unionEvents: [],
-    treeUnions: [],
-    parentChildRelationships: [],
-    treeParentChildRelationships: [],
-  }
-}
-
-function emptyCascadedTreeReferences(): CascadedTreeReferences {
-  return {
-    unionIds: new Set(),
-    parentRelationshipIds: new Set(),
-    treeUnionKeys: new Set(),
-    treeParentRelationshipKeys: new Set(),
-  }
-}
-
-async function collectMutationChanges(
-  db: DB,
-  body: SyncPushRequest,
-  parentAliases: ReadonlyMap<
-    string,
-    {
-      id: string
-      revision: number
-      type: ParentChildRelationshipType
-    }
-  >,
-  cascadedReferences: CascadedTreeReferences = emptyCascadedTreeReferences(),
-): Promise<Map<string, SyncRecordSet>> {
-  const personIds = new Set([
-    ...body.persons.map((wire) => wire.id),
-    ...body.treeMembers.map((wire) => wire.personId),
-  ])
-  const deletedPersonIds = body.persons
-    .filter((wire) => "deletedAt" in wire)
-    .map((wire) => wire.id)
-  const deletedPersonIdSet = new Set(deletedPersonIds)
-  const explicitMemberKeys = new Set(
-    body.treeMembers.map((wire) => associationKey(wire.treeId, wire.personId)),
-  )
-  const explicitTreeUnionKeys = new Set([
-    ...body.treeUnions.map((wire) => associationKey(wire.treeId, wire.unionId)),
-    ...cascadedReferences.treeUnionKeys,
-  ])
-  const explicitTreeParentKeys = new Set([
-    ...body.treeParentChildRelationships.map((wire) =>
-      associationKey(
-        wire.treeId,
-        parentAliases.get(wire.parentChildRelationshipId)?.id
-          ?? wire.parentChildRelationshipId,
-      ),
-    ),
-    ...cascadedReferences.treeParentRelationshipKeys,
-  ])
-  const unionIds = new Set([
-    ...body.unions.map((wire) => wire.id),
-    ...body.unionEvents.flatMap((wire) =>
-      "unionId" in wire ? [wire.unionId] : [],
-    ),
-    ...body.treeUnions.map((wire) => wire.unionId),
-    ...cascadedReferences.unionIds,
-  ])
-  const parentIds = new Set([
-    ...body.parentChildRelationships.map((wire) => wire.id),
-    ...body.treeParentChildRelationships.map(
-      (wire) => wire.parentChildRelationshipId,
-    ),
-    ...cascadedReferences.parentRelationshipIds,
-  ])
-  for (const alias of parentAliases.values()) parentIds.add(alias.id)
-
-  if (deletedPersonIds.length > 0) {
-    const [affectedUnions, affectedParents] = await Promise.all([
-      db
-        .select({ id: unions.id })
-        .from(unions)
-        .where(
-          or(
-            inArray(unions.firstPersonId, deletedPersonIds),
-            inArray(unions.secondPersonId, deletedPersonIds),
-          ),
-        ),
-      db
-        .select({ id: parentChildRelationships.id })
-        .from(parentChildRelationships)
-        .where(
-          or(
-            inArray(parentChildRelationships.parentPersonId, deletedPersonIds),
-            inArray(parentChildRelationships.childPersonId, deletedPersonIds),
-          ),
-        ),
-    ])
-    for (const row of affectedUnions) unionIds.add(row.id)
-    for (const row of affectedParents) parentIds.add(row.id)
-  }
-
-  const personIdList = [...personIds]
-  const unionIdList = [...unionIds]
-  const parentIdList = [...parentIds]
-  const changedTreeIds = [...new Set(body.trees.map((wire) => wire.id))]
-  const [
-    personRows,
-    treeRows,
-    memberRows,
-    unionRows,
-    eventRows,
-    treeUnionRows,
-    parentRows,
-    treeParentRows,
-  ] = await Promise.all([
-    personIdList.length > 0
-      ? db.select().from(persons).where(inArray(persons.id, personIdList))
-      : [],
-    changedTreeIds.length > 0
-      ? db.select().from(trees).where(inArray(trees.id, changedTreeIds))
-      : [],
-    personIdList.length > 0
-      ? db
-          .select()
-          .from(treeMembers)
-          .where(inArray(treeMembers.personId, personIdList))
-      : [],
-    unionIdList.length > 0
-      ? db.select().from(unions).where(inArray(unions.id, unionIdList))
-      : [],
-    unionIdList.length > 0
-      ? db
-          .select()
-          .from(unionEvents)
-          .where(inArray(unionEvents.unionId, unionIdList))
-      : [],
-    unionIdList.length > 0
-      ? db
-          .select()
-          .from(treeUnions)
-          .where(inArray(treeUnions.unionId, unionIdList))
-      : [],
-    parentIdList.length > 0
-      ? db
-          .select()
-          .from(parentChildRelationships)
-          .where(inArray(parentChildRelationships.id, parentIdList))
-      : [],
-    parentIdList.length > 0
-      ? db
-          .select()
-          .from(treeParentChildRelationships)
-          .where(
-            inArray(
-              treeParentChildRelationships.parentChildRelationshipId,
-              parentIdList,
-            ),
-          )
-      : [],
-  ])
-
-  const changesByTree = new Map<string, SyncRecordSet>()
-  const peopleById = new Map(personRows.map((row) => [row.id, row]))
-  const unionsById = new Map(unionRows.map((row) => [row.id, row]))
-  const eventsByUnion = new Map<string, typeof eventRows>()
-  for (const event of eventRows) {
-    const events = eventsByUnion.get(event.unionId) ?? []
-    events.push(event)
-    eventsByUnion.set(event.unionId, events)
-  }
-  const parentsById = new Map(parentRows.map((row) => [row.id, row]))
-  const recordsFor = (treeId: string): SyncRecordSet => {
-    const existing = changesByTree.get(treeId)
-    if (existing) return existing
-    const created = emptyRecordSet()
-    changesByTree.set(treeId, created)
-    return created
-  }
-  for (const row of treeRows) recordsFor(row.id).trees.push(treeToWire(row))
-  for (const row of memberRows) {
-    const explicit = explicitMemberKeys.has(
-      associationKey(row.treeId, row.personId),
-    )
-    if (row.deletedAt && !explicit && !deletedPersonIdSet.has(row.personId)) {
-      continue
-    }
-    const records = recordsFor(row.treeId)
-    if (explicit || deletedPersonIdSet.has(row.personId)) {
-      records.treeMembers.push(treeMemberToWire(row))
-    }
-    const person = peopleById.get(row.personId)
-    if (
-      person
-      && (!row.deletedAt || deletedPersonIdSet.has(row.personId))
-      && !records.persons.some((wire) => wire.id === person.id)
-    ) {
-      records.persons.push(personToWire(person))
-    }
-  }
-  for (const row of treeUnionRows) {
-    const explicit = explicitTreeUnionKeys.has(
-      associationKey(row.treeId, row.unionId),
-    )
-    if (row.deletedAt && !explicit && deletedPersonIds.length === 0) continue
-    const records = recordsFor(row.treeId)
-    if (explicit || deletedPersonIds.length > 0) {
-      records.treeUnions.push(treeUnionToWire(row))
-    }
-    const union =
-      !row.deletedAt || deletedPersonIds.length > 0
-        ? unionsById.get(row.unionId)
-        : undefined
-    if (union && !records.unions.some((wire) => wire.id === union.id)) {
-      records.unions.push(unionToWire(union))
-      records.unionEvents.push(
-        ...(eventsByUnion.get(union.id) ?? []).map(unionEventToWire),
-      )
-    }
-  }
-  for (const row of treeParentRows) {
-    const explicit = explicitTreeParentKeys.has(
-      associationKey(row.treeId, row.parentChildRelationshipId),
-    )
-    if (row.deletedAt && !explicit && deletedPersonIds.length === 0) continue
-    const records = recordsFor(row.treeId)
-    if (explicit || deletedPersonIds.length > 0) {
-      records.treeParentChildRelationships.push(
-        treeParentRelationshipToWire(row),
-      )
-    }
-    const candidateRelationship = parentsById.get(row.parentChildRelationshipId)
-    const relationship =
-      !row.deletedAt
-      || deletedPersonIds.length > 0
-      || (explicit && Boolean(candidateRelationship?.deletedAt))
-        ? candidateRelationship
-        : undefined
-    if (
-      relationship
-      && !records.parentChildRelationships.some(
-        (wire) => wire.id === relationship.id,
-      )
-    ) {
-      records.parentChildRelationships.push(
-        parentRelationshipToWire(relationship),
-      )
-    }
-  }
-  return changesByTree
 }
 
 function validId(value: string): boolean {
@@ -843,175 +310,6 @@ async function prepareMutationContext(
     ownedPersonIds,
     photoLifecycle,
   }
-}
-
-async function _finalizeMutation(
-  context: MutationContext,
-  state: MutationApplicationState,
-  outcome: MutationOutcome,
-  rollback: () => never,
-): Promise<Response> {
-  const { body, db, me, mutationId, quotaTreeIds, serverTime, usageBefore } =
-    context
-  const {
-    applied,
-    cascadedReferences,
-    missingParentRelationshipIds,
-    orphanCandidateRelationshipIds,
-    parentAssociationAliases,
-    parentRelationshipIdAlias,
-    skipped,
-  } = state
-  await tombstoneOrphanParentRelationships(
-    db,
-    orphanCandidateRelationshipIds,
-    serverTime,
-  )
-
-  const usageAfter = await loadTreeUsage(db, quotaTreeIds)
-  let quotaViolation:
-    | {
-        treeId: string
-        reason: "tree-member-limit" | "tree-related-record-limit"
-        maximum: number
-        current: number
-      }
-    | undefined
-  for (const treeId of quotaTreeIds) {
-    const before = usageBefore.get(treeId) ?? { members: 0, relatedRecords: 0 }
-    const after = usageAfter.get(treeId) ?? before
-    if (after.members > MAX_TREE_MEMBERS && after.members > before.members) {
-      quotaViolation = {
-        treeId,
-        reason: "tree-member-limit",
-        maximum: MAX_TREE_MEMBERS,
-        current: after.members,
-      }
-      break
-    }
-    if (
-      after.relatedRecords > MAX_TREE_RELATED_RECORDS
-      && after.relatedRecords > before.relatedRecords
-    ) {
-      quotaViolation = {
-        treeId,
-        reason: "tree-related-record-limit",
-        maximum: MAX_TREE_RELATED_RECORDS,
-        current: after.relatedRecords,
-      }
-      break
-    }
-  }
-  if (quotaViolation) {
-    if (!mutationId) throw new Error("tree record limit exceeded")
-    outcome.conflict = {
-      mutationId,
-      serverTime: serverTime.toISOString(),
-      skipped: requestIds(body),
-      retryable: false,
-      reason: quotaViolation.reason,
-      limit: {
-        treeId: quotaViolation.treeId,
-        maximum: quotaViolation.maximum,
-        current: quotaViolation.current,
-      },
-    }
-    rollback()
-  }
-
-  if (mutationId && !hasClassifiedRecords(skipped)) {
-    const changesByTree = await collectMutationChanges(
-      db,
-      body,
-      parentRelationshipIdAlias,
-      cascadedReferences,
-    )
-    for (const [treeId, records] of [...changesByTree].sort(
-      ([first], [second]) => first.localeCompare(second),
-    )) {
-      const versionRows = await db
-        .update(trees)
-        .set({ syncVersion: sql`${trees.syncVersion} + 1` })
-        .where(eq(trees.id, treeId))
-        .returning({ version: trees.syncVersion })
-      const version = versionRows[0]?.version
-      if (version === undefined) continue
-      if (
-        new TextEncoder().encode(JSON.stringify(records)).byteLength
-        <= MAX_RESPONSE_PAGE_BYTES
-      ) {
-        await db.insert(syncChanges).values({
-          treeId,
-          version,
-          mutationId,
-          records,
-        })
-      }
-    }
-    const retentionCutoff = new Date(
-      serverTime.getTime() - 30 * 24 * 60 * 60 * 1000,
-    )
-    await Promise.all([
-      db.delete(syncChanges).where(lt(syncChanges.createdAt, retentionCutoff)),
-      db
-        .delete(mutationReceipts)
-        .where(lt(mutationReceipts.createdAt, retentionCutoff)),
-    ])
-  }
-  const response: SyncPushResponse = {
-    applied,
-    skipped,
-    ...(parentRelationshipIdAlias.size > 0
-      ? {
-          aliases: {
-            parentChildRelationships: Object.fromEntries(
-              parentRelationshipIdAlias,
-            ),
-            ...(parentAssociationAliases.size > 0
-              ? {
-                  treeParentChildRelationships: Object.fromEntries(
-                    parentAssociationAliases,
-                  ),
-                }
-              : {}),
-          },
-        }
-      : {}),
-    serverTime: serverTime.toISOString(),
-  }
-  if (mutationId && hasClassifiedRecords(skipped)) {
-    outcome.conflict = {
-      mutationId,
-      serverTime: response.serverTime,
-      skipped: requestIds(body),
-      retryable: true,
-      reason:
-        missingParentRelationshipIds.size > 0
-          ? "missing-parent-relationship"
-          : "revision-mismatch",
-      ...(missingParentRelationshipIds.size > 0
-        ? {
-            missingDependencies: {
-              parentChildRelationships: [...missingParentRelationshipIds],
-            },
-          }
-        : {}),
-    }
-    rollback()
-  }
-  const responseBody: SyncPushResponse | SyncMutationResponse = mutationId
-    ? { ...response, mutationId, status: "applied" }
-    : response
-  if (mutationId) {
-    await db.insert(mutationReceipts).values({
-      userId: me.id,
-      mutationId,
-      response: responseBody,
-    })
-  }
-  return Response.json(responseBody, {
-    headers: { "cache-control": "private, no-store" },
-  })
 }
 
 /** POST /api/sync — normalized CRUD with per-record ACL and conditional LWW. */
@@ -2372,45 +1670,11 @@ export async function runSyncMutation(
         )
 
         const usageAfter = await loadTreeUsage(db, quotaTreeIds)
-        let quotaViolation:
-          | {
-              treeId: string
-              reason: "tree-member-limit" | "tree-related-record-limit"
-              maximum: number
-              current: number
-            }
-          | undefined
-        for (const treeId of quotaTreeIds) {
-          const before = usageBefore.get(treeId) ?? {
-            members: 0,
-            relatedRecords: 0,
-          }
-          const after = usageAfter.get(treeId) ?? before
-          if (
-            after.members > MAX_TREE_MEMBERS
-            && after.members > before.members
-          ) {
-            quotaViolation = {
-              treeId,
-              reason: "tree-member-limit",
-              maximum: MAX_TREE_MEMBERS,
-              current: after.members,
-            }
-            break
-          }
-          if (
-            after.relatedRecords > MAX_TREE_RELATED_RECORDS
-            && after.relatedRecords > before.relatedRecords
-          ) {
-            quotaViolation = {
-              treeId,
-              reason: "tree-related-record-limit",
-              maximum: MAX_TREE_RELATED_RECORDS,
-              current: after.relatedRecords,
-            }
-            break
-          }
-        }
+        const quotaViolation = enforceQuota(
+          usageBefore,
+          usageAfter,
+          quotaTreeIds,
+        )
         if (quotaViolation) {
           if (!mutationId) throw new Error("tree record limit exceeded")
           outcome.conflict = {
@@ -2429,45 +1693,14 @@ export async function runSyncMutation(
         }
 
         if (mutationId && !hasClassifiedRecords(skipped)) {
-          const changesByTree = await collectMutationChanges(
+          await emitChangeLog(
             db,
             body,
+            mutationId,
+            serverTime,
             parentRelationshipIdAlias,
             cascadedReferences,
           )
-          for (const [treeId, records] of [...changesByTree].sort(
-            ([first], [second]) => first.localeCompare(second),
-          )) {
-            const versionRows = await db
-              .update(trees)
-              .set({ syncVersion: sql`${trees.syncVersion} + 1` })
-              .where(eq(trees.id, treeId))
-              .returning({ version: trees.syncVersion })
-            const version = versionRows[0]?.version
-            if (version === undefined) continue
-            if (
-              new TextEncoder().encode(JSON.stringify(records)).byteLength
-              <= MAX_RESPONSE_PAGE_BYTES
-            ) {
-              await db.insert(syncChanges).values({
-                treeId,
-                version,
-                mutationId,
-                records,
-              })
-            }
-          }
-          const retentionCutoff = new Date(
-            serverTime.getTime() - 30 * 24 * 60 * 60 * 1000,
-          )
-          await Promise.all([
-            db
-              .delete(syncChanges)
-              .where(lt(syncChanges.createdAt, retentionCutoff)),
-            db
-              .delete(mutationReceipts)
-              .where(lt(mutationReceipts.createdAt, retentionCutoff)),
-          ])
         }
         const response: SyncPushResponse = {
           applied,

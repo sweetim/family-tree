@@ -39,7 +39,7 @@ import {
   useFamilyAll,
   useTreeFreshlyLoaded,
 } from "@/store"
-import { filterBloodlinePeople } from "@/types"
+import { filterBloodlinePeople, maleLineIds } from "@/types"
 import { Sidebar, type SidebarState } from "../_sidebar/Sidebar"
 import { ConnectBanner } from "./ConnectBanner"
 import { useConnectionTarget } from "./useConnectionTarget"
@@ -361,6 +361,16 @@ function TreeCanvas({
   // click-to-connect re-runs the cheap node/edge decoration below, never the
   // expensive rank fixpoint / recursive positioner.
   const layout = useMemo(() => computeTreeLayout(renderPeople), [renderPeople])
+  // The male-line id set depends only on the rendered graph, not on the
+  // selection, so it is memoized apart from `buildFlow` (which re-runs on every
+  // card click). Skipped entirely while bloodline highlighting is off.
+  const maleLine = useMemo(
+    () =>
+      settings.highlightBloodline
+        ? maleLineIds(renderPeople)
+        : new Set<string>(),
+    [renderPeople, settings.highlightBloodline],
+  )
   const { nodes, edges } = useMemo(() => {
     const linking =
       targetSourceId && linkEligible
@@ -374,6 +384,7 @@ function TreeCanvas({
       settings.highlightBloodline,
       settings.showGenerations,
       settings.generationOffset,
+      maleLine,
     )
   }, [
     renderPeople,
@@ -384,6 +395,7 @@ function TreeCanvas({
     settings.highlightBloodline,
     settings.showGenerations,
     settings.generationOffset,
+    maleLine,
   ])
 
   useEffect(() => {

@@ -545,7 +545,7 @@ export async function loadActiveRecordsForPeople(
           ),
         ),
       db
-        .select({ association: treeUnions })
+        .select({ association: treeUnions, union: unions })
         .from(treeUnions)
         .innerJoin(unions, eq(unions.id, treeUnions.unionId))
         .where(
@@ -558,7 +558,10 @@ export async function loadActiveRecordsForPeople(
           ),
         ),
       db
-        .select({ association: treeParentChildRelationships })
+        .select({
+          association: treeParentChildRelationships,
+          relationship: parentChildRelationships,
+        })
         .from(treeParentChildRelationships)
         .innerJoin(
           parentChildRelationships,
@@ -578,15 +581,13 @@ export async function loadActiveRecordsForPeople(
         ),
     ])
   const treeUnionRows = unionAssociationRows.map((row) => row.association)
+  const unionRows = unionAssociationRows.map((row) => row.union)
   const treeParentRows = parentAssociationRows.map((row) => row.association)
-  const unionIds = treeUnionRows.map((row) => row.unionId)
-  const parentIds = treeParentRows.map((row) => row.parentChildRelationshipId)
-  const [unionRows, eventRows, parentRows] = await Promise.all([
+  const parentRows = parentAssociationRows.map((row) => row.relationship)
+  const unionIds = unionRows.map((row) => row.id)
+  const eventRows =
     unionIds.length > 0
-      ? db.select().from(unions).where(inArray(unions.id, unionIds))
-      : [],
-    unionIds.length > 0
-      ? db
+      ? await db
           .select()
           .from(unionEvents)
           .where(
@@ -595,14 +596,7 @@ export async function loadActiveRecordsForPeople(
               isNull(unionEvents.deletedAt),
             ),
           )
-      : [],
-    parentIds.length > 0
-      ? db
-          .select()
-          .from(parentChildRelationships)
-          .where(inArray(parentChildRelationships.id, parentIds))
-      : [],
-  ])
+      : []
   return {
     persons: personRows.map(personToWire),
     treeMembers: memberRows.map(treeMemberToWire),
