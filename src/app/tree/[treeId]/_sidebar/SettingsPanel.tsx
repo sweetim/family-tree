@@ -1,5 +1,6 @@
 import {
   CalendarDays,
+  ChevronDown,
   Database,
   Download,
   EyeOff,
@@ -356,22 +357,26 @@ export function SettingsPanel({
   }
 
   return (
-    <div className="space-y-5">
-      <section
+    <div className="space-y-3">
+      <details
+        open
         aria-labelledby="canvas-appearance-heading"
-        className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+        className="group overflow-hidden rounded-xl border border-slate-200 bg-white"
       >
-        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600">
-            <SlidersHorizontal className="h-4 w-4" />
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 border-slate-100 bg-slate-50/70 px-4 py-3 group-open:border-b [&::-webkit-details-marker]:hidden hover:bg-slate-100">
+          <span className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600">
+              <SlidersHorizontal className="h-4 w-4" />
+            </span>
+            <h3
+              id="canvas-appearance-heading"
+              className="text-sm font-semibold text-slate-800"
+            >
+              Appearance
+            </h3>
           </span>
-          <h3
-            id="canvas-appearance-heading"
-            className="text-sm font-semibold text-slate-800"
-          >
-            Appearance
-          </h3>
-        </div>
+          <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+        </summary>
         <div>
           <div className="divide-y divide-slate-100">
             <SettingToggle
@@ -488,23 +493,26 @@ export function SettingsPanel({
             />
           </div>
         </div>
-      </section>
+      </details>
 
-      <section
+      <details
         aria-labelledby="import-export-heading"
-        className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+        className="group overflow-hidden rounded-xl border border-slate-200 bg-white"
       >
-        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600">
-            <Database className="h-4 w-4" />
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 border-slate-100 bg-slate-50/70 px-4 py-3 group-open:border-b [&::-webkit-details-marker]:hidden hover:bg-slate-100">
+          <span className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600">
+              <Database className="h-4 w-4" />
+            </span>
+            <h3
+              id="import-export-heading"
+              className="text-sm font-semibold text-slate-800"
+            >
+              Data
+            </h3>
           </span>
-          <h3
-            id="import-export-heading"
-            className="text-sm font-semibold text-slate-800"
-          >
-            Data
-          </h3>
-        </div>
+          <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+        </summary>
         <div className="divide-y divide-slate-100">
           <DataAction
             icon={<Download className="h-4 w-4" />}
@@ -533,23 +541,26 @@ export function SettingsPanel({
             onClick={exportPdf}
           />
         </div>
-      </section>
+      </details>
 
-      <section
+      <details
         aria-labelledby="family-photo-heading"
-        className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+        className="group overflow-hidden rounded-xl border border-slate-200 bg-white"
       >
-        <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600">
-            <Sparkles className="h-4 w-4" />
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 border-slate-100 bg-slate-50/70 px-4 py-3 group-open:border-b [&::-webkit-details-marker]:hidden hover:bg-slate-100">
+          <span className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt-50 text-cobalt-600">
+              <Sparkles className="h-4 w-4" />
+            </span>
+            <h3
+              id="family-photo-heading"
+              className="text-sm font-semibold text-slate-800"
+            >
+              Family photo
+            </h3>
           </span>
-          <h3
-            id="family-photo-heading"
-            className="text-sm font-semibold text-slate-800"
-          >
-            Family photo
-          </h3>
-        </div>
+          <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+        </summary>
         <div className="divide-y divide-slate-100">
           <DataAction
             icon={<Sparkles className="h-4 w-4" />}
@@ -566,7 +577,7 @@ export function SettingsPanel({
             relationships, and can take a minute or two.
           </p>
         )}
-      </section>
+      </details>
 
       {selectingPhoto && (
         <Modal
