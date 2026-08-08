@@ -62,6 +62,7 @@ export type UnionNodeType = Node<
     b?: string
     statusType?: string
     divorceDate?: string
+    selected?: boolean
   },
   "union"
 >
@@ -450,6 +451,7 @@ export function buildFlow(
   showGenerations = false,
   generationOffset = 1,
   precomputedMaleLine?: ReadonlySet<string>,
+  selectedMarriage?: { a: string; b: string },
 ): { nodes: FlowNode[]; edges: FlowEdge[] } {
   const { couples, marriedIn, rootFounders } = layout
   const pos = layout.positions
@@ -461,6 +463,10 @@ export function buildFlow(
     ?? (highlightBloodline ? maleLineIds(people) : new Set<string>())
 
   const unionId = (a: string, b: string) => `u:${pairKey(a, b)}`
+  // The union dot whose marriage editor is open (sidebar "marriage" mode).
+  const selectedUnionId = selectedMarriage
+    ? unionId(selectedMarriage.a, selectedMarriage.b)
+    : undefined
 
   const nodes: FlowNode[] = []
 
@@ -513,6 +519,7 @@ export function buildFlow(
         date,
         statusType: status?.type,
         divorceDate: status?.type === "divorced" ? status.date : undefined,
+        selected: selectedUnionId === unionId(a, b),
       },
     })
   }
@@ -578,7 +585,7 @@ export function buildFlow(
     const coupleBase = married
       ? coupleStroke
       : { ...coupleStroke, strokeDasharray: "6 4" }
-    const highlightCouple = touchesSelected([a, b])
+    const highlightCouple = touchesSelected([a, b]) || selectedUnionId === u
     for (const pid of [a, b]) {
       const px = pos.get(pid)?.x
       if (px === undefined || ux === undefined) continue

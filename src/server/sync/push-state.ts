@@ -7,7 +7,7 @@ import type {
 import type { ParentChildRelationshipType } from "../../types"
 import type { Role } from "../acl"
 import type { SessionUser } from "../session"
-import { associationKey } from "../sync-validation"
+import { associationKey, isValidSyncId } from "../sync-validation"
 import type { ActivePeopleExist, RoleForTree } from "./push-authorize"
 import type { PhotoLifecycle } from "./push-photos"
 
@@ -156,4 +156,8 @@ export function wireRevision(wire: { revision?: number }): number | null {
 
 export function hasClassifiedRecords(ids: SyncAppliedIds): boolean {
   return Object.values(ids).some((records) => records.length > 0)
+}
+
+export function validId(value: string): boolean {
+  return isValidSyncId(value)
 }
