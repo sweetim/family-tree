@@ -225,7 +225,7 @@ export function PersonFields({
           id="field-birthplace"
           value={fields.birthplace}
           onChange={(e) => onChange({ ...fields, birthplace: e.target.value })}
-          placeholder="e.g. Singapore"
+          placeholder="e.g. New York"
           className={inputCls}
         />
       </div>
