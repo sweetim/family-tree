@@ -693,7 +693,7 @@ function NewTreeDialog({
             id="new-tree-name-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. The Tan Family"
+            placeholder="e.g. The Carter Family"
             className={`${inputCls} mt-1.5`}
           />
           <div className="mt-5 flex justify-end gap-2">

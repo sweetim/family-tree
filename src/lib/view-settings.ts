@@ -19,7 +19,7 @@ export type ViewSettings = {
   focusSelectedPerson: boolean
   /**
    * Show each person's family name before their name on their card
-   * (e.g. "Tan Tim"). On (default): the family name is shown; off: only the
+   * (e.g. "Carter Grace"). On (default): the family name is shown; off: only the
    * name is shown.
    */
   showFamilyName: boolean

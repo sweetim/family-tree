@@ -63,20 +63,20 @@ describe("familyToGedcom — individuals", () => {
     const people: FamilyData = {
       p1: person({
         id: "p1",
-        name: "Henry Tan",
-        familyName: "Tan",
+        name: "Henry Carter",
+        familyName: "Carter",
         gender: "male",
         dob: "1948-03-02",
         dod: "2019-05-20",
-        birthplace: "Penang",
+        birthplace: "Boston",
       }),
     }
     const indi = block(linesOf(people), "0 @I1@ INDI")
-    expect(indi).toContain("1 NAME Henry /Tan/")
+    expect(indi).toContain("1 NAME Henry /Carter/")
     expect(indi).toContain("1 SEX M")
     expect(indi).toContain("1 BIRT")
     expect(indi).toContain("2 DATE 2 MAR 1948")
-    expect(indi).toContain("2 PLAC Penang")
+    expect(indi).toContain("2 PLAC Boston")
     expect(indi).toContain("1 DEAT")
     expect(indi).toContain("2 DATE 20 MAY 2019")
   })
@@ -123,13 +123,13 @@ describe("familyToGedcom — families", () => {
     const { people } = seedData()
     const lines = linesOf(people)
 
-    // Henry (male) and Mei (female) marry 14 Sep 1971; David is their child.
+    // Henry (male) and Margaret (female) marry 14 Sep 1971; David is their child.
     const sortedIds = Object.keys(people).sort()
     const indexByName = (name: string) =>
       sortedIds.findIndex((id) => people[id]?.name === name)
-    expect(indexByName("Henry Tan")).toBeGreaterThanOrEqual(0)
-    expect(indexByName("Mei Ling")).toBeGreaterThanOrEqual(0)
-    expect(indexByName("David Tan")).toBeGreaterThanOrEqual(0)
+    expect(indexByName("Henry Carter")).toBeGreaterThanOrEqual(0)
+    expect(indexByName("Margaret Hayes")).toBeGreaterThanOrEqual(0)
+    expect(indexByName("David Carter")).toBeGreaterThanOrEqual(0)
 
     const famBlocks = lines
       .map((line, index) => ({ line, index }))
@@ -141,7 +141,7 @@ describe("familyToGedcom — families", () => {
     const marriageFam = lines.includes("2 DATE 14 SEP 1971")
     expect(marriageFam).toBe(true)
 
-    // Henry is the husband, Mei the wife, in the family they share.
+    // Henry is the husband, Margaret the wife, in the family they share.
     const couples = famBlocks.map(({ index }) =>
       lines.slice(index, index + 6).join("\n"),
     )
@@ -153,7 +153,7 @@ describe("familyToGedcom — families", () => {
 
     // David's INDI references his parents' family as a child (FAMC) and his
     // own family as a spouse (FAMS).
-    const davidPointer = `@I${1 + indexByName("David Tan")}@`
+    const davidPointer = `@I${1 + indexByName("David Carter")}@`
     const davidIndi = block(lines, `0 ${davidPointer} INDI`)
     expect(davidIndi.some((l) => l.startsWith("1 FAMC @F"))).toBe(true)
     expect(davidIndi.some((l) => l.startsWith("1 FAMS @F"))).toBe(true)
@@ -273,9 +273,9 @@ describe("gedcomToFamily", () => {
 
     // All five people survive the round trip.
     expect(byName.size).toBe(5)
-    const henry = byName.get("Henry Tan")
-    const david = byName.get("David Tan")
-    const alex = byName.get("Alex Tan")
+    const henry = byName.get("Henry Carter")
+    const david = byName.get("David Carter")
+    const alex = byName.get("Alex Carter")
     expect(henry).toBeDefined()
     expect(david).toBeDefined()
     expect(alex).toBeDefined()
@@ -284,28 +284,34 @@ describe("gedcomToFamily", () => {
     expect(henry?.gender).toBe("male")
     expect(henry?.dob).toBe("1948-03-02")
     expect(henry?.dod).toBe("2019-05-20")
-    expect(henry?.birthplace).toBe("Penang")
-    expect(henry?.familyName).toBe("Tan")
+    expect(henry?.birthplace).toBe("Boston")
+    expect(henry?.familyName).toBe("Carter")
 
     // Spouse links line up by name.
-    expect(henry?.spouseIds.map(nameById)).toContain("Mei Ling")
-    expect(byName.get("Mei Ling")?.spouseIds.map(nameById)).toContain(
-      "Henry Tan",
+    expect(henry?.spouseIds.map(nameById)).toContain("Margaret Hayes")
+    expect(byName.get("Margaret Hayes")?.spouseIds.map(nameById)).toContain(
+      "Henry Carter",
     )
-    expect(david?.spouseIds.map(nameById)).toContain("Sarah Lim")
+    expect(david?.spouseIds.map(nameById)).toContain("Sarah Bennett")
 
     // Marriage dates round-trip exactly on both sides of each couple.
-    expect(henry?.marriageDates[idOf("Mei Ling")]).toBe("1971-09-14")
-    expect(byName.get("Mei Ling")?.marriageDates[idOf("Henry Tan")]).toBe(
-      "1971-09-14",
-    )
-    expect(david?.marriageDates[idOf("Sarah Lim")]).toBe("2001-06-20")
+    expect(henry?.marriageDates[idOf("Margaret Hayes")]).toBe("1971-09-14")
+    expect(
+      byName.get("Margaret Hayes")?.marriageDates[idOf("Henry Carter")],
+    ).toBe("1971-09-14")
+    expect(david?.marriageDates[idOf("Sarah Bennett")]).toBe("2001-06-20")
 
     // Parent links line up by name.
     const parentNames = (name: string): string[] =>
       (byName.get(name)?.parents ?? []).map((link) => nameById(link.id)).sort()
-    expect(parentNames("David Tan")).toEqual(["Henry Tan", "Mei Ling"])
-    expect(parentNames("Alex Tan")).toEqual(["David Tan", "Sarah Lim"])
+    expect(parentNames("David Carter")).toEqual([
+      "Henry Carter",
+      "Margaret Hayes",
+    ])
+    expect(parentNames("Alex Carter")).toEqual([
+      "David Carter",
+      "Sarah Bennett",
+    ])
 
     // Alex has no spouse, so no marriage dates and empty spouse list.
     expect(alex?.spouseIds).toEqual([])

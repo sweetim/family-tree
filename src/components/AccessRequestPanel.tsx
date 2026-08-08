@@ -176,7 +176,7 @@ export function AccessRequestPanel({
             id="access-request-comment"
             value={comment}
             onChange={(event) => setComment(event.target.value)}
-            placeholder="e.g. I'm John's cousin from Penang"
+            placeholder="e.g. I'm John's cousin from Boston"
             rows={3}
             maxLength={500}
             required

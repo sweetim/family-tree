@@ -136,7 +136,7 @@ export function PersonFields({
           id="field-family-name"
           value={fields.familyName}
           onChange={(e) => onChange({ ...fields, familyName: e.target.value })}
-          placeholder="e.g. Tan"
+          placeholder="e.g. Carter"
           className={inputCls}
         />
       </div>
@@ -153,7 +153,7 @@ export function PersonFields({
           required
           value={fields.name}
           onChange={(e) => onChange({ ...fields, name: e.target.value })}
-          placeholder="e.g. Grace Tan"
+          placeholder="e.g. Grace Carter"
           className={inputCls}
         />
       </div>
