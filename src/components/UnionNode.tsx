@@ -23,8 +23,9 @@ function formatDate(iso: string): string {
  *   inside the dot itself — the 12px dot is overlaid with a larger circle
  *   badge carrying the year. The dot and its invisible handles stay put, so
  *   the marriage line still lands on the right spot.
- * - In edit mode, clicking the dot opens the couple's marriage editor via
- *   `TreeActions.editMarriage`.
+ * - Clicking the dot opens the couple's marriage panel via
+ *   `TreeActions.editMarriage`. In edit mode the dates are editable; in view
+ *   mode the panel shows them read-only.
  */
 function UnionNodeBase({
   data,
@@ -35,25 +36,26 @@ function UnionNodeBase({
     b?: string
     statusType?: string
     divorceDate?: string
+    selected?: boolean
   }
 }) {
   const { settings } = useViewSettings()
-  const { editMarriage, readOnly } = useTreeActions()
+  const { editMarriage } = useTreeActions()
   const iso = data.date
   const year = iso ? new Date(iso).getFullYear() : undefined
   const showYear = settings.marriageYears && iso && year && !Number.isNaN(year)
   const divorced = data.statusType === "divorced"
-  const ringCls = divorced
-    ? "border-rose-300 bg-rose-50"
-    : "border-slate-300 bg-white"
+  const selected = data.selected
+  const ringCls = selected
+    ? "border-cobalt-500 bg-white ring-2 ring-cobalt-300"
+    : divorced
+      ? "border-rose-300 bg-rose-50"
+      : "border-slate-300 bg-white"
 
   return (
     <button
       type="button"
-      disabled={readOnly}
-      className={`relative flex appearance-none items-center justify-center border-0 bg-transparent p-0 ${
-        readOnly ? "cursor-default" : "cursor-pointer"
-      }`}
+      className="relative flex appearance-none cursor-pointer items-center justify-center border-0 bg-transparent p-0"
       title={
         divorced
           ? data.divorceDate
@@ -88,7 +90,13 @@ function UnionNodeBase({
         />
       </div>
       {showYear && (
-        <div className="absolute left-1/2 top-1/2 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-slate-300 bg-white text-[9px] font-semibold text-slate-500 shadow-soft">
+        <div
+          className={`absolute left-1/2 top-1/2 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 bg-white text-[9px] font-semibold shadow-soft ${
+            selected
+              ? "border-cobalt-500 text-cobalt-600 ring-2 ring-cobalt-300"
+              : "border-slate-300 text-slate-500"
+          }`}
+        >
           {year}
         </div>
       )}
@@ -108,5 +116,6 @@ export const UnionNode = memo(
     && prev.data.a === next.data.a
     && prev.data.b === next.data.b
     && prev.data.statusType === next.data.statusType
-    && prev.data.divorceDate === next.data.divorceDate,
+    && prev.data.divorceDate === next.data.divorceDate
+    && prev.data.selected === next.data.selected,
 )

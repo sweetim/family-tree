@@ -356,6 +356,10 @@ function TreeCanvas({
   }
 
   const selectedId = sidebar.mode === "edit" ? sidebar.personId : undefined
+  // The union dot whose marriage editor is open — drives the dot + couple-line
+  // highlight, mirroring how `selectedId` lights up a person card.
+  const selectedMarriage =
+    sidebar.mode === "marriage" ? { a: sidebar.a, b: sidebar.b } : undefined
   // Layout (positions + couples) depends only on the rendered people, so it is
   // memoized separately from selection. Selecting a card or toggling
   // click-to-connect re-runs the cheap node/edge decoration below, never the
@@ -385,11 +389,13 @@ function TreeCanvas({
       settings.showGenerations,
       settings.generationOffset,
       maleLine,
+      selectedMarriage,
     )
   }, [
     renderPeople,
     layout,
     selectedId,
+    selectedMarriage,
     targetSourceId,
     linkEligible,
     settings.highlightBloodline,
@@ -503,7 +509,9 @@ function TreeCanvas({
       },
       editMarriage: (a, b) => {
         // Ignore while click-to-connect is active (a dot isn't a valid target).
-        if (!canEdit || link) return
+        // Opening is allowed in view mode too — the panel renders read-only
+        // dates when not editable.
+        if (link) return
         setSidebar({ mode: "marriage", a, b })
         setDrawerOpen(true)
         setSidebarHidden(false)

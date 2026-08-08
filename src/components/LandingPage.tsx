@@ -49,7 +49,7 @@ const PETAL_PATH =
 
 export function LandingPage() {
   return (
-    <div className="landing-page min-h-dvh overflow-x-hidden bg-[#f5efe5] text-[#213042] lg:h-dvh lg:overflow-hidden">
+    <div className="landing-page min-h-dvh overflow-x-hidden text-[#213042] lg:h-dvh lg:overflow-hidden">
       <header className="absolute inset-x-0 top-0 z-40">
         <nav className="flex h-20 items-center px-6 sm:px-8 lg:h-24 lg:px-7">
           <div className="flex items-center gap-2.5">
@@ -131,7 +131,7 @@ export function LandingPage() {
             </svg>
           </div>
 
-          <div className="relative h-[27rem] sm:h-[34rem] lg:absolute lg:inset-0 lg:h-auto">
+          <div className="landing-photo-frame relative h-[27rem] sm:h-[34rem] lg:absolute lg:inset-0 lg:h-auto">
             <Image
               src="/landing-page.webp"
               alt="A multigenerational family gathered beneath cherry blossoms"
@@ -142,31 +142,48 @@ export function LandingPage() {
             />
           </div>
 
-          <div className="relative z-20 px-6 py-10 sm:px-8 sm:py-12 lg:grid lg:h-dvh lg:min-h-0 lg:grid-rows-[1fr_auto] lg:px-7 lg:pb-6 lg:pt-0">
+          <div className="landing-hero-content relative z-20 px-7 pb-8 pt-3 sm:px-8 sm:py-12 lg:grid lg:h-dvh lg:min-h-0 lg:grid-rows-[1fr_auto] lg:px-7 lg:pb-6 lg:pt-0">
             <div className="flex items-start lg:pt-[31vh]">
               <div className="landing-intro max-w-[50rem]">
                 <p className="landing-eyebrow mb-4">A private family record</p>
-                <h1 className="landing-wordmark text-[clamp(2.3rem,9.5vw,4rem)] font-extrabold leading-[1.02] tracking-[-0.07em] text-[#10213f] lg:text-[clamp(3.75rem,4.8vw,5.5rem)] lg:leading-[0.9]">
+                <h1 className="landing-wordmark text-[clamp(2rem,8.6vw,4rem)] font-extrabold leading-[1.02] tracking-[-0.07em] text-[#10213f] lg:text-[clamp(3.75rem,4.8vw,5.5rem)] lg:leading-[0.9]">
                   <span className="block whitespace-nowrap">
-                    Your <span className="text-[#4e7fe8]">Family.</span>
+                    Old <span className="text-[#4e7fe8]">Roots.</span>
                   </span>
                   <span className="block whitespace-nowrap">
-                    Your <span className="text-[#4e7fe8]">History.</span>
+                    New <span className="text-[#4e7fe8]">Leaves.</span>
                   </span>
                   <span className="block whitespace-nowrap">
-                    Their <span className="text-[#4e7fe8]">Tomorrow.</span>
+                    Everlasting <span className="text-[#4e7fe8]">Tree.</span>
                   </span>
                 </h1>
 
                 <p className="mt-7 max-w-xl text-[0.96rem] font-medium leading-7 text-[#294b75] sm:text-base lg:text-[1.15rem] lg:leading-8">
-                  Build your family tree, preserve the stories and photos behind
-                  every branch, and pass your legacy on to the people you love.
+                  Build your family tree, preserve the stories behind every
+                  branch, and pass your legacy on.
                 </p>
+
+                <div className="landing-social-proof mt-6 flex items-center gap-3">
+                  <div
+                    className="flex -space-x-2"
+                    aria-hidden="true"
+                  >
+                    <span className="z-10 h-7 w-7 rounded-full border-2 border-[#f8f1e6] bg-[#f5d8e0]" />
+                    <span className="z-20 h-7 w-7 rounded-full border-2 border-[#f8f1e6] bg-[#dbe5fb]" />
+                    <span className="z-30 h-7 w-7 rounded-full border-2 border-[#f8f1e6] bg-[#e4ddd0]" />
+                    <span className="z-40 grid h-7 w-7 place-items-center rounded-full border-2 border-[#f8f1e6] bg-[#173860] text-[0.6rem] font-bold text-white">
+                      +61
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-[#5271a3]">
+                    Many generations, one place
+                  </p>
+                </div>
 
                 <div className="mt-7">
                   <GoogleSignInButton
                     label="Continue with Google"
-                    className="landing-google-button px-6 text-sm shadow-[0_8px_20px_rgb(23_56_96/0.16)]"
+                    className="landing-google-button w-full px-6 shadow-[0_8px_20px_rgb(19_19_20/0.18)] lg:w-auto"
                   />
                 </div>
               </div>

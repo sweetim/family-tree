@@ -175,6 +175,9 @@ export function Sidebar({
     isMarriageActive:
       state.mode === "marriage"
       && family.people[state.a]?.unionStatus?.[state.b]?.type !== "divorced",
+    onReconcile: () => {
+      if (state.mode === "marriage") family.setDivorced(state.a, state.b, false)
+    },
   })
   const savedFlashActive =
     savedFlash && state.mode === "edit" && editable && !!baseFooterAction
@@ -559,7 +562,16 @@ export function Sidebar({
           <button
             type={footerAction.formId ? "submit" : "button"}
             form={footerAction.formId}
-            onClick={footerAction.onClick}
+            onClick={(event) => {
+              // Cancel the default for onClick-driven actions: a store update
+              // here can synchronously re-render this button into a submit
+              // button (e.g. Reconcile -> Mark as divorced), which would
+              // otherwise submit the form in the same click and undo the action.
+              if (footerAction.onClick) {
+                event.preventDefault()
+                footerAction.onClick()
+              }
+            }}
             disabled={footerAction.disabled}
             aria-busy={footerAction.spinning || undefined}
             className={`${primaryBtn} w-full ${footerAction.className ?? ""}`}
@@ -709,6 +721,7 @@ function getFooterAction({
   editingIdentity,
   onAddRoot,
   isMarriageActive,
+  onReconcile,
   accessRequestForm,
 }: {
   state: SidebarState
@@ -717,6 +730,7 @@ function getFooterAction({
   editingIdentity: unknown
   onAddRoot: () => void
   isMarriageActive: boolean
+  onReconcile: () => void
   accessRequestForm: AccessRequestFormState
 }): FooterAction | undefined {
   if (state.mode === "idle" && editable)
@@ -759,6 +773,12 @@ function getFooterAction({
       icon: HeartCrack,
       formId: sidebarFormIds.marriage,
       className: "bg-rose-600 hover:bg-rose-700",
+    }
+  if (state.mode === "marriage" && editable && !isMarriageActive)
+    return {
+      label: "Reconcile",
+      icon: Heart,
+      onClick: onReconcile,
     }
 }
 

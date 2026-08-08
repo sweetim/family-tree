@@ -236,7 +236,7 @@ export function updateSpouseDateRecords(
   date: string,
 ): GlobalState {
   if (!treeIsWritable(previous, treeId)) return previous
-  const union = currentUnionForPair(
+  const union = latestUnionForPair(
     previous,
     firstPersonId,
     secondPersonId,
