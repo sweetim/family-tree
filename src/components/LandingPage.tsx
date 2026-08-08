@@ -1,3 +1,4 @@
+import { User } from "lucide-react"
 import Image from "next/image"
 import type { CSSProperties } from "react"
 import { GoogleSignInButton } from "./GoogleSignInButton"
@@ -159,8 +160,9 @@ export function LandingPage() {
                 </h1>
 
                 <p className="mt-7 max-w-xl text-[0.96rem] font-medium leading-7 text-[#294b75] sm:text-base lg:text-[1.15rem] lg:leading-8">
-                  Build your family tree, preserve the stories behind every
-                  branch, and pass your legacy on.
+                  A private, auto-arranged family tree with photos, rich
+                  relationships, offline editing, and easy sharing — bring in
+                  your GEDCOM or start from scratch.
                 </p>
 
                 <div className="landing-social-proof mt-6 flex items-center gap-3">
@@ -168,9 +170,15 @@ export function LandingPage() {
                     className="flex -space-x-2"
                     aria-hidden="true"
                   >
-                    <span className="z-10 h-7 w-7 rounded-full border-2 border-[#f8f1e6] bg-[#f5d8e0]" />
-                    <span className="z-20 h-7 w-7 rounded-full border-2 border-[#f8f1e6] bg-[#dbe5fb]" />
-                    <span className="z-30 h-7 w-7 rounded-full border-2 border-[#f8f1e6] bg-[#e4ddd0]" />
+                    <span className="z-10 grid h-7 w-7 place-items-center rounded-full border-2 border-[#f8f1e6] bg-[#f5d8e0] text-[#c4567e]">
+                      <User size={13} />
+                    </span>
+                    <span className="z-20 grid h-7 w-7 place-items-center rounded-full border-2 border-[#f8f1e6] bg-[#dbe5fb] text-[#4e7fe8]">
+                      <User size={13} />
+                    </span>
+                    <span className="z-30 grid h-7 w-7 place-items-center rounded-full border-2 border-[#f8f1e6] bg-[#e4ddd0] text-[#9a8a6b]">
+                      <User size={13} />
+                    </span>
                     <span className="z-40 grid h-7 w-7 place-items-center rounded-full border-2 border-[#f8f1e6] bg-[#173860] text-[0.6rem] font-bold text-white">
                       +61
                     </span>
